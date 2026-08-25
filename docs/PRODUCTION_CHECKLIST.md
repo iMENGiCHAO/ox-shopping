@@ -1,7 +1,21 @@
 # 商用部署检查清单（商用化最后一关）
 
 > 本文档作为 **星辰商城** 从「开发完成」到「正式商用」的最后一道闸门。
-> 由顶级架构师审查后整理，2026-08-22 版本。所有项逐一过一遍再放量。
+> 由顶级架构师审查后整理，2026-08-22 版本（2026-08-25 安全加固修订）。所有项逐一过一遍再放量。
+
+---
+
+## 〇、2026-08-25 加固说明（本次已内置，部署时知晓即可）
+
+- **弱密钥拒启**：`NODE_ENV=production` 时若 JWT 密钥为默认值或长度 <32，服务**拒绝启动**（构建期仅告警）。
+  本地一键演示需在 compose 中显式 `REQUIRE_STRONG_SECRETS=false`。
+- **种子安全**：演示账号(admin/user/support@example.com)仅开发环境写入；生产环境用 `npm run admin:create -- <email> '<password>'` 创建首个管理员。
+  种子不再清空商品表——重复执行只补缺失条目，绝不覆盖运营数据；强制重建须显式 `FORCE_RESEED=true`（仅限开发）。
+- **进程内定时任务**：订单超时取消 / 过期 Token 清理 / Stripe 掉单对账(webhook 丢失→补标记)每分钟自动执行；
+  多实例经 Postgres 咨询锁选主。`CRON_ENABLED=false` 可关闭。
+- **库存一致性**：规格级库存(specStock)下单事务内行锁扣减、不足整单失败；预售按实扣量记录(stockDeducted/specDeducted)，取消精确回补。
+- **退款封顶**：累计退款 ≤ 订单总额；同一申请不可重复审批；部分退款不改变整单状态；网关退款单号落库。
+- **支付幂等**：支付回调/对账并发只有一次生效；券计数在支付时限校验 usageLimit。
 
 ---
 
@@ -11,7 +25,7 @@
 |---|---|---|
 | `DATABASE_URL` | `postgresql://user:pass@host:5432/ecommerce` | PostgreSQL 16 |
 | `REDIS_URL` | `redis://:pass@host:6379/0` | 限流/缓存（建议必须，关了会退回内存版） |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -base64 48` | JWT 双密钥，**生产必须独立随机** |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -base64 48` | JWT 双密钥，**生产必须独立随机（<32 位将拒绝启动）** |
 | `SITE_URL` | `https://shop.example.com` | 邮件/回跳绝对地址 |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | `sk_live_...` / `whsec_...` | 不配则全站走 mock 支付 |
 | `S3_*` (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) | Cloudflare R2 / MinIO | 不配则上传本地磁盘（不能横向扩容） |
@@ -32,7 +46,7 @@
 ```bash
 # 一次性初始化
 npm run db:deploy       # 生产迁移（不是 db:push）
-npm run db:seed         # 可选：首批演示商品
+npm run admin:create -- admin@yourdomain.com 'StrongPass!2026'   # 生产首个管理员（勿用 seed 的演示账号）
 ```
 
 - 启用每日逻辑备份 + WAL 归档

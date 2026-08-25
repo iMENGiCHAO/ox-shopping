@@ -103,12 +103,21 @@ export const env = parsed.data;
     weak.push("JWT_REFRESH_SECRET");
   }
   if (weak.length > 0 && env.REQUIRE_STRONG_SECRETS) {
-    throw new Error(
-      `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)检测到不安全的 JWT 密钥：\n` +
-        weak.map((k) => `  - ${k}`).join("\n") +
-        `\n请设置 ≥32 位随机密钥(如 openssl rand -base64 48)。` +
-        `\n本地一键演示如需跳过此检查，请显式设置 REQUIRE_STRONG_SECRETS=false。`,
-    );
+    // 构建期(next build)仅告警——页面数据收集会导入路由模块，此时不应中断构建；
+    // 运行期(next start / 容器启动)仍会走到这里并拒绝服务。
+    if (process.env.NEXT_PHASE === "phase-production-build") {
+      console.warn(
+        `[警告] 检测到不安全的 JWT 密钥(${weak.join(", ")})。` +
+          `生产部署前必须替换为 ≥32 位随机密钥，否则服务将在启动时被拒绝。`,
+      );
+    } else {
+      throw new Error(
+        `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)检测到不安全的 JWT 密钥：\n` +
+          weak.map((k) => `  - ${k}`).join("\n") +
+          `\n请设置 ≥32 位随机密钥(如 openssl rand -base64 48)。` +
+          `\n本地一键演示如需跳过此检查，请显式设置 REQUIRE_STRONG_SECRETS=false。`,
+      );
+    }
   }
 }
 

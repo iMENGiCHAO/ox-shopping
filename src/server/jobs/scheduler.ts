@@ -1,6 +1,5 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { getRedis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 import { effectivePaymentMode } from "@/lib/env";
 import { retrieveCheckoutSession } from "@/lib/payment/stripe";
@@ -8,29 +7,30 @@ import { cancelOrder, expireStaleOrders, markOrderPaid } from "@/server/services
 
 /**
  * 进程内定时任务（Next instrumentation 启动，无需外部 cron）。
- * 多实例部署时通过 Redis SET NX 选主，保证同一分钟只有一个实例执行；
- * 无 Redis（本地开发）或 Redis 故障时退化为直接执行——宁可重复，不可漏跑。
+ * 多实例部署时通过 Postgres 事务级咨询锁(pg_try_advisory_xact_lock)选主：
+ * 同一时刻只有一个实例持锁执行，事务结束锁自动释放，实例崩溃也无残留。
  */
 
-const LEADER_KEY = "lock:cron-leader";
+const LEADER_LOCK_KEY = 918_273_645;
 const RECONCILE_AFTER_MS = 10 * 60_000; // 下单 10 分钟后才对账
 const RECONCILE_BATCH = 50;
 
-async function tryAcquireLeader(): Promise<boolean> {
-  const redis = getRedis();
-  if (!redis) return true;
+/** 每个心跳周期执行的全部任务（咨询锁保证多实例只有一个真正执行） */
+export async function runScheduledJobs(): Promise<void> {
   try {
-    const ok = await redis.set(LEADER_KEY, String(process.pid), "PX", 55_000, "NX");
-    return ok === "OK";
-  } catch {
-    return true; // Redis 异常：降级直跑
+    await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ locked: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(${LEADER_LOCK_KEY}) AS locked`;
+      if (!rows[0]?.locked) return; // 其他实例正在执行本轮
+
+      await runAllJobs();
+    });
+  } catch (err) {
+    logger.error({ err }, "[cron] 心跳执行失败");
   }
 }
 
-/** 每个心跳周期执行的全部任务 */
-export async function runScheduledJobs(): Promise<void> {
-  if (!(await tryAcquireLeader())) return;
-
+async function runAllJobs(): Promise<void> {
   // 1. 超时未支付订单自动取消（回补库存）
   try {
     const n = await expireStaleOrders();
@@ -65,7 +65,7 @@ export async function runScheduledJobs(): Promise<void> {
         },
         orderBy: { createdAt: "asc" },
         take: RECONCILE_BATCH,
-        select: { id: true, orderNumber: true, paymentSessionId: true, createdAt: true },
+        select: { id: true, orderNumber: true, paymentSessionId: true },
       });
       for (const o of pending) {
         const session = await retrieveCheckoutSession(o.paymentSessionId!);

@@ -76,8 +76,8 @@ describe("applySpecRestock(取消回补)", () => {
   it("按记录精确回补", () => {
     const spec = { Color: { Black: 1 } };
     const next = applySpecRestock(spec, { "Color/Black": 4, "Size/M": 2 });
-    expect(next!.Color.Black).toBe(5); // 1 + 4
-    expect(next!.Size.M).toBe(2); // 未追踪组自动创建
+    expect(next!.Color!.Black).toBe(5); // 1 + 4
+    expect(next!.Size!.M).toBe(2); // 未追踪组自动创建
   });
 
   it("空记录返回 null(无需落库)", () => {
@@ -88,6 +88,6 @@ describe("applySpecRestock(取消回补)", () => {
 
   it("畸形键安全跳过", () => {
     const next = applySpecRestock({ Color: { Black: 1 } }, { "BadKey": 5, "Color/Black": 1 });
-    expect(next!.Color.Black).toBe(2);
+    expect(next!.Color!.Black).toBe(2);
   });
 });
