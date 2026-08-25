@@ -3,7 +3,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { getT, getLang } from "@/lib/shop-i18n-server";
-import { getPageBanners } from "@/server/services/settings.service";
 import { pickName } from "@/lib/shop-i18n";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +19,6 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function CollectionsPage() {
   const t = getT();
   const lang = getLang();
-  const banners = await getPageBanners();
   const categories = await prisma.category.findMany({
     where: { isActive: true },
     orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }],
@@ -39,7 +37,7 @@ export default async function CollectionsPage() {
           <Link key={c.id} href={`/products?category=${c.slug}`} className="group block">
             <div className="relative aspect-[4/5] w-full overflow-hidden bg-ink">
               <ImageWithFallback
-                src={c.image || banners.collectionsFallbackImage || "/images/xcom/banner-x.jpg"}
+                src={c.image || "/images/xcom/banner-x.jpg"}
                 alt={pickName(c.name, c.nameEn ?? null, lang)}
                 fill
                 sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"

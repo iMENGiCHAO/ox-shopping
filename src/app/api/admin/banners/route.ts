@@ -17,7 +17,6 @@ const slotSchema = z.object({
 const schema = z.object({
   homeLeft: slotSchema,
   homeRight: slotSchema,
-  collectionsFallbackImage: z.string().max(1000).refine((v) => v === "" || /^https?:\/\//.test(v) || v.startsWith("/"), "Invalid image URL"),
 });
 
 /** GET /api/admin/banners — 页面横幅配置 */

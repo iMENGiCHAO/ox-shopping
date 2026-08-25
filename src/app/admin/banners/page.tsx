@@ -20,7 +20,6 @@ interface BannerSlot {
 interface BannersConfig {
   homeLeft: BannerSlot;
   homeRight: BannerSlot;
-  collectionsFallbackImage: string;
 }
 
 const EMPTY_SLOT: BannerSlot = { image: "", href: "", title: "" };
@@ -35,7 +34,6 @@ export default function AdminBannersPage() {
   const [cfg, setCfg] = useState<BannersConfig>({
     homeLeft: { ...EMPTY_SLOT },
     homeRight: { ...EMPTY_SLOT },
-    collectionsFallbackImage: "",
   });
 
   const load = useCallback(async () => {
@@ -45,7 +43,6 @@ export default function AdminBannersPage() {
       setCfg({
         homeLeft: res.data.homeLeft ?? { ...EMPTY_SLOT },
         homeRight: res.data.homeRight ?? { ...EMPTY_SLOT },
-        collectionsFallbackImage: res.data.collectionsFallbackImage ?? "",
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载配置失败");
@@ -121,22 +118,8 @@ export default function AdminBannersPage() {
         <Card>
           <CardContent className="space-y-8 pt-6">
             <div className="grid gap-8 lg:grid-cols-2">
-              {slotEditor("homeLeft", "首页 · 左侧横幅", "建议尺寸 1200×675（16:9），留空时使用第一个分类的图片")}
-              {slotEditor("homeRight", "首页 · 右侧横幅", "建议尺寸 1200×675（16:9），留空时使用第二个分类的图片")}
-            </div>
-
-            <div className="border-t border-border pt-6">
-              <p className="text-sm font-medium">集合页 · 兜底图</p>
-              <p className="mt-0.5 text-xs opacity-60">分类未设置图片时的卡片占位图</p>
-              <div className="mt-3 max-w-md">
-                <ImageUploader
-                  value={cfg.collectionsFallbackImage ? [cfg.collectionsFallbackImage] : []}
-                  onChange={(urls) =>
-                    setCfg((c) => ({ ...c, collectionsFallbackImage: urls[0] ?? "" }))
-                  }
-                  max={1}
-                />
-              </div>
+              {slotEditor("homeLeft", "首页 · 左侧横幅", "首页两张横幅之一；建议尺寸 1200×675（16:9），留空时使用第一个分类的图片")}
+              {slotEditor("homeRight", "首页 · 右侧横幅", "首页两张横幅之二；建议尺寸 1200×675（16:9），留空时使用第二个分类的图片")}
             </div>
 
             <div className="flex justify-end border-t border-border pt-4">

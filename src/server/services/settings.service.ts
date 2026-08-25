@@ -131,10 +131,10 @@ export interface BannerSlotConfig {
 }
 
 export interface PageBannersConfig {
+  /** 首页左侧半宽横幅 */
   homeLeft: BannerSlotConfig;
+  /** 首页右侧半宽横幅 */
   homeRight: BannerSlotConfig;
-  /** 集合页卡片兜底图 */
-  collectionsFallbackImage: string;
 }
 
 export const PAGE_BANNERS_KEY = "pageBanners";
@@ -144,10 +144,9 @@ const EMPTY_SLOT: BannerSlotConfig = { image: "", href: "", title: "" };
 export const DEFAULT_PAGE_BANNERS: PageBannersConfig = {
   homeLeft: { ...EMPTY_SLOT },
   homeRight: { ...EMPTY_SLOT },
-  collectionsFallbackImage: "",
 };
 
-/** 读取页面横幅配置（容错：损坏数据回退默认） */
+/** 读取页面横幅配置（容错：损坏数据回退默认；历史遗留字段忽略） */
 export function parsePageBanners(raw: unknown): PageBannersConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_PAGE_BANNERS };
   const m = raw as Record<string, unknown>;
@@ -163,7 +162,6 @@ export function parsePageBanners(raw: unknown): PageBannersConfig {
   return {
     homeLeft: slot(m.homeLeft),
     homeRight: slot(m.homeRight),
-    collectionsFallbackImage: typeof m.collectionsFallbackImage === "string" ? m.collectionsFallbackImage : "",
   };
 }
 
