@@ -1,0 +1,30 @@
+ui-onboarding:
+  welcomeNoticeVersion: 2026-08-13.1
+llm-pi-ai:
+  providers:
+    nvidia:
+      models:
+        - id: minimaxai/minimax-m3
+          name: MiniMax-M3
+          contextWindow: 1000000
+          maxTokens: 16384
+        - id: deepseek-ai/deepseek-v4-flash-0731
+          name: deepseek-ai/deepseek-v4-flash-0731
+        - id: deepseek-ai/deepseek-v4-flash-vision-exp
+          name: deepseek-ai/deepseek-v4-flash-vision-exp (vision)
+        - id: moonshotai/kimi-k3
+          name: Kimi K3
+          contextWindow: 262144
+          maxTokens: 262144
+      apiKeyEnv: NVIDIA_API_KEY
+    openrouter:
+      models:
+        - id: stealth/ox-alpha
+          name: ox-alpha
+        - id: z-ai/glm-5.2:free
+          name: z-ai/glm-5.2:free
+      apiKeyEnv: OPENROUTER_API_KEY
+agent-default-model:
+  provider: deepseek-official
+  model: "deepseek-v4-flash"
+  reasoningEffort: high

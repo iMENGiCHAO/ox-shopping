@@ -52,7 +52,15 @@ export function getPolicyText(map: PolicyContentMap, key: PolicyKey, lang: Lang)
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
-  const rows = await prisma.siteSetting.findMany();
+  // DB 故障降级：页头/页脚是每个页面的必经之路，站点设置读不到时
+  // 返回内置默认值，保证全站其余部分仍可渲染（而非整站 500 白屏）。
+  let rows: { key: string; value: unknown }[];
+  try {
+    rows = await prisma.siteSetting.findMany();
+  } catch (err) {
+    console.error("[settings] 站点设置读取失败，使用默认值:", (err as Error).message);
+    rows = [];
+  }
   const map: Record<string, unknown> = {};
   for (const r of rows) map[r.key] = r.value;
 
