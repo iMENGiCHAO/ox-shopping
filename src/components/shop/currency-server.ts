@@ -3,6 +3,7 @@ import dns from "node:dns";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { captureMessage } from "@/lib/monitoring";
 import {
   convertPrice,
   CURRENCY_COOKIE,
@@ -112,10 +113,12 @@ async function refresh(): Promise<RateSnapshot> {
   if (persisted) {
     const ageH = Math.round(((Date.now() - persisted.at) / 3_600_000) * 10) / 10;
     logger.warn({ ageHours: ageH }, "[fx] 实时汇率不可用，回退库内最后已知汇率");
+    captureMessage(`[fx] 实时汇率不可用，已回退库内汇率(滞后 ${ageH}h)`, "warning");
     cache = persisted;
     return persisted;
   }
   logger.warn("[fx] 实时与库内汇率均不可用，使用内置参考汇率(请检查外网连通性)");
+  captureMessage("[fx] 汇率已退化为内置参考值，展示价格可能失真", "error");
   cache = { rates: FALLBACK_RATES, at: Date.now(), source: "static" };
   return cache;
 }

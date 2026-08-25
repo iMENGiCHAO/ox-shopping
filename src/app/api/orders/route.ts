@@ -1,4 +1,6 @@
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
+import { rateLimited } from "@/lib/errors";
+import { rateLimit } from "@/lib/rate-limit";
 import { requireUser } from "@/lib/auth/session";
 import { createOrder, createPaymentUrl, expireStaleOrders } from "@/server/services/order.service";
 import { serializeOrder } from "@/server/serializers";
@@ -57,6 +59,10 @@ export const GET = apiHandler(async (req) => {
 export const POST = apiHandler(async (req) => {
   const user = await requireUser();
   const input = await readJson(req, orderCreateSchema);
+
+  // 防刷单：单用户 10 分钟内最多创建 5 笔订单
+  const rl = await rateLimit({ key: `order-create:${user.id}`, limit: 5, windowSeconds: 600 });
+  if (!rl.ok) throw rateLimited();
 
   const order = await createOrder({
     userId: user.id,

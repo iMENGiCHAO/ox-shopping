@@ -45,5 +45,9 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
+# 容器健康检查：/healthz 返回 200 视为存活（standalone 镜像内置 node 可用）
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 # 等待数据库 → 建表（有迁移用 migrate deploy，否则 db push）→ 种子 → 启动
 ENTRYPOINT ["/bin/sh", "-c", "node scripts/wait-for-db.mjs && (if [ -d prisma/migrations ] && [ \"$(ls -A prisma/migrations 2>/dev/null)\" ]; then npx prisma migrate deploy; else npx prisma db push; fi) && npx prisma db seed || true; node server.js"]

@@ -1,10 +1,11 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { badRequest } from "@/lib/errors";
+import { badRequest, rateLimited } from "@/lib/errors";
 import { hashPassword } from "@/lib/auth/password";
 import { revokeAllUserTokens } from "@/lib/auth/session";
 import { verifyEmailToken } from "@/lib/auth/jwt";
 import { audit } from "@/lib/audit";
-import { sha256 } from "@/lib/utils";
+import { getClientIp, sha256 } from "@/lib/utils";
+import { rateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { resetPasswordSchema } from "@/lib/validations/auth";
 
@@ -13,6 +14,10 @@ export const runtime = "nodejs";
 /** POST /api/auth/reset-password */
 export const POST = apiHandler(async (req) => {
   const input = await readJson(req, resetPasswordSchema);
+
+  // 防暴力尝试：同 IP 每小时最多 10 次重置提交
+  const rl = await rateLimit({ key: `reset-pw:${getClientIp(req)}`, limit: 10, windowSeconds: 3600 });
+  if (!rl.ok) throw rateLimited();
 
   const payload = await verifyEmailToken(input.token, "reset-password");
   if (!payload) throw badRequest("重置链接无效或已过期");

@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { captureMessage } from "@/lib/monitoring";
 import { effectivePaymentMode } from "@/lib/env";
 import { retrieveCheckoutSession } from "@/lib/payment/stripe";
 import { cancelOrder, expireStaleOrders, markOrderPaid } from "@/server/services/order.service";
@@ -27,6 +28,7 @@ export async function runScheduledJobs(): Promise<void> {
     });
   } catch (err) {
     logger.error({ err }, "[cron] 心跳执行失败");
+    captureMessage("[cron] 心跳执行失败", "error");
   }
 }
 
@@ -52,6 +54,16 @@ async function runAllJobs(): Promise<void> {
     if (n.count > 0) logger.info({ count: n.count }, "[cron] 过期 Refresh Token 已清理");
   } catch (err) {
     logger.error({ err }, "[cron] refreshToken 清理失败");
+  }
+
+  // 2b. AuditLog 滚动归档：只保留最近 90 天（createdAt 有索引，删除代价可控）
+  try {
+    const n = await prisma.auditLog.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 90 * 86_400_000) } },
+    });
+    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前审计日志已清理");
+  } catch (err) {
+    logger.error({ err }, "[cron] auditLog 清理失败");
   }
 
   // 3. 掉单对账（仅 Stripe 模式有网关状态可查；mock 支付同步完成无此需求）

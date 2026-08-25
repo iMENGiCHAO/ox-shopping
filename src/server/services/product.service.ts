@@ -148,11 +148,19 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
   const cached = await cacheGet<CategoryNode[]>(cacheKey);
   if (cached) return cached;
 
-  const categories = await prisma.category.findMany({
-    where: { isActive: true },
-    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-    include: { _count: { select: { products: { where: { status: "ACTIVE" } } } } },
-  });
+  // DB 故障降级：分类树是首页/页头的必经渲染路径，读不到时返回空树
+  // （页面其余部分照常渲染），而不是让整站 500。
+  const categories = await prisma.category
+    .findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+      include: { _count: { select: { products: { where: { status: "ACTIVE" } } } } },
+    })
+    .catch((err: unknown) => {
+      console.error("[catalog] 分类树读取失败，降级为空列表:", (err as Error).message);
+      return null;
+    });
+  if (!categories) return [];
 
   const byParent = new Map<string | null, CategoryNode[]>();
   for (const c of categories) {
