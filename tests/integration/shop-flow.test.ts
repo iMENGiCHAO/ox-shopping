@@ -35,23 +35,27 @@ describe("商品列表 API", () => {
 
   it("搜索与排序", async () => {
     const { GET } = await import("@/app/api/products/route");
+    // 搜索范围含名称与描述（官方镜像目录大量描述带 "tee"），此处断言契约：
+    // 命中非空 + sort=price_asc 严格升序
     const res = await callApi(GET, {
-      headers: { "x-test-url": "/api/products?q=%E6%89%8B%E6%9C%BA&sort=price_asc" },
+      headers: { "x-test-url": "/api/products?q=Tee&sort=price_asc" },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: { name: string }[] };
+    const body = (await res.json()) as { data: { price: number }[] };
     expect(body.data.length).toBeGreaterThan(0);
-    expect(
-      body.data.every((p) => p.name.includes("手机") || p.name.toLowerCase().includes("phone")),
-    ).toBe(true);
+    const prices = body.data.map((p) => Number(p.price));
+    expect([...prices].sort((a, b) => a - b)).toEqual(prices);
   });
 
   it("分类筛选", async () => {
     const { GET } = await import("@/app/api/products/route");
+    // 官方镜像目录的两个分类之一
     const res = await callApi(GET, {
-      headers: { "x-test-url": "/api/products?category=smartphones" },
+      headers: { "x-test-url": "/api/products?category=x-collection" },
     });
     expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: unknown[] };
+    expect(body.data.length).toBeGreaterThan(0);
   });
 
   it("价格区间筛选", async () => {

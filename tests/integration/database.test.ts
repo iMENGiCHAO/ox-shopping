@@ -28,7 +28,8 @@ describe("数据库连通性", () => {
     ]);
     expect(users).toBeGreaterThanOrEqual(3);
     expect(products).toBeGreaterThanOrEqual(20);
-    expect(categories).toBeGreaterThanOrEqual(5);
+    // 官方镜像目录为 2 个分类（X Collection / SpaceXAI Collection）
+    expect(categories).toBeGreaterThanOrEqual(2);
     expect(coupons).toBeGreaterThanOrEqual(2);
   });
 
