@@ -167,7 +167,7 @@ export default function AdminSettingsPage() {
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="st-name">{t('Site Name')} *</Label>
-              <Input id="st-name" placeholder={t("MENG Shop")} {...form.register("siteName")} />
+              <Input id="st-name" placeholder={t("Ox Shopping")} {...form.register("siteName")} />
               {form.formState.errors.siteName ? (
                 <p className="text-xs text-destructive">{form.formState.errors.siteName.message}</p>
               ) : null}

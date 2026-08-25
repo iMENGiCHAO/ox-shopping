@@ -53,7 +53,7 @@ export function generateInvoicePdf(input: InvoiceInput): Promise<Buffer> {
     doc.font(F);
 
     // 头部
-    doc.fontSize(22).text("SpaceXAI Shop 发票", { align: "center" });
+    doc.fontSize(22).text("Ox Shopping 发票", { align: "center" });
     doc.moveDown(0.4);
     doc
       .fontSize(9)
@@ -135,7 +135,7 @@ export function generateInvoicePdf(input: InvoiceInput): Promise<Buffer> {
       .text("感谢您的惠顾！本发票由系统自动生成，如有疑问请联系客服。", {
         align: "center",
       });
-    doc.text(`SpaceXAI Shop · ${env.SITE_URL}`, { align: "center" });
+    doc.text(`Ox Shopping · ${env.SITE_URL}`, { align: "center" });
 
     doc.end();
   });

@@ -11,10 +11,10 @@ export const xcomCategories = [
     sortOrder: 1,
   },
   {
-    name: "SpaceXAI Collection",
-    nameEn: "SpaceXAI Collection",
+    name: "Ox Shopping Collection",
+    nameEn: "Ox Shopping Collection",
     slug: "spacexai-collection",
-    description: "Official SpaceXAI collection",
+    description: "Official Ox Shopping collection",
     image: "/images/xcom2/banner-xai.jpg",
     sortOrder: 2,
   },

@@ -6,7 +6,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const t = getT();
   return {
     title: t("Login"),
-    description: "Log in to your SpaceXAI Shop account",
+    description: "Log in to your Ox Shopping account",
     robots: { index: false, follow: false },
   };
 }

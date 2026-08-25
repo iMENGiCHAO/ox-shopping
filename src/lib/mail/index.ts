@@ -80,46 +80,46 @@ interface TemplateMeta {
   render: (data: Record<string, unknown>) => string;
 }
 
-const siteNameFor = (_lang: MailLang) => "SpaceXAI Shop";
+const siteNameFor = (_lang: MailLang) => "Ox Shopping";
 
 const templates: Record<MailTemplate, TemplateMeta> = {
   "verify-email": {
     subject: (lang) =>
-      lang === "zh" ? "【SpaceXAI Shop】请验证您的邮箱地址" : "[SpaceXAI Shop] Verify your email address",
+      lang === "zh" ? "【Ox Shopping】请验证您的邮箱地址" : "[Ox Shopping] Verify your email address",
     render: (data) => render(VerifyEmailEmail(data as never)),
   },
   "reset-password": {
     subject: (lang) =>
-      lang === "zh" ? "【SpaceXAI Shop】重置密码" : "[SpaceXAI Shop] Reset your password",
+      lang === "zh" ? "【Ox Shopping】重置密码" : "[Ox Shopping] Reset your password",
     render: (data) => render(ResetPasswordEmail(data as never)),
   },
   "order-confirmed": {
     subject: (lang) =>
-      lang === "zh" ? "【SpaceXAI Shop】订单支付成功" : "[SpaceXAI Shop] Order payment confirmed",
+      lang === "zh" ? "【Ox Shopping】订单支付成功" : "[Ox Shopping] Order payment confirmed",
     render: (data) => render(OrderConfirmedEmail(data as never)),
   },
   "order-shipped": {
     subject: (lang) =>
-      lang === "zh" ? "【SpaceXAI Shop】您的包裹已发货" : "[SpaceXAI Shop] Your order has shipped",
+      lang === "zh" ? "【Ox Shopping】您的包裹已发货" : "[Ox Shopping] Your order has shipped",
     render: (data) => render(OrderShippedEmail(data as never)),
   },
   "refund-update": {
     subject: (lang) =>
-      lang === "zh" ? "【SpaceXAI Shop】退款进度更新" : "[SpaceXAI Shop] Refund status update",
+      lang === "zh" ? "【Ox Shopping】退款进度更新" : "[Ox Shopping] Refund status update",
     render: (data) => render(RefundUpdateEmail(data as never)),
   },
   "data-deletion": {
     subject: (lang) =>
       lang === "zh"
-        ? "【SpaceXAI Shop】数据删除请求已收到"
-        : "[SpaceXAI Shop] Data deletion request received",
+        ? "【Ox Shopping】数据删除请求已收到"
+        : "[Ox Shopping] Data deletion request received",
     render: (data) => render(DataDeletionEmail(data as never)),
   },
   "restock": {
     subject: (lang) =>
       lang === "zh"
-        ? "【SpaceXAI Shop】您关注的商品已补货"
-        : "[SpaceXAI Shop] Back in stock — the item you wanted",
+        ? "【Ox Shopping】您关注的商品已补货"
+        : "[Ox Shopping] Back in stock — the item you wanted",
     render: (data) => render(RestockEmail(data as never)),
   },
 };

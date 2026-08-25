@@ -329,7 +329,7 @@ const DICT: Dict = {
   "secret": { en: "secret", zh: "密钥" },
   "Save payment settings": { en: "Save payment settings", zh: "保存支付设置" },
   "Payment settings saved": { en: "Payment settings saved", zh: "支付设置已保存" },
-  "MENG Shop": { en: "MENG Shop", zh: "MENG 商城" },
+  "Ox Shopping": { en: "Ox Shopping", zh: "Ox Shopping 商城" },
   "Describe your store in one line": { en: "Describe your store in one line", zh: "一句话描述你的店铺" },
   "Search email / name": { en: "Search email / name", zh: "搜索邮箱 / 姓名" },
   "No users yet": { en: "No users yet", zh: "暂无用户" },

@@ -16,16 +16,16 @@ export const metadata: Metadata = {
       apple: "/images/brand/favicon.png",
     },
   title: {
-    default: "Official SpaceXAI Shop",
-    template: "%s | Official SpaceXAI Shop",
+    default: "Official Ox Shopping",
+    template: "%s | Official Ox Shopping",
   },
   description:
-    "Official SpaceXAI Shop — official apparel and accessories. Tees, hoodies, hats, drinkware and more.",
-  keywords: ["SpaceXAI", "Grok", "X", "shop", "store", "apparel", "tee", "hoodie"],
+    "Official Ox Shopping — official apparel and accessories. Tees, hoodies, hats, drinkware and more.",
+  keywords: ["Ox Shopping", "Grok", "X", "shop", "store", "apparel", "tee", "hoodie"],
   openGraph: {
     type: "website",
     locale: "en_US",
-    siteName: "Official SpaceXAI Shop",
+    siteName: "Official Ox Shopping",
   },
   robots: { index: true, follow: true },
 };

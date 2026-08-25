@@ -86,7 +86,7 @@ export default function RegisterPage() {
         {t("Sign Up")}
       </h1>
       <p className="mt-2 text-center text-[13px] opacity-60">
-        {t("Create your SpaceXAI Shop account and start shopping.")}
+        {t("Create your Ox Shopping account and start shopping.")}
       </p>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="mt-8 space-y-5">

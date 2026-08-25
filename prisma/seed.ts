@@ -217,12 +217,12 @@ async function seedCoupons() {
 
 async function seedSiteSettings() {
   const defaults: Record<string, unknown> = {
-    siteName: "SpaceXAI Shop",
-    siteDescription: "Official SpaceXAI Shop — official apparel and accessories.",
+    siteName: "Ox Shopping",
+    siteDescription: "Official Ox Shopping — official apparel and accessories.",
     contactEmail: "support@example.com",
     contactPhone: "400-000-0000",
     icp: "",
-    seoKeywords: "SpaceXAI,Grok,X,shop,apparel",
+    seoKeywords: "Ox Shopping,Grok,X,shop,apparel",
     pageBanners: {
       homeLeft: {
         href: "/products?category=x-collection",
@@ -232,7 +232,7 @@ async function seedSiteSettings() {
       homeRight: {
         href: "/products?category=spacexai-collection",
         image: "/images/xcom2/banner-xai.jpg",
-        title: "SpaceXAI Collection",
+        title: "Ox Collection",
       },
       collectionsFallbackImage: "/images/xcom2/banner-x.jpg",
     },

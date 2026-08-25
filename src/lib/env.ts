@@ -40,7 +40,7 @@ const envSchema = z.object({
 
   // 邮件
   MAIL_PROVIDER: z.enum(["resend", "smtp", "console"]).default("console"),
-  MAIL_FROM: z.string().default("SpaceXAI Shop <no-reply@example.com>"),
+  MAIL_FROM: z.string().default("Ox Shopping <no-reply@example.com>"),
   RESEND_API_KEY: z.string().optional().default(""),
   SMTP_HOST: z.string().optional().default(""),
   SMTP_PORT: z.coerce.number().int().default(587),

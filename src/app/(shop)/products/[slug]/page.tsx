@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: DetailPageProps): Promise<Met
     const productDesc = pickDescription(product.description ?? "", product.descriptionEn, lang);
     return {
       title: productName,
-      description: productDesc?.slice(0, 160) || `${productName} — Official SpaceXAI Shop`,
+      description: productDesc?.slice(0, 160) || `${productName} — Official Ox Shopping`,
       openGraph: {
         title: productName,
         description: productDesc?.slice(0, 200),

@@ -294,8 +294,8 @@ const DICT: Dict = {
   "Back to home": { en: "Back to home", zh: "返回首页" },
 
   /* ── Auth: sign in ─────────────────────────────────────────────── */
-  "Sign in to your MENG Shop account": { en: "Sign in to your MENG Shop account", zh: "登录 SpaceXAI Shop 账号" },
-  "Welcome back to MENG Shop — please sign in.": { en: "Welcome back to MENG Shop — please sign in.", zh: "欢迎回到 SpaceXAI Shop，请登录您的账号。" },
+  "Sign in to your Ox Shopping account": { en: "Sign in to your Ox Shopping account", zh: "登录 Ox Shopping 账号" },
+  "Welcome back to Ox Shopping — please sign in.": { en: "Welcome back to Ox Shopping — please sign in.", zh: "欢迎回到 Ox Shopping，请登录您的账号。" },
   "Password": { en: "Password", zh: "密码" },
   "Please enter your password": { en: "Please enter your password", zh: "请输入密码" },
   "Remember me": { en: "Remember me", zh: "记住我" },
@@ -307,7 +307,7 @@ const DICT: Dict = {
 
   /* ── Auth: register ───────────────────────────────────────────── */
   "Register": { en: "Register", zh: "注册" },
-  "Register a MENG Shop account and start shopping": { en: "Register a MENG Shop account and start shopping", zh: "注册 SpaceXAI Shop 账号，开启购物之旅" },
+  "Register a Ox Shopping account and start shopping": { en: "Register a Ox Shopping account and start shopping", zh: "注册 Ox Shopping 账号，开启购物之旅" },
   "Password strength": { en: "Password strength", zh: "密码强度" },
   "Weak": { en: "Weak", zh: "弱" },
   "Fair": { en: "Fair", zh: "中" },
@@ -532,7 +532,7 @@ const DICT: Dict = {
   "Sign Up": { en: "Sign Up", zh: "注册" },
   "Sign up": { en: "Sign up", zh: "注册" },
   "Signing up…": { en: "Signing up…", zh: "注册中…" },
-  "Create a MENG Shop account and start shopping.": { en: "Create a MENG Shop account and start shopping.", zh: "注册 MENG Shop 账号，开启购物之旅。" },
+  "Create a Ox Shopping account and start shopping.": { en: "Create a Ox Shopping account and start shopping.", zh: "注册 Ox Shopping 账号，开启购物之旅。" },
   "Registration successful!": { en: "Registration successful!", zh: "注册成功！" },
   "2-30 characters": { en: "2-30 characters", zh: "2-30 个字符" },
   "At least 8 chars with upper/lowercase and a digit": { en: "At least 8 chars with upper/lowercase and a digit", zh: "至少 8 位，含大小写字母与数字" },
@@ -662,7 +662,7 @@ const DICT: Dict = {
   "Terms of Service: please read and agree before using our service": { en: "Terms of Service: please read and agree before using our service", zh: "服务条款：使用服务前请阅读并同意" },
   "Cookie Policy: How we use cookies and similar technologies": { en: "Cookie Policy: How we use cookies and similar technologies", zh: "Cookie 政策：我们如何使用 Cookie 和类似技术" },
   "Your deletion request has been received; we will process it after verification": { en: "Your deletion request has been received; we will process it after verification", zh: "注销申请已收到，核实后我们将处理您的请求" },
-  "Create your SpaceXAI Shop account and start shopping.": { en: "Create your SpaceXAI Shop account and start shopping.", zh: "创建 SpaceXAI 商城账户，即刻开启购物。" },
+  "Create your Ox Shopping account and start shopping.": { en: "Create your Ox Shopping account and start shopping.", zh: "创建 Ox Shopping 商城账户，即刻开启购物。" },
   "items": { en: "items", zh: "件商品" },
   "No matching orders": { en: "No matching orders", zh: "没有匹配的订单" },
   "to": { en: "to", zh: "至" },

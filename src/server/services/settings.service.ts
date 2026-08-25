@@ -30,8 +30,8 @@ const DEFAULT_DESCRIPTION_ZH =
 const DEFAULT_DESCRIPTION_EN =
   "Quality goods, all in one place. Authentic, fast shipping, 7-day no-reason returns.";
 
-const DEFAULT_SITE_NAME_ZH = "SpaceXAI Shop";
-const DEFAULT_SITE_NAME_EN = "MENG Shop";
+const DEFAULT_SITE_NAME_ZH = "Ox Shopping";
+const DEFAULT_SITE_NAME_EN = "Ox Shopping";
 
 type PolicyValue = string | { zh?: string; en?: string } | null | undefined;
 

@@ -79,7 +79,7 @@ function LoginForm() {
           <Store className="h-6 w-6" />
         </span>
         <div>
-          <h1 className="text-xl font-bold tracking-tight">SpaceXAI Shop · {t("Admin")}</h1>
+          <h1 className="text-xl font-bold tracking-tight">Ox Shopping · {t("Admin")}</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
             {t("Sign in with your administrator account")}
           </p>
