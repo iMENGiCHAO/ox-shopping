@@ -1,6 +1,7 @@
 # 项目详细开发文档 — Ox Shopping (牛来购物)
 
-> 最后更新：2026-08 · 覆盖迭代范围：commit `e620d1c` → `4d97e6f`
+> 最后更新：2026-08 · 覆盖范围：**整个会话窗口**（早期历史见 §2.0，近期迭代 §2.1–2.10）
+> 近期迭代 commit 范围：`e620d1c` → `4d97e6f`（此后为文档提交 `4a99f28`）
 > 定位：面向欧美客户的跨境电商独立站，1:1 复刻 shop.x.com 视觉与交互的 SpaceXAI Shop 演进版（现品牌为 **Ox Shopping / 牛来购物**）。
 
 ---
@@ -32,6 +33,36 @@ docs/                      本文档及验收/审计/运行手册
 ```
 
 ---
+
+## 2. 早期历史与项目基线（checkpoint 前）
+
+本窗口更早阶段的完整记录（决策、教训、既有功能）：
+
+### 2.0.1 数据库恢复事件（机器级故障，非数据损坏）
+
+- **症状**：PG 拒绝启动（`fork()` 后 `pthread_is_threaded_np` 断言 / workq 线程注入），曾被误判为"数据被我改崩"。
+- **根因**：本机 SIP 关闭（Custom Configuration）+ Homebrew initdb 的 PG17 对"主线程 fork"做自检；`pg_controldata` 证明数据完好。
+- **解法**：`/tmp/libnoforkcheck.dylib` —— 官方 `__DATA,__interpose` 段结构体 `{repl, orig}` 拦截 `pthread_is_threaded_np` 返回 0；`scripts/start-db.sh`（commit `1519664`）固化该启动链路（clang 缺则重编译）。
+- **遗留**：SIP 仍关闭（建议恢复模式重开）；旧 ecommerce datadir 从未找到（集群 8-21 后为空），当前为重建演示目录，若用户找到旧 datadir 可恢复。
+
+### 2.0.2 商业优化规划（P0–P2）与既有文档
+
+- 完整计划文档：`docs/COMMERCIAL_AUDIT_2026-08.md`、`COMMERCIAL_AUDIT_DEEP_2026-08.md`、`COMMERCIAL_READINESS.md`、`PRODUCTION_CHECKLIST.md`、`RUNBOOK-multi-instance.md`、`ACCEPTANCE.md`、`DESIGN.md`、`I18N_MIGRATION.md`、`SESSION_SUMMARY.md`、`CLONE-BACKLOG.md`。
+- 已落地的基础设施（早于本迭代，仍在使用）：
+  - **备份脚本**、**速率限制**（login/API 等）、**降级策略**（DB 故障回落内置默认，站点不 500）、**GDPR 数据导出**、**i18n 100% 覆盖**（audit 脚本守护）、**PaymentLog 支付审计**、**CSP nonce**、**负载测试工具**、**多实例运行手册**。
+
+### 2.0.3 PDP 对齐官方（e620d1c，早于本迭代）
+
+- 移除 **Buy Now** 按钮：有货仅 "Add To Cart"，售罄仅 "Notify me"，预售保留 Pre-order 提示（Playwright 三商品验证：beanie / rugby-shirt / dad-hat）。
+
+### 2.0.4 横幅管理重构（d606ed8，早于本迭代）
+
+- 移除 `collectionsFallbackImage`（schema/API/UI 三处）：首页横幅完全由 `homeLeft/homeRight` 驱动，`pageBanners` 单键配置。
+
+### 2.0.5 既有功能全景（本窗口内未大改，仍在线）
+
+- 前台：登录/注册（邮箱验证、忘记密码）、购物车（规格选择快照）、结算（Mock 支付 + 支付日志）、订单状态机与退款、到货通知（Notify me，按规格匹配回货）、优惠券、收藏、多币种（9 币种 + 汇率缓存/单飞/SWR）、搜索（Sort by/Price/Availability/Pages tab）、政策与 FAQ 页、尺寸对照表、灯箱/放大镜。
+- 后台：Dashboard、商品/分类/横幅/法务/货币/支付管理、订单（筛选/导出 CSV/详情抽屉）、退款、到货通知、用户、优惠券、审计日志、设置；角色 ADMIN/SUPPORT，API 统一 `requireStaff/requireAdmin`。
 
 ## 2. 本次迭代交付清单（e620d1c → 4d97e6f）
 
