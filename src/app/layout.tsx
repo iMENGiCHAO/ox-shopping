@@ -12,8 +12,8 @@ export const metadata: Metadata = {
   // OG/Twitter 图片绝对地址基准；未配置域名时回落本地
   metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
   icons: {
-      icon: "/images/brand/logo-square.png",
-      apple: "/images/brand/logo-square.png",
+      icon: "/images/brand/favicon.png",
+      apple: "/images/brand/favicon.png",
     },
   title: {
     default: "Official SpaceXAI Shop",
