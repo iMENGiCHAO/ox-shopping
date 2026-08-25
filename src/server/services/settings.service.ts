@@ -19,6 +19,8 @@ export interface SiteSettings {
   seoKeywords: string;
   /** 全站公告(管理端可编辑)：enabled + 文案，前台头部下方展示 */
   announcementEnabled: boolean;
+  /** 品牌LOGO(后台可上传更换);空=使用内置默认 */
+  siteLogoUrl: string | null;
   announcement: string;
   policies: PolicyContentMap;
 }
@@ -109,6 +111,7 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     icp: typeof map.icp === "string" ? map.icp : "",
     seoKeywords: typeof map.seoKeywords === "string" ? map.seoKeywords : "",
     announcementEnabled: map.announcementEnabled === true,
+    siteLogoUrl: typeof map.siteLogoUrl === "string" && map.siteLogoUrl ? map.siteLogoUrl : null,
     announcement: typeof map.announcement === "string" ? map.announcement : "",
     policies: {
       accessibility: readPolicy(map.policyAccessibility as PolicyValue, "accessibility"),

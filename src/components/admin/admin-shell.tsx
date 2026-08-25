@@ -18,7 +18,9 @@ import { Bell, Mail,ChevronsUpDown,
   Users,
   MailOpen,
   Scale,
-  type LucideIcon, Images, HelpCircle } from "lucide-react";
+  type LucideIcon, Images, HelpCircle,
+  CreditCard,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
@@ -54,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/notify-me", label: "到货通知", icon: Bell },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket, adminOnly: true },
   { href: "/admin/refunds", label: "Refunds", icon: RotateCcw, adminOnly: true },
+  { href: "/admin/payments", label: "支付接口", icon: CreditCard, adminOnly: true },
   { href: "/admin/legal", label: "Legal pages", icon: Scale, adminOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
@@ -65,7 +68,7 @@ const ROLE_KEYS: Record<string, string> = {
 };
 
 /** Brand shown in the sidebar — translates with the active language. */
-const BRAND_NAME = { zh: "SpaceXAI Shop", en: "SpaceXAI Shop" } as const;
+const BRAND_NAME = { zh: "牛来购物", en: "Ox Shopping" } as const;
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";

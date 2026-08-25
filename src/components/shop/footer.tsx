@@ -39,7 +39,7 @@ export async function Footer() {
         </nav>
 
         <div className="mx-auto mt-10 flex w-fit flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
-          <CurrencySelect showCountry align="center" />
+          <CurrencySelect showCountry align="center" direction="up" />
           <p className="text-xs opacity-65">X Corp © 2024</p>
         </div>
       </div>

@@ -11,11 +11,14 @@ export function CurrencySelect({
   withFlag = true,
   showCountry = false,
   align = "right",
+  direction = "down",
   className,
 }: {
   withFlag?: boolean;
   showCountry?: boolean;
   align?: "left" | "center" | "right";
+  /** 弹出方向:黑底 footer 内用 up,避免向下展开露白 */
+  direction?: "down" | "up";
   className?: string;
 }) {
   const { code, def, setCode } = useCurrency();
@@ -57,7 +60,8 @@ export function CurrencySelect({
         <ul
           role="listbox"
           className={cn(
-            "absolute top-full z-50 mt-2 max-h-80 w-56 overflow-auto border border-border bg-card text-foreground shadow-lg",
+            "absolute z-50 max-h-80 w-56 overflow-auto border border-border bg-card text-foreground shadow-lg",
+            direction === "up" ? "bottom-full mb-2" : "top-full mt-2",
             align === "right" && "right-0",
             align === "left" && "left-0",
             align === "center" && "left-1/2 -translate-x-1/2",

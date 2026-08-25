@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AccountSettings } from "@/components/admin/account-settings";
 import { CurrencyManager } from "@/components/admin/currency-manager";
+import { BrandLogoCard } from "@/components/admin/brand-logo-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -71,6 +72,7 @@ export default function AdminSettingsPage() {
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
+  const [siteLogoUrl, setSiteLogoUrl] = React.useState("");
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsFormSchema),
@@ -84,6 +86,7 @@ export default function AdminSettingsPage() {
         "/api/admin/settings",
       );
       const settings = res?.settings && typeof res.settings === "object" ? res.settings : null;
+      setSiteLogoUrl(typeof settings?.siteLogoUrl === "string" ? settings.siteLogoUrl : "");
       form.reset({
         siteName: pickString(settings, "siteName"),
         siteDescription: pickString(settings, "siteDescription"),
@@ -247,6 +250,17 @@ export default function AdminSettingsPage() {
                 <p className="text-xs text-destructive">{form.formState.errors.announcement.message}</p>
               ) : null}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* 品牌 Logo — 前台顶栏即时生效 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("Brand logo")}</CardTitle>
+            <CardDescription>{t("Upload or replace the storefront logo")}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BrandLogoCard initialUrl={siteLogoUrl} />
           </CardContent>
         </Card>
 

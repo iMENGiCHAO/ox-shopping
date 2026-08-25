@@ -29,16 +29,22 @@ export async function Header() {
         </div>
       ) : null}
       <div className="container flex h-[65px] items-center justify-between gap-4">
-        {/* Left logo — white X symbol, 70px wide, sr-only site name (shop.x.com) */}
+        {/* Left logo — 后台自定义品牌LOGO(白色托底保证深色图案可见),否则官方白色X */}
         <Link href="/" aria-label={siteName} className="flex items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/images/xcom2/logo-x-white.png"
-            alt={siteName}
-            width={70}
-            height={40}
-            className="h-auto w-[70px]"
-          />
+          {settings.siteLogoUrl ? (
+            /* 白色图案透明底 LOGO:黑底直出 */
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={settings.siteLogoUrl} alt={siteName} className="h-[34px] w-auto" />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src="/images/xcom2/logo-x-white.png"
+              alt={siteName}
+              width={70}
+              height={40}
+              className="h-auto w-[70px]"
+            />
+          )}
         </Link>
 
         {/* Right utilities — faded white, brighten on hover */}
