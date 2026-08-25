@@ -160,11 +160,11 @@ export default async function ProductDetailPage({ params }: DetailPageProps) {
 
   return (
     <>
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+    />
     <div className="container space-y-14 pb-14 pt-3">
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-      />
       {/* Main section — 65/35 editorial split (official: no breadcrumb) */}
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_354px] lg:gap-x-20">
         <div className="flex flex-col">
