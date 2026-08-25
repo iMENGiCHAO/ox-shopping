@@ -29,17 +29,21 @@ export const CURRENCIES: CurrencyDef[] = [
 export const DEFAULT_CURRENCY = "USD";
 export const CURRENCY_COOKIE = "currency";
 
-/** 内置参考汇率(1 USD 兑其他货币；离线兜底，联网后会被 API 覆盖) */
+/**
+ * 内置参考汇率(1 USD 兑其他货币；最终兜底，正常不会用到)。
+ * 优先级：实时接口 → 库内最后已知好汇率(site_settings: fx.rates) → 本表。
+ * 数值为 2026-08-25 快照，仅在上游与库内均不可用的极端情况下短暂生效。
+ */
 export const FALLBACK_RATES: Record<string, number> = {
-  CNY: 7.16,
+  CNY: 6.7387,
   USD: 1,
-  EUR: 0.866,
-  GBP: 0.74,
-  JPY: 151.5,
-  HKD: 7.79,
-  SGD: 1.28,
-  AUD: 1.42,
-  CAD: 1.39,
+  EUR: 0.8572,
+  GBP: 0.7335,
+  JPY: 159.1254,
+  HKD: 7.8374,
+  SGD: 1.2703,
+  AUD: 1.3976,
+  CAD: 1.3838,
 };
 
 export function getCurrencyDef(code: string | undefined | null): CurrencyDef {
