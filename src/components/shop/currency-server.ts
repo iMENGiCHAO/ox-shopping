@@ -34,6 +34,8 @@ const FETCH_TIMEOUT_MS = 5000;
 dns.setDefaultResultOrder("ipv4first");
 const DB_KEY_RATES = "fx.rates";
 const DB_KEY_RATES_AT = "fx.ratesAt";
+/** 管理端手动覆写:{ CNY: 7.25 } —— 优先于自动汇率;null/删除键=恢复自动 */
+const DB_KEY_OVERRIDES = "fx.overrides";
 
 export interface RateSnapshot {
   rates: Record<string, number>;
@@ -102,9 +104,13 @@ async function loadPersistedRates(): Promise<RateSnapshot | null> {
 
 /** 拉取并落库一次；返回最新快照 */
 async function refresh(): Promise<RateSnapshot> {
+  const overrides = await loadOverrides();
+  const applyOv = (r: Record<string, number>) => ({ ...r, ...overrides });
+
   const live = await fetchLiveRates();
   if (live) {
-    const snap: RateSnapshot = { rates: live, at: Date.now(), source: "live" };
+    const rates = applyOv(live);
+    const snap: RateSnapshot = { rates, at: Date.now(), source: "live" };
     cache = snap;
     void persistRates(live, snap.at);
     return snap;
@@ -119,8 +125,48 @@ async function refresh(): Promise<RateSnapshot> {
   }
   logger.warn("[fx] 实时与库内汇率均不可用，使用内置参考汇率(请检查外网连通性)");
   captureMessage("[fx] 汇率已退化为内置参考值，展示价格可能失真", "error");
-  cache = { rates: FALLBACK_RATES, at: Date.now(), source: "static" };
+  cache = { rates: applyOv(FALLBACK_RATES), at: Date.now(), source: "static" };
   return cache;
+}
+
+
+/** 读取管理端手动覆写(无则空对象) */
+export async function loadOverrides(): Promise<Record<string, number>> {
+  try {
+    const row = await prisma.siteSetting.findUnique({ where: { key: DB_KEY_OVERRIDES } });
+    const v = row?.value;
+    if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+    const out: Record<string, number> = {};
+    for (const [k, n] of Object.entries(v as Record<string, unknown>)) {
+      const num = Number(n);
+      if (Number.isFinite(num) && num > 0) out[k] = num;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** 保存管理端覆写(整表替换);传 {} 清空全部覆写 */
+export async function saveOverrides(map: Record<string, number>): Promise<void> {
+  await prisma.siteSetting.upsert({
+    where: { key: DB_KEY_OVERRIDES },
+    update: { value: map },
+    create: { key: DB_KEY_OVERRIDES, value: map },
+  });
+  invalidateRateCache();
+}
+
+/** 丢弃内存缓存(下次读取强制走 refresh 链路) */
+export function invalidateRateCache(): void {
+  cache = null;
+  inflight = null;
+}
+
+/** 管理端"立即刷新":绕过缓存直接拉上游并落库 */
+export async function forceRefreshRates(): Promise<RateSnapshot> {
+  invalidateRateCache();
+  return refresh();
 }
 
 /** 获取汇率快照(带缓存/单飞/SWR) */

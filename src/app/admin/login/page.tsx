@@ -48,7 +48,7 @@ function LoginForm() {
     try {
       const res = await apiFetch<LoginResponse>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify(values),
+        body: JSON.stringify({ ...values, scope: "admin" }),
       });
       const user = getLoginUser(res);
       if (user.role !== "ADMIN" && user.role !== "SUPPORT") {

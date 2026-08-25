@@ -20,9 +20,9 @@ export const CURRENCIES: CurrencyDef[] = [
   { code: "GBP", name: "British Pound", country: "United Kingdom", symbol: "£", locale: "en-GB", flag: "🇬🇧" },
   { code: "JPY", name: "Japanese Yen", country: "Japan", symbol: "¥", locale: "ja-JP", flag: "🇯🇵" },
   { code: "HKD", name: "Hong Kong Dollar", country: "Hong Kong", symbol: "HK$", locale: "zh-HK", flag: "🇭🇰" },
-  { code: "SGD", name: "Singapore Dollar", country: "新加坡", symbol: "S$", locale: "en-SG", flag: "🇸🇬" },
+  { code: "SGD", name: "Singapore Dollar", country: "Singapore", symbol: "S$", locale: "en-SG", flag: "🇸🇬" },
   { code: "AUD", name: "Australian Dollar", country: "Australia", symbol: "A$", locale: "en-AU", flag: "🇦🇺" },
-  { code: "CAD", name: "Canadian Dollar", country: "加拿大", symbol: "C$", locale: "en-CA", flag: "🇨🇦" },
+  { code: "CAD", name: "Canadian Dollar", country: "Canada", symbol: "C$", locale: "en-CA", flag: "🇨🇦" },
 ];
 
 /** 面向欧美客户：默认展示美元（用户可随时切换） */

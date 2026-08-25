@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AccountSettings } from "@/components/admin/account-settings";
+import { CurrencyManager } from "@/components/admin/currency-manager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -272,6 +273,19 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
+
+        {/* Currency & exchange rates — 统一管理入口 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("Currency & exchange rates")}</CardTitle>
+            <CardDescription>
+              {t("Manage enabled currencies and exchange rates for the storefront")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CurrencyManager />
+          </CardContent>
+        </Card>
 
         {/* Environment variable notice */}
         <Card className="border-dashed">

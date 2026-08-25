@@ -241,33 +241,30 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
       {/* 工具行 — 最左 Availability/Price(桌面) · Filters(移动端) · 右 Sort by（官方 y320 h54） */}
       <div className="mt-12 flex h-[54px] items-center justify-end gap-8">
-        {/* Availability — 官方桌面端位于工具行最左 */}
-        <div className="mr-auto hidden lg:block">
-          <ToolbarPopover label={t("Availability")}>
-            <div className="absolute left-0 top-full z-30 w-64 border border-border bg-background p-5 shadow-lg">
-              <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
-                {t("Availability")}
-              </p>
-              <Link
-                href={buildSearchUrl(q, {
-                  ...commonOverrides,
-                  in_stock: inStock ? undefined : "1",
-                  tab: tab === "pages" ? "pages" : undefined,
-                })}
-                className="mt-3 flex items-center justify-between text-[13px] text-foreground transition-opacity hover:opacity-70"
-                aria-pressed={inStock}
-              >
-                <span>{t("In stock only")}</span>
-                {inStock ? (
-                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
-                    <path d="m2 7.5 3.2 3L12 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" />
-                  </svg>
-                ) : (
-                  <span className="inline-block h-3.5 w-3.5 border border-foreground/40" />
-                )}
-              </Link>
-            </div>
-          </ToolbarPopover>
+        {/* Availability — 官方式筛选按钮:点击立即切换,无下拉菜单 */}
+        <div className="mr-auto flex items-center gap-2 self-center lg:self-auto">
+          <Link
+            href={buildSearchUrl(q, {
+              ...commonOverrides,
+              in_stock: inStock ? undefined : "1",
+              tab: tab === "pages" ? "pages" : undefined,
+            })}
+            aria-pressed={inStock}
+            className={cn(
+              "flex h-[38px] items-center gap-1.5 whitespace-nowrap border px-4 text-[13px] leading-none transition-colors",
+              inStock
+                ? "border-foreground bg-foreground text-primary-foreground"
+                : "border-border bg-background text-foreground hover:border-foreground",
+            )}
+          >
+            {t("Availability")}
+            {inStock ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span>{t("In stock only")} ✓</span>
+              </>
+            ) : null}
+          </Link>
         </div>
 
         {/* Price — 官方独立弹层 */}

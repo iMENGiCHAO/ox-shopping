@@ -12,6 +12,8 @@ export const registerSchema = z.object({
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email("邮箱格式不正确"),
   password: z.string().min(1, "请输入密码").max(72),
+  /** 登录入口:shop=前台;admin=后台(服务端强制校验角色,杜绝顾客账号进入管理端) */
+  scope: z.enum(["shop", "admin"]).optional(),
 });
 
 export const forgotPasswordSchema = z.object({

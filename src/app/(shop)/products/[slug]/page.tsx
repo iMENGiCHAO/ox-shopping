@@ -160,7 +160,7 @@ export default async function ProductDetailPage({ params }: DetailPageProps) {
 
   return (
     <>
-    <div className="container space-y-14 py-8">
+    <div className="container space-y-14 pb-14 pt-6">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

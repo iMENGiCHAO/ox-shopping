@@ -52,10 +52,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/banners", label: "页面横幅", icon: Images },
   { href: "/admin/orders", label: "Orders", icon: ShoppingCart },
   { href: "/admin/notify-me", label: "到货通知", icon: Bell },
-  { href: "/admin/users", label: "Users", icon: Users, adminOnly: true },
   { href: "/admin/coupons", label: "Coupons", icon: Ticket, adminOnly: true },
   { href: "/admin/refunds", label: "Refunds", icon: RotateCcw, adminOnly: true },
-  { href: "/admin/audit-logs", label: "Audit Logs", icon: ScrollText, adminOnly: true },
   { href: "/admin/legal", label: "Legal pages", icon: Scale, adminOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
@@ -228,6 +226,37 @@ export function AdminShell({ user, children }: { user: SessionUser; children: Re
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Users / Audit Logs 快捷入口(自侧边栏上移,ADMIN 可见) */}
+            {user.role === "ADMIN" ? (
+              <Link
+                href="/admin/users"
+                aria-label={t("Users")}
+                title={t("Users")}
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  isActive(pathname, "/admin/users")
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Users className="h-4 w-4" />
+              </Link>
+            ) : null}
+            {user.role === "ADMIN" ? (
+              <Link
+                href="/admin/audit-logs"
+                aria-label={t("Audit Logs")}
+                title={t("Audit Logs")}
+                className={cn(
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                  isActive(pathname, "/admin/audit-logs")
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <ScrollText className="h-4 w-4" />
+              </Link>
+            ) : null}
             {/* FAQ 管理快捷入口(与账号区同行,圆形与头像一致) */}
             <Link
               href="/admin/faqs"

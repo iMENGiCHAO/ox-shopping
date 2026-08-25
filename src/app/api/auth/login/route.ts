@@ -40,6 +40,19 @@ export const POST = apiHandler(async (req) => {
     throw unauthorized("邮箱或密码错误");
   }
 
+  // 后台登录入口:非员工账号直接拒绝,不建立任何 session
+  if (input.scope === "admin" && user.role !== "ADMIN" && user.role !== "SUPPORT") {
+    await audit({
+      userId: user.id,
+      action: "AUTH_ADMIN_DENIED",
+      entity: "User",
+      entityId: user.id,
+      meta: { email: input.email },
+      req,
+    });
+    throw forbidden("该账号没有后台访问权限");
+  }
+
   const tokens = await issueSession(user);
   const res = json({ user: toSessionUser(user) });
   setAuthCookies(res, tokens);
