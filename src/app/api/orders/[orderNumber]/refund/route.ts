@@ -24,8 +24,19 @@ export const POST = apiHandler(async (req, ctx) => {
   if (!REFUNDABLE_STATUSES.includes(order.status)) {
     throw badRequest("当前订单状态不可申请退款");
   }
-  if (input.amount > Number(order.total)) {
-    throw badRequest("退款金额不能超过订单金额");
+  if (input.amount <= 0) {
+    throw badRequest("退款金额必须大于 0");
+  }
+  // 剩余可退 = 订单总额 − 已批准退款（部分退款可多次申请，累计不得超额）
+  const prior = await prisma.refund.aggregate({
+    where: { orderId: order.id, status: "REFUNDED" },
+    _sum: { amount: true },
+  });
+  const refundedSoFar = Number(prior._sum.amount ?? 0);
+  if (input.amount + refundedSoFar > Number(order.total) + 1e-9) {
+    throw badRequest(
+      `超出可退金额：订单总额 ${Number(order.total).toFixed(2)}，已退 ${refundedSoFar.toFixed(2)}`,
+    );
   }
 
   const existing = await prisma.refund.findFirst({

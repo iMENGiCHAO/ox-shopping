@@ -22,11 +22,14 @@ const securityHeaders = [
     value: "camera=(), microphone=(), geolocation=(), payment=(self)",
   },
   // Stripe.js 需要 js.stripe.com；内联样式用于 Radix/Tailwind 运行时
+  // unsafe-eval 仅开发环境需要(React Refresh/SWC HMR)；生产构建移除以收窄 XSS 影响
   {
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+      process.env.NODE_ENV === "production"
+        ? "script-src 'self' 'unsafe-inline' https://js.stripe.com"
+        : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com https://*.amazonaws.com http://localhost:*",
       "font-src 'self' data:",

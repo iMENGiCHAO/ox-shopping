@@ -70,8 +70,11 @@ function publicUrlFor(key: string): string {
 
 function localPathFor(key: string): string {
   const root = path.join(process.cwd(), "storage");
-  const target = path.join(root, key);
-  if (!target.startsWith(root)) throw new Error("非法存储路径");
+  const target = path.resolve(root, key);
+  // 路径穿越防护：解析后的目标必须仍在 storage 根内(前缀 + 分隔符双重校验)
+  if (target !== root && !target.startsWith(root + path.sep)) {
+    throw new Error("非法存储路径");
+  }
   return target;
 }
 

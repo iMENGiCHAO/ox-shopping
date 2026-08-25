@@ -34,14 +34,30 @@ export const PUT = apiHandler(async (req, ctx) => {
   const orderUrl = `${env.SITE_URL}/orders/${refund.order.orderNumber}`;
 
   if (input.decision === "approve") {
-    if (Number(refund.amount) > Number(refund.order.total)) {
-      throw badRequest("退款金额不能超过订单金额");
+    // 幂等防重：仅待审核状态可批准（防止对已退款项二次打款）
+    if (refund.status !== "REQUESTED") {
+      throw badRequest("该退款申请已处理，请勿重复操作");
     }
 
-    // Stripe 模式：发起线上退款
+    // 累计封顶：已退金额 + 本笔 ≤ 订单总额（部分退款可多次，但总和不得超额）
+    const prior = await prisma.refund.aggregate({
+      where: { orderId: refund.orderId, status: "REFUNDED" },
+      _sum: { amount: true },
+    });
+    const refundedSoFar = Number(prior._sum.amount ?? 0);
+    if (refundedSoFar + Number(refund.amount) > Number(refund.order.total) + 1e-9) {
+      throw badRequest(
+        `累计退款超出订单金额：已退 ${refundedSoFar.toFixed(2)}，本笔 ${Number(refund.amount).toFixed(2)}，` +
+          `订单总额 ${Number(refund.order.total).toFixed(2)}`,
+      );
+    }
+
+    // Stripe 模式：发起线上退款（预留接口；mock 模式跳过）
+    let gatewayRefundId: string | null = null;
     if (effectivePaymentMode === "stripe" && refund.order.paymentId) {
       try {
-        await createStripeRefund(refund.order.paymentId, Number(refund.amount));
+        const r = await createStripeRefund(refund.order.paymentId, Number(refund.amount));
+        gatewayRefundId = r.id;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "未知错误";
         throw badRequest(`退款失败：${msg}`);
@@ -50,12 +66,17 @@ export const PUT = apiHandler(async (req, ctx) => {
 
     const updated = await prisma.refund.update({
       where: { id },
-      data: { status: "REFUNDED", adminNote: input.adminNote ?? null },
+      data: { status: "REFUNDED", adminNote: input.adminNote ?? null, gatewayRefundId },
     });
 
-    // 订单若可流转则标记为已退款(状态机不允许时忽略)
+    // 仅当累计退款覆盖全额时才将整单标记为 REFUNDED；
+    // 部分退款保持原状态（订单可继续发货或再次申请退款）
+    const cumulative = refundedSoFar + Number(refund.amount);
     try {
-      if (refund.order.status !== "REFUNDED") {
+      if (
+        cumulative >= Number(refund.order.total) - 1e-9 &&
+        refund.order.status !== "REFUNDED"
+      ) {
         await updateOrderStatus(refund.order, "REFUNDED", { id: actor.id, name: actor.name });
       }
     } catch {
