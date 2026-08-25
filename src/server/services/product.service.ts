@@ -33,10 +33,20 @@ export async function listProducts(params: ListProductsParams) {
   }
 
   if (params.categoryId || params.categorySlug) {
-    const category = await prisma.category.findFirst({
-      where: params.categoryId ? { id: params.categoryId } : { slug: params.categorySlug },
-      include: { children: true },
-    });
+    // DB 故障降级：无法解析分类时返回空货架（页面正常渲染），而非整站 500
+    let category: Awaited<ReturnType<typeof resolveCategory>>;
+    function resolveCategory() {
+      return prisma.category.findFirst({
+        where: params.categoryId ? { id: params.categoryId } : { slug: params.categorySlug },
+        include: { children: true },
+      });
+    }
+    try {
+      category = await resolveCategory();
+    } catch (err) {
+      console.error("[catalog] 分类解析失败，降级为空列表:", (err as Error).message);
+      return { rows: [], total: 0 };
+    }
     if (!category) throw notFound("分类不存在");
     // 一级分类包含其子分类商品
     const ids = [category.id, ...category.children.map((c) => c.id)];
@@ -78,16 +88,23 @@ export async function listProducts(params: ListProductsParams) {
     };
   }
 
-  const [rows, total] = await Promise.all([
-    prisma.product.findMany({
-      where,
-      orderBy,
-      skip: (params.page - 1) * params.pageSize,
-      take: params.pageSize,
-      include: { category: { select: { id: true, name: true, slug: true } } },
-    }),
-    prisma.product.count({ where }),
-  ]);
+  let rows: Awaited<ReturnType<typeof prisma.product.findMany>>;
+  let total = 0;
+  try {
+    [rows, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        orderBy,
+        skip: (params.page - 1) * params.pageSize,
+        take: params.pageSize,
+        include: { category: { select: { id: true, name: true, slug: true } } },
+      }),
+      prisma.product.count({ where }),
+    ]);
+  } catch (err) {
+    console.error("[catalog] 商品列表读取失败，降级为空货架:", (err as Error).message);
+    return { rows: [], total: 0 };
+  }
 
   // relevance：名称命中排前（组内保持官方顺序），其余在后 —— 对齐 Shopify 搜索体验
   if (params.sort === "relevance" && params.search) {
@@ -113,10 +130,13 @@ export async function listProducts(params: ListProductsParams) {
 }
 
 export async function getProductBySlug(slug: string) {
-  const product = await prisma.product.findUnique({
-    where: { slug },
-    include: { category: true },
-  });
+  // DB 故障时同样走 notFound（渲染品牌 404 页），避免错误边界 500
+  const product = await prisma.product
+    .findUnique({ where: { slug }, include: { category: true } })
+    .catch((err: unknown) => {
+      console.error("[catalog] 商品详情读取失败:", (err as Error).message);
+      return null;
+    });
   if (!product || product.status !== "ACTIVE") throw notFound("商品不存在或已下架");
   return product;
 }
@@ -191,10 +211,12 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
 
 /** 获取分类(供筛选器) */
 export async function getCategoryBySlug(slug: string) {
-  const category = await prisma.category.findUnique({
-    where: { slug },
-    include: { children: true },
-  });
+  const category = await prisma.category
+    .findUnique({ where: { slug }, include: { children: true } })
+    .catch((err: unknown) => {
+      console.error("[catalog] 分类详情读取失败:", (err as Error).message);
+      return null;
+    });
   if (!category || !category.isActive) throw notFound("分类不存在");
   return category;
 }
