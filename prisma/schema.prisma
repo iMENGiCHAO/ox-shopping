@@ -221,6 +221,8 @@ model Order {
   addressSnapshot Json // { recipientName, phone, province, city, district, detail }
   paymentProvider String? // stripe | mock
   paymentId       String? // Stripe PaymentIntent id
+  // 支付会话 ID（Stripe Checkout Session，掉单对账用预留字段；mock 模式为空）
+  paymentSessionId String?
   trackingCompany String?
   trackingNumber  String?
   note            String?
@@ -256,6 +258,10 @@ model OrderItem {
   price        Decimal @db.Decimal(10, 2)
   quantity     Int
   subtotal     Decimal @db.Decimal(10, 2)
+  // 实际从商品库存扣减的数量（预售可少于 quantity，取消时精确回补）
+  stockDeducted Int    @default(0)
+  // 实际从规格库存(specStock)扣减的映射 { "组名/值": n }（取消时精确回补）
+  specDeducted  Json?
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
@@ -344,6 +350,8 @@ model CouponRedemption {
   order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@unique([couponId, orderId])
+  // 每位用户每张券限用一次（防重复薅羊毛）
+  @@unique([couponId, userId])
   @@index([userId])
   @@map("coupon_redemptions")
 }
@@ -358,6 +366,8 @@ model Refund {
   amount    Decimal      @db.Decimal(10, 2)
   status    RefundStatus @default(REQUESTED)
   adminNote String?
+  // 支付网关退款单号（Stripe refund.id；mock 为空）
+  gatewayRefundId String?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 

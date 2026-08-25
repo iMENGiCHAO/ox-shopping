@@ -38,11 +38,11 @@ export interface CheckoutOrderInfo {
   customerEmail: string;
 }
 
-/** 创建 Stripe Checkout Session，返回跳转 URL */
+/** 创建 Stripe Checkout Session，返回跳转 URL 与会话 ID（用于掉单对账） */
 export async function createCheckoutSession(
   order: CheckoutOrderInfo,
   items: CheckoutItem[],
-): Promise<string> {
+): Promise<{ url: string; sessionId: string }> {
   const stripe = getStripe();
   if (!stripe) throw new Error("Stripe 未配置");
 
@@ -78,7 +78,23 @@ export async function createCheckoutSession(
   });
 
   if (!session.url) throw new Error("Stripe 未返回 Checkout URL");
-  return session.url;
+  return { url: session.url, sessionId: session.id };
+}
+
+/**
+ * 掉单对账预留接口：按会话 ID 查询支付状态。
+ * 定时任务用它核对 PENDING_PAYMENT 订单在网关侧的真实状态（已支付→补标记，过期→取消）。
+ */
+export async function retrieveCheckoutSession(
+  sessionId: string,
+): Promise<Stripe.Checkout.Session | null> {
+  const stripe = getStripe();
+  if (!stripe) return null;
+  try {
+    return await stripe.checkout.sessions.retrieve(sessionId);
+  } catch {
+    return null; // 会话不存在/网络异常：对账任务跳过，不阻塞主流程
+  }
 }
 
 /** 校验 Webhook 签名并构造事件(签名错误抛错 → 上层返回 400) */

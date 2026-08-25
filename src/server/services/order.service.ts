@@ -17,6 +17,7 @@ import { audit } from "@/lib/audit";
 import { createCheckoutSession } from "@/lib/payment/stripe";
 import { createMockPaymentUrl } from "@/lib/payment/mock";
 import { effectivePaymentMode } from "@/lib/env";
+import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
 import type { SpecSelection } from "@/server/services/cart.service";
 
 /**
@@ -148,24 +149,61 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
   const orderNumber = generateOrderNumber();
 
   const order = await prisma.$transaction(async (tx) => {
-    // 1. 原子扣库存(防超卖：stock >= quantity 条件更新)
-    for (const item of input.items) {
-      const product = productById.get(item.productId)!;
-      if (product.isPresale) {
-        // 预售：允许 0 库存下单，库存只减不穿(下限 0)，销量照常累计
-        await tx.$executeRaw`UPDATE products SET stock = GREATEST(stock - ${item.quantity}, 0), "soldCount" = "soldCount" + ${item.quantity} WHERE id = ${item.productId} AND status = 'ACTIVE'`;
-        continue;
+    const ids = [...new Set(input.items.map((i) => i.productId))];
+    // 行锁串行化同商品的并发扣减（specStock 为 JSON 读-改-写，必须先锁行）
+    await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
+    const freshList = await tx.product.findMany({ where: { id: { in: ids } } });
+    const freshById = new Map(freshList.map((p) => [p.id, p]));
+
+    // 1. 库存扣减（商品级 + 规格级；普通单不足即失败，预售允许缺口并记录实际扣减量）
+    interface ItemDeduction {
+      stockDeducted: number;
+      specDeducted: Record<string, number>;
+    }
+    const plans: ItemDeduction[] = [];
+    for (let i = 0; i < input.items.length; i++) {
+      const item = input.items[i]!;
+      const fresh = freshById.get(item.productId)!;
+      const snapshot = productById.get(item.productId)!;
+      if (!fresh || fresh.status !== "ACTIVE") throw badRequest(`「${snapshot.name}」已下架`);
+
+      // 规格级校验与扣减计划（未追踪的组/值视为可用）
+      const plan = planSpecDeduction(fresh.specStock, item.attributes, item.quantity, fresh.isPresale);
+      if (!plan.ok && plan.shortage) {
+        throw badRequest(
+          `「${snapshot.name}」规格 ${plan.shortage.group}:${plan.shortage.value} 库存不足，仅剩 ${plan.shortage.available} 件`,
+        );
       }
-      const updated = await tx.product.updateMany({
-        where: { id: item.productId, stock: { gte: item.quantity }, status: "ACTIVE" },
-        data: {
-          stock: { decrement: item.quantity },
-          soldCount: { increment: item.quantity },
-        },
-      });
-      if (updated.count === 0) {
-        throw badRequest(`「${product.name}」库存不足，仅剩 ${product.stock} 件`);
+
+      let stockDeducted: number;
+      if (fresh.isPresale) {
+        // 预售：允许 0 库存下单，只扣实际可扣部分(下限 0)，销量照常累计；
+        // 实扣量记入订单行，取消时精确回补（杜绝凭空造库存）
+        stockDeducted = Math.min(Math.max(fresh.stock, 0), item.quantity);
+        await tx.$executeRaw`UPDATE products SET stock = GREATEST(stock - ${stockDeducted}, 0), "soldCount" = "soldCount" + ${item.quantity} WHERE id = ${item.productId}`;
+      } else {
+        stockDeducted = item.quantity;
+        const updated = await tx.product.updateMany({
+          where: { id: item.productId, stock: { gte: item.quantity }, status: "ACTIVE" },
+          data: {
+            stock: { decrement: item.quantity },
+            soldCount: { increment: item.quantity },
+          },
+        });
+        if (updated.count === 0) {
+          throw badRequest(`「${snapshot.name}」库存不足，仅剩 ${fresh.stock} 件`);
+        }
       }
+
+      // 规格库存落库（JSON 整体写回；行锁保证无并发丢失更新）
+      if (Object.keys(plan.deducted).length > 0) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { specStock: plan.next as Prisma.InputJsonValue },
+        });
+      }
+
+      plans.push({ stockDeducted, specDeducted: plan.deducted });
     }
 
     // 2. 创建订单
@@ -191,8 +229,9 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         },
         paymentProvider: effectivePaymentMode,
         items: {
-          create: input.items.map((item) => {
+          create: input.items.map((item, idx) => {
             const p = productById.get(item.productId)!;
+            const plan = plans[idx]!;
             const price = Number(p.price);
             return {
               productId: p.id,
@@ -202,6 +241,12 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
               price: d(price),
               quantity: item.quantity,
               subtotal: d(Math.round(price * item.quantity * 100) / 100),
+              // 实际扣减记录（取消订单时精确回补的依据）
+              stockDeducted: plan.stockDeducted,
+              specDeducted:
+                Object.keys(plan.specDeducted).length > 0
+                  ? (plan.specDeducted as unknown as Prisma.InputJsonValue)
+                  : undefined,
               attributes:
                 item.attributes && item.attributes.length > 0
                   ? (item.attributes as unknown as Prisma.InputJsonValue)
@@ -252,7 +297,7 @@ export async function createPaymentUrl(
   if (order.status !== "PENDING_PAYMENT") throw badRequest("订单当前状态不可支付");
 
   if (effectivePaymentMode === "stripe") {
-    return createCheckoutSession(
+    const { url, sessionId } = await createCheckoutSession(
       {
         orderNumber: order.orderNumber,
         currency: order.currency,
@@ -266,11 +311,20 @@ export async function createPaymentUrl(
         price: Number(i.price),
       })),
     );
+    // 会话 ID 落库：掉单对账定时任务据此核对网关侧真实状态
+    await prisma.order
+      .update({ where: { id: order.id }, data: { paymentSessionId: sessionId } })
+      .catch(() => {});
+    return url;
   }
   return createMockPaymentUrl(order.orderNumber);
 }
 
-/** 标记订单已支付(Webhook / 模拟支付共用；幂等) */
+/**
+ * 标记订单已支付(Webhook / 模拟支付 / 掉单对账共用)。
+ * 幂等与并发安全：先条件更新原子"认领"，只有 PENDING_PAYMENT→PAID 成功的那一个调用
+ * 才继续执行券计数/发信等副作用，重复回调与并发双击均安全。
+ */
 export async function markOrderPaid(
   orderNumber: string,
   paymentId?: string,
@@ -280,29 +334,42 @@ export async function markOrderPaid(
     include: { items: true },
   });
   if (!order) throw notFound("订单不存在");
-  if (order.status === "PAID" || order.status !== "PENDING_PAYMENT") return order;
+  if (order.status !== "PENDING_PAYMENT") return order;
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const o = await tx.order.update({
-      where: { id: order.id },
-      data: {
-        status: "PAID",
-        paidAt: new Date(),
-        paymentId: paymentId ?? order.paymentId,
-      },
+  // 原子认领：并发场景只有一个调用方能把状态推进到 PAID
+  const claimed = await prisma.order.updateMany({
+    where: { id: order.id, status: "PENDING_PAYMENT" },
+    data: { status: "PAID", paidAt: new Date(), paymentId: paymentId ?? undefined },
+  });
+  if (claimed.count === 0) {
+    return (await prisma.order.findUnique({
+      where: { orderNumber },
       include: { items: true },
-    });
-    // 支付成功后Discount券使用量 +1
-    await tx.couponRedemption
-      .findMany({ where: { orderId: order.id } })
-      .then((rs) =>
-        Promise.all(
-          rs.map((r) =>
-            tx.coupon.update({ where: { id: r.couponId }, data: { usedCount: { increment: 1 } } }),
-          ),
-        ),
+    }))!;
+  }
+
+  // 券使用量 +1（带限额校验：达到 usageLimit 的券不再累加，防止超发）
+  const redemptions = await prisma.couponRedemption.findMany({ where: { orderId: order.id } });
+  for (const r of redemptions) {
+    const coupon = await prisma.coupon.findUnique({ where: { id: r.couponId } });
+    if (!coupon) continue;
+    const limited = coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit;
+    if (limited) {
+      console.warn(
+        `[coupon] ${coupon.code} 已达领取上限(${coupon.usedCount}/${coupon.usageLimit})，` +
+          `订单 ${order.orderNumber} 的抵扣不再累计`,
       );
-    return o;
+      continue;
+    }
+    await prisma.coupon.update({
+      where: { id: coupon.id },
+      data: { usedCount: { increment: 1 } },
+    });
+  }
+
+  const updated = await prisma.order.findUnique({
+    where: { orderNumber },
+    include: { items: true },
   });
 
   const user = await prisma.user.findUnique({ where: { id: order.userId } });
@@ -328,29 +395,67 @@ export async function markOrderPaid(
     meta: { orderNumber, paymentId },
   });
 
-  return updated;
+  return updated!;
 }
 
-/** 取消订单(恢复库存) */
+/** 取消订单(按下单时的实际扣减记录精确恢复库存) */
 export async function cancelOrder(order: Order, byUserId?: string | null): Promise<Order> {
   if (order.status !== "PENDING_PAYMENT") {
     throw badRequest("当前状态不可取消");
   }
   const updated = await prisma.$transaction(async (tx) => {
-    const o = await tx.order.update({
-      where: { id: order.id },
+    // 条件更新做并发认领：只有仍是 PENDING_PAYMENT 的订单才会被取消并回补
+    const claimed = await tx.order.updateMany({
+      where: { id: order.id, status: "PENDING_PAYMENT" },
       data: { status: "CANCELLED", cancelledAt: new Date() },
-      include: { items: true },
     });
+    if (claimed.count === 0) throw badRequest("当前状态不可取消");
+    const o = (await tx.order.findUnique({ where: { id: order.id }, include: { items: true } }))!;
+
+    const ids = [...new Set(o.items.map((it) => it.productId).filter((v): v is string => !!v))];
+    if (ids.length > 0) {
+      await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
+    }
+    const productMap = new Map(
+      ids.length > 0
+        ? (await tx.product.findMany({
+            where: { id: { in: ids } },
+            select: { id: true, isPresale: true, specStock: true },
+          })).map((p) => [p.id, p])
+        : [],
+    );
     for (const item of o.items) {
       if (!item.productId) continue;
-      await tx.product.update({
-        where: { id: item.productId },
-        data: {
-          stock: { increment: item.quantity },
-          soldCount: { decrement: item.quantity },
-        },
-      });
+      const p = productMap.get(item.productId);
+      // 精确回补：新订单以 stockDeducted 记录为准；
+      // 历史订单(无记录)保守处理——普通单全额回补，预售单不回补(宁少勿造)
+      const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
+      const restoreQty = !hasRecord && p?.isPresale ? 0 : hasRecord ? item.stockDeducted : item.quantity;
+      if (restoreQty > 0) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: {
+            stock: { increment: restoreQty },
+            soldCount: { decrement: item.quantity },
+          },
+        });
+      } else {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { soldCount: { decrement: item.quantity } },
+        });
+      }
+      // 规格库存按记录精确回补
+      const restoredSpec = applySpecRestock(
+        p?.specStock,
+        item.specDeducted as Record<string, number> | null,
+      );
+      if (restoredSpec) {
+        await tx.product.update({
+          where: { id: item.productId },
+          data: { specStock: restoredSpec as unknown as Prisma.InputJsonValue },
+        });
+      }
     }
     return o;
   });
