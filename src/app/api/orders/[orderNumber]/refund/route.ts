@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth/session";
 import { assertOrderOwner, getOrderByNumber } from "@/server/services/order.service";
 import { serializeRefund } from "@/server/serializers";
 import { audit } from "@/lib/audit";
+import { logPayment } from "@/server/services/payment-log.service";
 import { prisma } from "@/lib/prisma";
 import { refundRequestSchema } from "@/lib/validations/cart-order";
 import { REFUNDABLE_STATUSES } from "@/lib/order-status";
@@ -51,6 +52,14 @@ export const POST = apiHandler(async (req, ctx) => {
       reason: input.reason,
       amount: new Prisma.Decimal(input.amount.toFixed(2)),
     },
+  });
+
+  void logPayment({
+    orderId: order.id,
+    provider: order.paymentProvider ?? "unknown",
+    event: "refund_requested",
+    amount: input.amount,
+    payload: { refundId: refund.id, reason: input.reason },
   });
 
   await audit({

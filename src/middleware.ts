@@ -34,6 +34,33 @@ export async function middleware(req: NextRequest) {
   // 供服务端组件(如 /admin layout)判断当前路径(headers() 不提供 pathname)
   requestHeaders.set("x-pathname", pathname);
 
+  // ---------- CSP（生产：per-request nonce + strict-dynamic）----------
+  // 开发模式保留宽松策略(HMR 依赖 eval/inline)；生产由中间件按请求签发 nonce，
+  // Next 检测到请求头 CSP 含 nonce 后会自动写入其自有 bootstrap 脚本。
+  const isProd = process.env.NODE_ENV === "production";
+  if (isProd && !isPublicPath(pathname)) {
+    const nonce = btoa(crypto.randomUUID());
+    requestHeaders.set("x-nonce", nonce);
+    const csp = [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com https://*.amazonaws.com",
+      "font-src 'self' data:",
+      "connect-src 'self' https://api.stripe.com",
+      "frame-src https://js.stripe.com https://hooks.stripe.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self' https://checkout.stripe.com",
+      "frame-ancestors 'self'",
+    ].join("; ");
+    requestHeaders.set("Content-Security-Policy", csp);
+    const cspRes = NextResponse.next({ request: { headers: requestHeaders } });
+    cspRes.headers.set("Content-Security-Policy", csp);
+    cspRes.headers.set(REQUEST_ID_HEADER, requestId);
+    return cspRes;
+  }
+
   // 公开路径仅透传请求 ID
   if (isPublicPath(pathname)) {
     return NextResponse.next({ request: { headers: requestHeaders } });
@@ -41,6 +68,25 @@ export async function middleware(req: NextRequest) {
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set(REQUEST_ID_HEADER, requestId);
+
+  // 开发模式：宽松 CSP（HMR 需要 eval/inline）
+  if (!isProd) {
+    res.headers.set(
+      "Content-Security-Policy",
+      [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com http://localhost:*",
+        "font-src 'self' data:",
+        "connect-src 'self' https://api.stripe.com http://localhost:* ws:",
+        "frame-src https://js.stripe.com https://hooks.stripe.com",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self' https://checkout.stripe.com",
+      ].join("; "),
+    );
+  }
 
   // ---------- CSRF：变更请求校验 ----------
   const method = req.method.toUpperCase();

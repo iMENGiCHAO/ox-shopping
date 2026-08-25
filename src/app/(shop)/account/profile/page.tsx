@@ -207,6 +207,23 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("Download my data")}</CardTitle>
+          <CardDescription>
+            {t("Export a copy of your personal data (profile, orders, reviews and subscriptions) as JSON.")}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button
+            variant="outline"
+            onClick={() => window.open("/api/user/export", "_blank")}
+          >
+            {t("Export my data")}
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card className="border-destructive/40">
         <CardHeader>
           <CardTitle className="text-destructive">{t("Account deletion request")}</CardTitle>

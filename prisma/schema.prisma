@@ -412,6 +412,24 @@ model SiteSetting {
   @@map("site_settings")
 }
 
+/// 支付/退款流水日志（资金对账审计；只追加，不修改）
+model PaymentLog {
+  id        String   @id @default(cuid())
+  orderId   String?
+  provider  String // stripe | mock
+  /// paid | checkout_created | refund_requested | refunded | refund_rejected | reconcile_paid
+  event     String
+  amount    Decimal? @db.Decimal(10, 2)
+  /// 网关侧单号（payment intent / checkout session / refund id）
+  gatewayId String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  @@index([orderId])
+  @@index([event, createdAt])
+  @@map("payment_logs")
+}
+
 /// 到货通知（售罄商品 PDP 的 Notify me 订阅）
 model NotifyMe {
   id        String    @id @default(cuid())

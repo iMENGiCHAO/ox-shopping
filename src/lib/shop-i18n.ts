@@ -26,6 +26,14 @@ type Dict = Record<string, Partial<Record<Lang, string>>>;
 /** The full shop string catalog. Key is the English source string;
  *  `zh` provides the Chinese rendering. */
 const DICT: Dict = {
+  /* ── Account / data export ─────────────────────────────────────── */
+  "Download my data": { en: "Download my data", zh: "下载我的数据" },
+  "Export a copy of your personal data (profile, orders, reviews and subscriptions) as JSON.": {
+    en: "Export a copy of your personal data (profile, orders, reviews and subscriptions) as JSON.",
+    zh: "将你的个人数据（资料、订单、评价与订阅）导出为 JSON 文件。",
+  },
+  "Export my data": { en: "Export my data", zh: "导出我的数据" },
+
   /* ── Brand & tagline ───────────────────────────────────────────── */
   "Considered design": { en: "Considered design", zh: "用心设计" },
   "Considered goods for everyday living. Thoughtfully designed, responsibly made.": { en: "Considered goods for everyday living. Thoughtfully designed, responsibly made.", zh: "为日常而生的精选好物。精心设计，用心制造。" },
@@ -653,6 +661,22 @@ const DICT: Dict = {
   "Refund Policy: 7-day no-reason returns, refund conditions, and process": { en: "Refund Policy: 7-day no-reason returns, refund conditions, and process", zh: "退款政策：7 天无理由退货、退款条件和流程" },
   "Terms of Service: please read and agree before using our service": { en: "Terms of Service: please read and agree before using our service", zh: "服务条款：使用服务前请阅读并同意" },
   "Cookie Policy: How we use cookies and similar technologies": { en: "Cookie Policy: How we use cookies and similar technologies", zh: "Cookie 政策：我们如何使用 Cookie 和类似技术" },
+  "Your deletion request has been received; we will process it after verification": { en: "Your deletion request has been received; we will process it after verification", zh: "注销申请已收到，核实后我们将处理您的请求" },
+  "Create your SpaceXAI Shop account and start shopping.": { en: "Create your SpaceXAI Shop account and start shopping.", zh: "创建 SpaceXAI 商城账户，即刻开启购物。" },
+  "items": { en: "items", zh: "件商品" },
+  "No matching orders": { en: "No matching orders", zh: "没有匹配的订单" },
+  "to": { en: "to", zh: "至" },
+  "Shopping bag": { en: "Shopping bag", zh: "购物袋" },
+  "Close bag": { en: "Close bag", zh: "关闭购物袋" },
+  "Added to bag": { en: "Added to bag", zh: "已加入购物袋" },
+  "We use cookies to improve your browsing experience and analyze traffic. Clicking \"Accept all\" means you agree to our use of": { en: "We use cookies to improve your browsing experience and analyze traffic. Clicking \"Accept all\" means you agree to our use of", zh: "我们使用 Cookie 改进浏览体验并分析流量。点击「全部接受」即表示您同意我们的" },
+  "Previous": { en: "Previous", zh: "上一页" },
+  "Next": { en: "Next", zh: "下一页" },
+  "__lang__": { en: "__lang__", zh: "__lang__" },
+  "Decrease quantity": { en: "Decrease quantity", zh: "减少数量" },
+  "Increase quantity": { en: "Increase quantity", zh: "增加数量" },
+  "Refund request submitted; we will review it as soon as possible": { en: "Refund request submitted; we will review it as soon as possible", zh: "退款申请已提交，我们会尽快审核" },
+  "Hi {name}": { en: "Hi {name}", zh: "您好，{name}" },
 };
 
 /** Translate a key for a given lang.

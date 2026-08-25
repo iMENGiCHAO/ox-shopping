@@ -18,6 +18,7 @@ import { createCheckoutSession } from "@/lib/payment/stripe";
 import { createMockPaymentUrl } from "@/lib/payment/mock";
 import { effectivePaymentMode } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
+import { logPayment } from "@/server/services/payment-log.service";
 import type { SpecSelection } from "@/server/services/cart.service";
 
 /**
@@ -315,6 +316,13 @@ export async function createPaymentUrl(
     await prisma.order
       .update({ where: { id: order.id }, data: { paymentSessionId: sessionId } })
       .catch(() => {});
+    void logPayment({
+      orderId: order.id,
+      provider: "stripe",
+      event: "checkout_created",
+      amount: Number(order.total),
+      gatewayId: sessionId,
+    });
     return url;
   }
   return createMockPaymentUrl(order.orderNumber);
@@ -347,6 +355,15 @@ export async function markOrderPaid(
       include: { items: true },
     }))!;
   }
+
+  // 资金流水：支付成功（webhook / mock / 对账补记共用此函数）
+  void logPayment({
+    orderId: order.id,
+    provider: effectivePaymentMode,
+    event: "paid",
+    amount: Number(order.total),
+    gatewayId: paymentId ?? null,
+  });
 
   // 券使用量 +1（带限额校验：达到 usageLimit 的券不再累加，防止超发）
   const redemptions = await prisma.couponRedemption.findMany({ where: { orderId: order.id } });

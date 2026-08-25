@@ -7,6 +7,7 @@ import { createStripeRefund } from "@/lib/payment/stripe";
 import { effectivePaymentMode } from "@/lib/env";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
+import { logPayment } from "@/server/services/payment-log.service";
 import { formatMoney } from "@/lib/utils";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
@@ -69,6 +70,16 @@ export const PUT = apiHandler(async (req, ctx) => {
       data: { status: "REFUNDED", adminNote: input.adminNote ?? null, gatewayRefundId },
     });
 
+    // 资金流水：退款完成
+    void logPayment({
+      orderId: refund.orderId,
+      provider: effectivePaymentMode,
+      event: "refunded",
+      amount: Number(refund.amount),
+      gatewayId: gatewayRefundId,
+      payload: { refundId: refund.id },
+    });
+
     // 仅当累计退款覆盖全额时才将整单标记为 REFUNDED；
     // 部分退款保持原状态（订单可继续发货或再次申请退款）
     const cumulative = refundedSoFar + Number(refund.amount);
@@ -110,6 +121,14 @@ export const PUT = apiHandler(async (req, ctx) => {
   const updated = await prisma.refund.update({
     where: { id },
     data: { status: "REJECTED", adminNote: input.adminNote ?? null },
+  });
+
+  void logPayment({
+    orderId: refund.orderId,
+    provider: effectivePaymentMode,
+    event: "refund_rejected",
+    amount: Number(refund.amount),
+    payload: { refundId: refund.id, admin: actor.email },
   });
 
   await sendMail({

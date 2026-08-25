@@ -21,25 +21,9 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), payment=(self)",
   },
-  // Stripe.js 需要 js.stripe.com；内联样式用于 Radix/Tailwind 运行时
-  // unsafe-eval 仅开发环境需要(React Refresh/SWC HMR)；生产构建移除以收窄 XSS 影响
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      process.env.NODE_ENV === "production"
-        ? "script-src 'self' 'unsafe-inline' https://js.stripe.com"
-        : "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com https://*.amazonaws.com http://localhost:*",
-      "font-src 'self' data:",
-      "connect-src 'self' https://api.stripe.com http://localhost:*",
-      "frame-src https://js.stripe.com https://hooks.stripe.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self' https://checkout.stripe.com",
-    ].join("; "),
-  },
+  // CSP 由 src/middleware.ts 按请求签发：
+  //   生产 → per-request nonce + strict-dynamic（收窄内联脚本）
+  //   开发 → 宽松策略（HMR 需要 eval/inline），见 middleware 内联定义
 ];
 
 const nextConfig = {

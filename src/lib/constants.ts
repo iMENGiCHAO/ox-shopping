@@ -1,5 +1,3 @@
-import { env } from "@/lib/env";
-
 /** Cookie 名称 */
 export const ACCESS_TOKEN_COOKIE = "access_token";
 export const REFRESH_TOKEN_COOKIE = "refresh_token";
@@ -19,15 +17,25 @@ export const MAX_CART_ITEMS = 50;
 export const REVIEW_MIN_RATING = 1;
 export const REVIEW_MAX_RATING = 5;
 
-/** 订单 */
-export const DEFAULT_CURRENCY = env.CURRENCY;
-export const SHIPPING_FEE = env.SHIPPING_FEE;
-export const FREE_SHIPPING_THRESHOLD = env.FREE_SHIPPING_THRESHOLD;
-export const TAX_RATE = env.TAX_RATE;
-export const ORDER_EXPIRE_SECONDS = env.ORDER_EXPIRE_SECONDS;
+/**
+ * 订单/商业常量：直接读 process.env（与 src/lib/env.ts 的 zod 默认值保持一致）。
+ * 本模块必须保持零副作用——它被 client 组件引入，
+ * 不能拖入 env.ts（其顶层在生产模式会执行密钥 fail-fast）。
+ */
+const numOr = (v: string | undefined, d: number): number => {
+  if (v === undefined || v === "") return d;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
+
+export const DEFAULT_CURRENCY = process.env.CURRENCY || "USD";
+export const SHIPPING_FEE = numOr(process.env.SHIPPING_FEE, 10);
+export const FREE_SHIPPING_THRESHOLD = numOr(process.env.FREE_SHIPPING_THRESHOLD, 99);
+export const TAX_RATE = numOr(process.env.TAX_RATE, 0);
+export const ORDER_EXPIRE_SECONDS = numOr(process.env.ORDER_EXPIRE_SECONDS, 1800);
 
 /** 上传 */
-export const UPLOAD_MAX_BYTES = env.UPLOAD_MAX_BYTES;
+export const UPLOAD_MAX_BYTES = numOr(process.env.UPLOAD_MAX_BYTES, 10 * 1024 * 1024);
 export const ALLOWED_IMAGE_MIME = [
   "image/jpeg",
   "image/png",
