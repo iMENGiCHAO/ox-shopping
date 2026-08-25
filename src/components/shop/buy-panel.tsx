@@ -195,28 +195,33 @@ export function BuyPanel({
         </p>
       ) : null}
       <div className="mt-5 flex flex-col gap-3">
-        <AddToCartButton
-          productId={productId}
-          quantity={quantity}
-          attributes={selectedAttributes}
-          disabled={disabled}
-          className="h-[46px] w-full text-[15px]"
-        />
-        <BuyNowButton
-          productId={productId}
-          quantity={quantity}
-          attributes={selectedAttributes}
-          disabled={disabled}
-          soldOut={disabled && !isPresale}
-          defaultEmail={defaultEmail}
-          productName={productName}
-          specGroups={selectableAttributes.map((g) => ({
-            name: g.name,
-            values: g.values,
-            soldOutValues: g.soldOutValues ?? [],
-          }))}
-          className="h-[46px] w-full text-[15px]"
-        />
+        {/* 对齐官方 PDP：有货仅 Add to Bag；售罄（非预售）仅 Notify me */}
+        {disabled && !isPresale ? null : (
+          <AddToCartButton
+            productId={productId}
+            quantity={quantity}
+            attributes={selectedAttributes}
+            disabled={disabled}
+            className="h-[46px] w-full text-[15px]"
+          />
+        )}
+        {disabled && !isPresale ? (
+          <BuyNowButton
+            productId={productId}
+            quantity={quantity}
+            attributes={selectedAttributes}
+            disabled={disabled}
+            soldOut
+            defaultEmail={defaultEmail}
+            productName={productName}
+            specGroups={selectableAttributes.map((g) => ({
+              name: g.name,
+              values: g.values,
+              soldOutValues: g.soldOutValues ?? [],
+            }))}
+            className="h-[46px] w-full text-[15px]"
+          />
+        ) : null}
       </div>
     </div>
   );
