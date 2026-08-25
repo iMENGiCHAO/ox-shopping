@@ -1,0 +1,434 @@
+// Prisma Schema — 生产级电商数据模型
+// 说明：在需求模型基础上补充了三个支撑模型：
+//   RefreshToken —— JWT refresh token 轮换与重放检测
+//   Favorite      —— 商品收藏（个人中心“收藏”功能）
+//   SiteSetting   —— 管理端“设置”页面持久化（站点名称、SEO 等）
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============ 枚举 ============
+
+enum Role {
+  ADMIN
+  CUSTOMER
+  SUPPORT
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED
+  FREE_SHIPPING
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  REFUNDED
+}
+
+// ============ 用户 ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  role          Role      @default(CUSTOMER)
+  status        UserStatus @default(ACTIVE)
+  emailVerified Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+
+  addresses  Address[]
+  cartItems  CartItem[]
+  orders     Order[]
+  reviews    Review[]
+  favorites  Favorite[]
+  coupons    CouponRedemption[]
+  refunds    Refund[]
+  auditLogs  AuditLog[]
+  refreshTokens RefreshToken[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Address {
+  id           String  @id @default(cuid())
+  userId       String
+  recipientName String
+  phone        String
+  province     String
+  city         String
+  district     String
+  detail       String
+  isDefault    Boolean @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique // sha256(refresh token)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+  replacedBy String? // 轮换后指向新 token id，用于重放检测
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============ 商品 ============
+
+model Category {
+  id        String  @id @default(cuid())
+  name      String  // zh (fallback when nameEn is null)
+  nameEn    String? // optional English name
+  slug      String  @unique
+  description String?
+  image     String?
+  parentId  String?
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[] @relation("CategoryTree")
+  products Product[]
+
+  @@index([parentId])
+  @@index([isActive, sortOrder])
+  @@map("categories")
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  name          String  // zh (fallback when nameEn is null)
+  nameEn        String? // optional English name
+  slug          String        @unique
+  description   String  // zh description
+  descriptionEn String? // optional English description
+  sku           String        @unique
+  price         Decimal       @db.Decimal(10, 2)
+  compareAtPrice Decimal?     @db.Decimal(10, 2)
+  costPrice     Decimal?      @db.Decimal(10, 2)
+  stock         Int           @default(0)
+  soldCount     Int           @default(0)
+  /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
+  isPresale     Boolean       @default(false)
+  /// 运营标签：新品上市 / 热卖（前台徽标）
+  isNew         Boolean       @default(false)
+  isHot         Boolean       @default(false)
+  /// 尺码参数表（官方 Size Chart）：{ headers: string[]; rows: string[][] }
+  sizeChart     Json?
+  /// 规格级库存：{ "Size": { "S": 3, "M": 0 } }，值为 0 = 该规格售罄
+  specStock     Json?
+  images        Json          @default("[]") // string[]
+  attributes    Json          @default("[]") // { name: string; values: string[] }[]
+  status        ProductStatus @default(DRAFT)
+  categoryId    String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  category   Category     @relation(fields: [categoryId], references: [id])
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  reviews    Review[]
+  favorites  Favorite[]
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([status, createdAt])
+  @@index([price])
+  @@map("products")
+}
+
+// ============ 购物车 ============
+
+model CartItem {
+  id            String   @id @default(cuid())
+  userId        String
+  productId     String
+  quantity      Int      @default(1)
+  // 下单规格快照（[{ name, value }]，如颜色=曜石黑）
+  attributes    Json?
+  // 规格去重键（规范化 JSON，用于区分同商品不同规格的购物车行）
+  attributesKey String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId, attributesKey])
+  @@index([userId])
+  @@map("cart_items")
+}
+
+// ============ 订单 ============
+
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  userId          String
+  status          OrderStatus @default(PENDING_PAYMENT)
+  subtotal        Decimal     @db.Decimal(10, 2)
+  shippingFee     Decimal     @default(0) @db.Decimal(10, 2)
+  tax             Decimal     @default(0) @db.Decimal(10, 2)
+  discount        Decimal     @default(0) @db.Decimal(10, 2)
+  total           Decimal     @db.Decimal(10, 2)
+  currency        String      @default("CNY")
+  addressSnapshot Json // { recipientName, phone, province, city, district, detail }
+  paymentProvider String? // stripe | mock
+  paymentId       String? // Stripe PaymentIntent id
+  trackingCompany String?
+  trackingNumber  String?
+  note            String?
+  paidAt          DateTime?
+  shippedAt       DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+  refundedAt      DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user       User              @relation(fields: [userId], references: [id])
+  items      OrderItem[]
+  redemptions CouponRedemption[]
+  refunds    Refund[]
+
+  @@index([orderNumber])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([createdAt])
+  @@map("orders")
+}
+
+model OrderItem {
+  id           String  @id @default(cuid())
+  orderId      String
+  productId    String?
+  productName  String
+  productImage String?
+  // 下单规格快照（[{ name, value }]）
+  attributes   Json?
+  sku          String
+  price        Decimal @db.Decimal(10, 2)
+  quantity     Int
+  subtotal     Decimal @db.Decimal(10, 2)
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  review  Review?
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+// ============ 评价 ============
+
+model Review {
+  id                 String   @id @default(cuid())
+  userId             String
+  productId          String
+  orderItemId        String?  @unique
+  rating             Int // 1-5
+  title              String?
+  comment            String
+  images             Json     @default("[]")
+  isVerifiedPurchase Boolean  @default(true)
+  isHidden           Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, productId])
+  @@index([productId, isHidden, createdAt])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// ============ 收藏 ============
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("favorites")
+}
+
+// ============ 优惠券 ============
+
+model Coupon {
+  id          String     @id @default(cuid())
+  code        String     @unique
+  type        CouponType
+  value       Decimal    @db.Decimal(10, 2) // 百分比(0-100) / 固定金额 / 0
+  minSpend    Decimal    @default(0) @db.Decimal(10, 2)
+  maxDiscount Decimal?   @db.Decimal(10, 2)
+  startsAt    DateTime
+  endsAt      DateTime
+  usageLimit  Int        @default(0) // 0 = 不限
+  usedCount   Int        @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  redemptions CouponRedemption[]
+
+  @@index([code])
+  @@index([isActive, startsAt, endsAt])
+  @@map("coupons")
+}
+
+model CouponRedemption {
+  id             String   @id @default(cuid())
+  couponId       String
+  userId         String
+  orderId        String
+  discountAmount Decimal  @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id])
+  user   User   @relation(fields: [userId], references: [id])
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, orderId])
+  @@index([userId])
+  @@map("coupon_redemptions")
+}
+
+// ============ 退款 ============
+
+model Refund {
+  id        String       @id @default(cuid())
+  orderId   String
+  userId    String
+  reason    String
+  amount    Decimal      @db.Decimal(10, 2)
+  status    RefundStatus @default(REQUESTED)
+  adminNote String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("refunds")
+}
+
+// ============ 审计日志 ============
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([userId])
+  @@index([entity, entityId])
+  @@map("audit_logs")
+}
+
+// ============ 站点设置 ============
+
+model SiteSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("site_settings")
+}
+
+/// 到货通知（售罄商品 PDP 的 Notify me 订阅）
+model NotifyMe {
+  id        String    @id @default(cuid())
+  email     String    @db.VarChar(254)
+  productId String?
+  /// 客户选中的规格（如 {"Color":"Black","Size":"M"}）——补货按变体提醒
+  attributes Json?
+  status    String    @default("draft") // draft=待通知 notified=已通知
+  notifiedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([email, productId])
+  @@index([createdAt])
+  @@map("notify_me")
+}
+
+/// FAQ 常见问题（后台「FAQ 管理」维护，前台 /pages/faqs 读取）
+model Faq {
+  id        String   @id @default(cuid())
+  question  String   @db.VarChar(200)
+  answer    String   @db.Text
+  sortOrder Int      @default(0)
+  published Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("faqs")
+}
+
+

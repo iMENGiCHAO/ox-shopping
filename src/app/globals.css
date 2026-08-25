@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── shop.x.com aligned palette — white canvas, near-black ink,
+       zero radius, hairline borders. Fashion-minimal system. ── */
+
+    /* ── Surfaces ─────────────────────────────────────────── */
+    --background: 0 0% 100%;          /* #FFFFFF — canvas */
+    --foreground: 0 0% 11%;           /* #1C1C1C — ink/text */
+
+    --card: 0 0% 100%;                 /* #FFFFFF */
+    --card-foreground: 0 0% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 11%;
+
+    --muted: 0 0% 93.7%;              /* #EFEFEF — product image ground */
+    --muted-foreground: 0 0% 45%;     /* #737373 — secondary text */
+
+    --border: 0 0% 86.7%;             /* #DDDDDD rgb(221) — hairline, matches shop.x.com */
+    --input: 0 0% 87%;
+    --ring: 0 0% 11%;                 /* black focus ring */
+
+    /* Primary — near-black, white text */
+    --primary: 0 0% 9%;               /* #171717 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary — pale gray panel */
+    --secondary: 0 0% 96%;            /* #F5F5F5 */
+    --secondary-foreground: 0 0% 11%;
+
+    /* Accent — hover step for black surfaces */
+    --accent: 0 0% 26%;               /* #424242 */
+    --accent-foreground: 0 0% 100%;
+
+    /* Ink — pure black chrome (header/footer/admin sidebar) */
+    --ink: 0 0% 0%;                   /* #000000 */
+    --ink-foreground: 0 0% 100%;
+
+    /* Semantic */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 60% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 11%;
+    --info: 210 90% 45%;
+    --info-foreground: 0 0% 100%;
+
+    /* Zero-radius system — every corner square */
+    --radius: 0rem;
+  }
+
+  @layer base {
+    * {
+      @apply border-border;
+    }
+    html { scroll-behavior: smooth; }
+    body {
+      @apply bg-background text-foreground antialiased;
+    }
+    ::selection {
+      background: hsl(var(--foreground));
+      color: hsl(var(--background));
+    }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+    ::-webkit-scrollbar-thumb {
+      background: hsl(0 0% 70%);
+      border: 2px solid hsl(var(--background));
+    }
+    ::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 55%); }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  }
+}
+
+@layer components {
+  .admin-ink {
+    background-color: hsl(var(--ink));
+    color: hsl(var(--ink-foreground));
+  }
+
+  /* Outline-button sweep: black fills left → right on hover (shop.x.com) */
+  .btn-sweep {
+    background-color: hsl(var(--background));
+    background-image: linear-gradient(hsl(var(--primary)), hsl(var(--primary)));
+    background-repeat: no-repeat;
+    background-size: 0% 100%;
+    background-position: left center;
+    transition:
+      background-size 0.45s cubic-bezier(0.785, 0.135, 0.15, 0.86),
+      color 0.45s cubic-bezier(0.785, 0.135, 0.15, 0.86),
+      border-color 0.2s ease;
+  }
+  .btn-sweep:hover {
+    background-size: 100% 100%;
+    color: hsl(var(--primary-foreground));
+    border-color: hsl(var(--primary));
+  }
+
+  /* Underline reveal for text links */
+  .link-underline {
+    background-image: linear-gradient(currentColor, currentColor);
+    background-repeat: no-repeat;
+    background-size: 0% 1px;
+    background-position: left bottom;
+    transition: background-size 0.3s cubic-bezier(0.785, 0.135, 0.15, 0.86);
+    padding-bottom: 1px;
+  }
+  .link-underline:hover {
+    background-size: 100% 1px;
+  }
+}
+
+@layer utilities {
+  .eyebrow {
+    @apply text-[11px] font-normal uppercase tracking-[0.18em] text-muted-foreground;
+  }
+  .focus-ring {
+    @apply outline-none ring-2 ring-foreground/40 ring-offset-2 ring-offset-background;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -1,0 +1,133 @@
+# 一键启动：docker compose up -d --build
+# 启动后访问：http://localhost:3000
+# 管理后台：http://localhost:3000/admin（admin@example.com / Admin@123456）
+# 对象存储控制台：http://localhost:9001（minioadmin / minioadmin）
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ecommerce
+      POSTGRES_DB: ecommerce
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce -d ecommerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: ecommerce-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 初始化 MinIO 存储桶（公开读）
+  minio-init:
+    image: minio/mc:latest
+    container_name: ecommerce-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/ecommerce &&
+      mc anonymous set download local/ecommerce &&
+      echo 'MinIO bucket ecommerce ready'"
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      SITE_URL: http://localhost:3000
+      DATABASE_URL: postgresql://ecommerce:ecommerce@postgres:5432/ecommerce?schema=public
+      REDIS_URL: redis://redis:6379
+      REDIS_ENABLED: "true"
+      CACHE_TTL: "60"
+      JWT_ACCESS_SECRET: docker-compose-access-secret-change-in-prod
+      JWT_REFRESH_SECRET: docker-compose-refresh-secret-change-in-prod
+      ACCESS_TOKEN_TTL: "900"
+      REFRESH_TOKEN_TTL: "604800"
+      # 本地演示默认模拟支付；接入 Stripe 时改为 stripe 并配置密钥
+      PAYMENT_MODE: mock
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""
+      CURRENCY: CNY
+      # 本地演示默认控制台邮件；可改 smtp/resend
+      MAIL_PROVIDER: console
+      MAIL_FROM: "星辰商城 <no-reply@example.com>"
+      SMTP_HOST: ""
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      # 使用 MinIO（S3 兼容）存储上传文件
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: ecommerce
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_PUBLIC_URL: http://localhost:9000/ecommerce
+      S3_FORCE_PATH_STYLE: "true"
+      UPLOAD_MAX_BYTES: "10485760"
+      SHIPPING_FEE: "10"
+      FREE_SHIPPING_THRESHOLD: "99"
+      TAX_RATE: "0"
+      ORDER_EXPIRE_SECONDS: "1800"
+      LOG_LEVEL: info
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

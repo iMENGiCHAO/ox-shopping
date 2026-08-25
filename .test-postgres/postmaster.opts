@@ -1,0 +1,1 @@
+/Volumes/Time Machine/DeepSeek/ecommerce/node_modules/@embedded-postgres/darwin-x64/native/bin/postgres "-D" "/Volumes/Time Machine/DeepSeek/ecommerce/.test-postgres" "-p" "5432"

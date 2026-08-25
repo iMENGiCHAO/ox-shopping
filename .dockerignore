@@ -1,0 +1,17 @@
+node_modules
+.next
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+deploy
+.env*
+!.env.example
+storage
+.mail-out
+coverage
+test-results
+playwright-report
+tests
+README.md
+*.md
