@@ -86,6 +86,7 @@ export const categoryCreateSchema = z.object({
     .optional(),
   description: z.string().max(500).optional().nullable(),
   image: imageUrlSchema.optional().nullable(),
+  bannerImage: imageUrlSchema.optional().nullable(),
   parentId: z.string().nullable().optional(),
   sortOrder: z.number().int().default(0),
   isActive: z.boolean().default(true),

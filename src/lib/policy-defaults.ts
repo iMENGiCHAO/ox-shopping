@@ -177,7 +177,20 @@ Cookie 是网站存储在您浏览器中的小型文本文件，用于识别您�
 ## 第三方 Cookie
 支付（Stripe）等服务可能设置必要的第三方 Cookie 以完成支付与风控。`;
 
+const ACCESSIBILITY_EN = `We are committed to making our website usable by everyone, including people with disabilities. We aim to conform to the Web Content Accessibility Guidelines (WCAG) 2.1 Level AA and follow general best practices for accessible design.
+
+The site is designed to work with screen readers, keyboard navigation and common assistive technologies. Text alternatives are provided for meaningful imagery, focus states are visible throughout the interface, and color contrast meets minimum readability thresholds.
+
+If you experience any difficulty accessing or using this store, please contact us and describe the issue along with the page address. We take feedback seriously and will do our best to provide the content you need through an alternative method.`;
+
+const ACCESSIBILITY_ZH = `我们致力于让所有人（包括残障人士）都能正常使用本网站，目标是符合 WCAG 2.1 AA 级无障碍标准，并遵循无障碍设计的通行最佳实践。
+
+网站兼容屏幕阅读器、键盘导航与常见辅助技术：为有意义的图片提供替代文本，界面焦点状态清晰可见，色彩对比度满足最低可读性要求。
+
+如果您在访问或使用本商店时遇到困难，请与我们联系并附上问题页面地址。我们认真对待每一条反馈，将尽力通过其他方式向您提供所需内容。`;
+
 export const POLICY_DEFAULTS = {
+  accessibility: { zh: ACCESSIBILITY_ZH, en: ACCESSIBILITY_EN },
   privacy: { zh: PRIVACY_ZH, en: PRIVACY_EN },
   terms: { zh: TERMS_ZH, en: TERMS_EN },
   refund: { zh: REFUND_ZH, en: REFUND_EN },
@@ -187,6 +200,7 @@ export const POLICY_DEFAULTS = {
 export type PolicyKey = keyof typeof POLICY_DEFAULTS;
 
 export const POLICY_TITLES: Record<PolicyKey, { zh: string; en: string }> = {
+  accessibility: { zh: "无障碍声明", en: "Accessibility Statement" },
   privacy: { zh: "隐私政策", en: "Privacy Policy" },
   terms: { zh: "服务条款", en: "Terms of Service" },
   refund: { zh: "退款政策", en: "Refund Policy" },

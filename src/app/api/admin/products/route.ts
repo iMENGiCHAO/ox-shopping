@@ -1,3 +1,4 @@
+import { aggregateTrackedStock } from "@/server/services/spec-stock";
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
 import { conflict } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
@@ -89,12 +90,7 @@ export const POST = apiHandler(async (req) => {
       sku: input.sku,
       price: input.price,
       isPresale: input.isPresale ?? false,
-      stock: (() => {
-        const first = input.specStock ? Object.values(input.specStock)[0] : undefined;
-        if (!first) return input.stock;
-        const counts = Object.values(first as Record<string, number>);
-        return counts.length > 0 ? counts.reduce((a, b) => a + b, 0) : input.stock;
-      })(),
+      stock: aggregateTrackedStock(input.specStock) ?? input.stock,
       isNew: input.isNew ?? false,
       isHot: input.isHot ?? false,
       sizeChart: input.sizeChart ?? Prisma.DbNull,

@@ -56,11 +56,14 @@ export function UserMenu({ user }: { user: SessionUser | null }) {
           className="h-auto gap-2 p-0 text-sm font-normal text-current opacity-65 hover:bg-transparent hover:opacity-100"
         >
           <UserCircle className="hidden h-5 w-5 sm:block" />
-          <span className="max-w-[8rem] truncate sm:max-w-none">{user.name}</span>
+          {/* 对齐官方:固定显示 Account,不渲染用户名(避免长名撑破布局) */}
+          <span>{t("Account")}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel className="truncate">{user.email}</DropdownMenuLabel>
+        <DropdownMenuLabel className="truncate">
+          {user.name ? `${user.name} · ${user.email}` : user.email}
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
           <Link href="/account/profile">

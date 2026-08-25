@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { SearchIcon } from "lucide-react";
 import { listProducts } from "@/server/services/product.service";
+import { prisma } from "@/lib/prisma";
 import { ProductCard } from "@/components/shop/product-card";
 import { toCardData } from "@/components/shop/types";
-import { getT } from "@/lib/shop-i18n-server";
+import { getT, getLang } from "@/lib/shop-i18n-server";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +22,17 @@ const SORT_OPTIONS = [
 type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 
 /** Pages tab 检索的静态页面注册表（官方 Pages 结果为 Shopify Pages） */
-const SEARCHABLE_PAGES: { title: string; href: string; keywords: string }[] = [
-  { title: "FAQs", href: "/pages/faqs", keywords: "faq faqs shipping returns order tracking payment refund pre-order presale" },
-  { title: "Accessibility Statement", href: "/pages/accessibility-statement", keywords: "accessibility wcag screen reader disability" },
-  { title: "Privacy Policy", href: "/policies/privacy", keywords: "privacy data personal information cookies gdpr" },
-  { title: "Terms and Conditions", href: "/policies/terms", keywords: "terms conditions service legal agreement" },
-  { title: "Cookie Consent", href: "/policies/cookies", keywords: "cookie consent tracking storage policy" },
+const SEARCHABLE_PAGES: {
+  title: string;
+  titleZh: string;
+  href: string;
+  keywords: string;
+}[] = [
+  { title: "FAQs", titleZh: "常见问题", href: "/pages/faqs", keywords: "faq faqs 常见问题 帮助 shipping returns 发货 退货 order tracking 订单 tracking payment 支付 refund 退款 pre-order 预售 presale 预售" },
+  { title: "Accessibility Statement", titleZh: "无障碍声明", href: "/pages/accessibility-statement", keywords: "accessibility wcag screen reader disability 无障碍 读屏 辅助" },
+  { title: "Privacy Policy", titleZh: "隐私政策", href: "/policies/privacy", keywords: "privacy 数据 个人信息 privacy policy 隐私政策 gdpr cookies" },
+  { title: "Terms and Conditions", titleZh: "条款与条件", href: "/policies/terms", keywords: "terms 条款 conditions 服务条款 service legal agreement 协议" },
+  { title: "Cookie Consent", titleZh: "Cookie 同意", href: "/policies/cookies", keywords: "cookie consent 追踪 存储 cookie 同意 tracking storage" },
 ];
 
 interface SearchPageProps {
@@ -101,6 +107,7 @@ function ToolbarPopover({
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const t = getT();
+  const lang = getLang();
   const sp = searchParams;
   const q = (typeof sp.q === "string" ? sp.q : "").trim().slice(0, 80);
   const rawSort = typeof sp.sort === "string" ? sp.sort : "relevance";
@@ -163,9 +170,35 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   });
 
   const ql = q.toLowerCase();
+  // 页面命中：标题(中/英)子串 或 关键词(中/英)子串
   const matchedPages = SEARCHABLE_PAGES.filter(
-    (pg) => pg.title.toLowerCase().includes(ql) || pg.keywords.split(" ").some((k) => k === ql),
+    (pg) =>
+      pg.title.toLowerCase().includes(ql) ||
+      pg.titleZh.includes(q) ||
+      pg.keywords
+        .toLowerCase()
+        .split(" ")
+        .some((k) => k.includes(ql)),
   );
+
+  // FAQ 内容命中（后台可维护的真实页面内容）：问题或答案包含关键词
+  let faqHits: { question: string; answer: string }[] = [];
+  try {
+    faqHits = await prisma.faq.findMany({
+      where: {
+        published: true,
+        OR: [
+          { question: { contains: q, mode: "insensitive" } },
+          { answer: { contains: q, mode: "insensitive" } },
+        ],
+      },
+      orderBy: [{ sortOrder: "asc" }],
+      take: 6,
+      select: { question: true, answer: true },
+    });
+  } catch {
+    /* DB 故障时 Pages 结果退化为静态注册表 */
+  }
 
   const commonOverrides = {
     sort: sort !== "relevance" ? sort : undefined,
@@ -180,8 +213,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <section className="pt-16 text-center">
         <h1 className="text-[28px] font-normal leading-tight text-foreground">{t("Search")}</h1>
         <p className="mt-4 text-[15px] font-normal text-foreground">
-          {(tab === "pages" ? matchedPages.length : total)}{" "}
-          {(tab === "pages" ? matchedPages.length : total) === 1
+          {(tab === "pages" ? matchedPages.length + faqHits.length : total)}{" "}
+          {(tab === "pages" ? matchedPages.length + faqHits.length : total) === 1
             ? t("result for")
             : t("results for")}{" "}
           &quot;{q}&quot;
@@ -206,8 +239,77 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         ))}
       </div>
 
-      {/* 工具行 — 右侧 Filters(移动端) + Sort by 弹层（官方 y320 h54） */}
+      {/* 工具行 — 最左 Availability/Price(桌面) · Filters(移动端) · 右 Sort by（官方 y320 h54） */}
       <div className="mt-12 flex h-[54px] items-center justify-end gap-8">
+        {/* Availability — 官方桌面端位于工具行最左 */}
+        <div className="mr-auto hidden lg:block">
+          <ToolbarPopover label={t("Availability")}>
+            <div className="absolute left-0 top-full z-30 w-64 border border-border bg-background p-5 shadow-lg">
+              <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
+                {t("Availability")}
+              </p>
+              <Link
+                href={buildSearchUrl(q, {
+                  ...commonOverrides,
+                  in_stock: inStock ? undefined : "1",
+                  tab: tab === "pages" ? "pages" : undefined,
+                })}
+                className="mt-3 flex items-center justify-between text-[13px] text-foreground transition-opacity hover:opacity-70"
+                aria-pressed={inStock}
+              >
+                <span>{t("In stock only")}</span>
+                {inStock ? (
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path d="m2 7.5 3.2 3L12 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="square" />
+                  </svg>
+                ) : (
+                  <span className="inline-block h-3.5 w-3.5 border border-foreground/40" />
+                )}
+              </Link>
+            </div>
+          </ToolbarPopover>
+        </div>
+
+        {/* Price — 官方独立弹层 */}
+        <div className="hidden lg:block">
+          <ToolbarPopover label={t("Price")}>
+            <form
+              action="/search"
+              method="get"
+              className="absolute right-0 top-full z-30 w-72 space-y-4 border border-border bg-background p-5 shadow-lg"
+            >
+              <input type="hidden" name="q" value={q} />
+              {sort !== "relevance" ? <input type="hidden" name="sort" value={sort} /> : null}
+              {inStock ? <input type="hidden" name="in_stock" value="1" /> : null}
+              {tab === "pages" ? <input type="hidden" name="tab" value="pages" /> : null}
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] opacity-70">$</span>
+                <input
+                  type="number"
+                  name="price_min"
+                  min="0"
+                  defaultValue={typeof sp.price_min === "string" ? sp.price_min : ""}
+                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
+                />
+                <span className="text-[13px] opacity-70">{t("to")}</span>
+                <span className="text-[13px] opacity-70">$</span>
+                <input
+                  type="number"
+                  name="price_max"
+                  min="0"
+                  defaultValue={typeof sp.price_max === "string" ? sp.price_max : ""}
+                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
+                />
+              </div>
+              <button
+                type="submit"
+                className="h-[46px] w-full bg-primary text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
+              >
+                {t("View results")}
+              </button>
+            </form>
+          </ToolbarPopover>
+        </div>
         {/* Filters — 官方桌面端隐藏，仅移动端抽屉；此处用弹层等效 */}
         <details className="group relative lg:hidden">
           <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] uppercase tracking-[0.08em] text-foreground [&::-webkit-details-marker]:hidden">
@@ -297,19 +399,46 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
         <div className="min-w-0 flex-1">
           {tab === "pages" ? (
-            matchedPages.length > 0 ? (
-              <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 sm:gap-x-3 min-[1400px]:grid-cols-4">
-                {matchedPages.map((pg) => (
-                  <Link
-                    key={pg.href}
-                    href={pg.href}
-                    className="group block border border-border p-5 transition-colors hover:border-foreground"
-                  >
-                    <p className="text-[15px] font-normal text-foreground underline-offset-4 group-hover:underline">
-                      {pg.title}
+            matchedPages.length > 0 || faqHits.length > 0 ? (
+              <div className="space-y-10">
+                {faqHits.length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
+                      {t("FAQs")}
                     </p>
-                  </Link>
-                ))}
+                    <div className="divide-y divide-border border border-border">
+                      {faqHits.map((f) => (
+                        <Link
+                          key={f.question}
+                          href="/pages/faqs"
+                          className="group block px-5 py-4 transition-colors hover:bg-accent"
+                        >
+                          <p className="text-[15px] text-foreground underline-offset-4 group-hover:underline">
+                            {f.question}
+                          </p>
+                          <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-foreground/65">
+                            {f.answer}
+                          </p>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {matchedPages.length > 0 ? (
+                  <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 sm:gap-x-3 min-[1400px]:grid-cols-4">
+                    {matchedPages.map((pg) => (
+                      <Link
+                        key={pg.href}
+                        href={pg.href}
+                        className="group block border border-border p-5 transition-colors hover:border-foreground"
+                      >
+                        <p className="text-[15px] font-normal text-foreground underline-offset-4 group-hover:underline">
+                          {t("Accessibility Statement") && lang === "zh" ? pg.titleZh : pg.title}
+                        </p>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="py-16 text-center text-[15px] text-foreground/70">{t("No results found.")}</p>

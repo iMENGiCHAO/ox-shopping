@@ -37,6 +37,7 @@ export interface AdminCategory extends AdminCategoryOption {
   slug: string;
   description: string | null;
   image: string | null;
+  bannerImage?: string | null;
   sortOrder: number;
   isActive: boolean;
   /** 商品数(接口可能以 _count.products 或 productCount 返回) */

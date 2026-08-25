@@ -157,31 +157,40 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
     name: "attributes",
   });
 
-  // 规格库存（按尺寸，0 = 售罄）：从可选属性组推导
+  // 规格库存（每个可选组独立维护，0 = 该规格售罄；颜色/尺码等一视同仁）
   const attrWatch = form.watch("attributes");
-  const sizeGroup = React.useMemo(() => {
-    const groups = (attrWatch ?? [])
-      .map((a) => ({
-        name: a.name.trim(),
-        values: a.values.split(/[,，、]/).map((v) => v.trim()).filter(Boolean),
-        selectable: a.selectable,
-      }))
-      .filter((a) => a.selectable && a.name && /size|尺码|規格/i.test(a.name));
-    return groups[0] ?? null;
-  }, [attrWatch]);
-  const initialSpec = (initial?.specStock?.[sizeGroup?.name ?? "Size"] ?? {}) as Record<string, number>;
-  const [specStockMap, setSpecStockMap] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries((sizeGroup?.values ?? Object.keys(initialSpec)).map((v) => [v, String(initialSpec[v] ?? "")])),
+  const selectableGroups = React.useMemo(
+    () =>
+      (attrWatch ?? [])
+        .map((a) => ({
+          name: a.name.trim(),
+          values: a.values.split(/[,，、]/).map((v) => v.trim()).filter(Boolean),
+          selectable: a.selectable,
+        }))
+        .filter((a) => a.selectable && a.name && a.values.length > 0),
+    [attrWatch],
   );
-  // 切换尺寸组时补齐缺失键
+  const initialSpecAll = (initial?.specStock ?? {}) as Record<string, Record<string, number>>;
+  /** { 组名: { 规格值: 输入框字符串 } }，"" = 未追踪 */
+  const [specMaps, setSpecMaps] = React.useState<Record<string, Record<string, string>>>(() =>
+    Object.fromEntries(
+      Object.entries(initialSpecAll).map(([g, m]) => [
+        g,
+        Object.fromEntries(Object.entries(m).map(([v, n]) => [v, String(n)])),
+      ]),
+    ),
+  );
+  // 属性组/规格值变化时补齐缺失键（保留已填数字）
   React.useEffect(() => {
-    if (!sizeGroup) return;
-    setSpecStockMap((prev) => {
-      const next = { ...prev };
-      for (const v of sizeGroup.values) if (!(v in next)) next[v] = "";
+    setSpecMaps((prev) => {
+      const next: typeof prev = {};
+      for (const g of selectableGroups) {
+        next[g.name] = { ...(prev[g.name] ?? {}) };
+        for (const v of g.values) if (!(v in next[g.name]!)) next[g.name]![v] = "";
+      }
       return next;
     });
-  }, [sizeGroup]);
+  }, [selectableGroups]);
 
   // 参数表编辑（官方 Size Chart 结构：headers + rows）
   const [chart, setChart] = React.useState<{ headers: string[]; rows: string[][] }>(
@@ -199,14 +208,20 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         selectable: a.selectable,
       }))
       .filter((a) => a.name && a.values.length > 0);
-    // 规格库存：有输入时汇总写回总库存；全空则视为未使用
-    const specEntries = Object.entries(specStockMap).filter(([, v]) => v !== "");
-    const specStock =
-      sizeGroup && specEntries.length > 0
-        ? ({ [sizeGroup.name]: Object.fromEntries(specEntries.map(([k, v]) => [k, Math.max(0, Number(v) || 0)])) } as Record<string, Record<string, number>>)
-        : null;
+    // 规格库存：收集全部可选组有输入的条目（留空 = 不追踪该值）
+    const specStock: Record<string, Record<string, number>> | null = (() => {
+      const out: Record<string, Record<string, number>> = {};
+      for (const g of selectableGroups) {
+        const entries = Object.entries(specMaps[g.name] ?? {}).filter(([, v]) => v !== "");
+        if (entries.length > 0)
+          out[g.name] = Object.fromEntries(entries.map(([k, v]) => [k, Math.max(0, Number(v) || 0)]));
+      }
+      return Object.keys(out).length > 0 ? out : null;
+    })();
+    // 一致性规则：整件库存 = min(各组规格之和)。任一维度的池都是可售上限，
+    // 取最小值保证 Color×Size 任选组合都不会超卖（与下单扣减口径一致）。
     const summedStock = specStock
-      ? Object.values(Object.values(specStock)[0] ?? {}).reduce((a, b) => a + b, 0)
+      ? Math.min(...Object.values(specStock).map((m) => Object.values(m).reduce((a, b) => a + b, 0)))
       : null;
     const chartClean = {
       headers: chart.headers.map((h) => h.trim()).filter(Boolean),
@@ -362,36 +377,50 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         </div>
 
         {/* 规格级库存（不同尺寸 = 单独规格商品，0 = 售罄） */}
-        {sizeGroup ? (
-          <div className="space-y-2 rounded-lg border border-border p-3 sm:col-span-2">
+        {selectableGroups.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-border p-3 sm:col-span-2">
             <div>
-              <Label>规格库存 · {sizeGroup.name}（0 = 该规格售罄）</Label>
+              <Label>规格库存（每个可选组单独维护，0 = 该规格售罄）</Label>
               <p className="text-xs text-muted-foreground">
-                每个尺寸相当于独立规格商品；保存后总库存 = 各规格之和，前台对应尺寸显示售罄状态
+                颜色、尺码等每个选项都是独立的库存池；保存后总库存自动取各组之和的最小值，
+                前台售罄的选项会画斜线并禁止选择。留空 = 不追踪该选项。
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {sizeGroup.values.map((v) => (
-                <div key={v} className="w-24 space-y-1">
-                  <Input
-                    inputMode="numeric"
-                    placeholder={v}
-                    value={specStockMap[v] ?? ""}
-                    onChange={(e) => {
-                      const val = e.target.value.replace(/[^0-9]/g, "");
-                      setSpecStockMap((prev) => ({ ...prev, [v]: val }));
-                      if (val !== "") {
-                        const sum = Object.entries({ ...specStockMap, [v]: val })
-                          .filter(([, n]) => n !== "")
-                          .reduce((acc, [, n]) => acc + (Number(n) || 0), 0);
-                        form.setValue("stock", String(sum), { shouldDirty: true });
-                      }
-                    }}
-                  />
-                  <p className="text-center text-[11px] text-muted-foreground">{v}</p>
+            {selectableGroups.map((g) => (
+              <div key={g.name} className="space-y-2">
+                <p className="text-[13px] font-medium">规格库存 · {g.name}</p>
+                <div className="flex flex-wrap gap-2">
+                  {g.values.map((v) => (
+                    <div key={v} className="w-24 space-y-1">
+                      <Input
+                        inputMode="numeric"
+                        placeholder={specMaps[g.name]?.[v] ?? ""}
+                        value={specMaps[g.name]?.[v] ?? ""}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/g, "");
+                          setSpecMaps((prev) => ({ ...prev, [g.name]: { ...(prev[g.name] ?? {}), [v]: val } }));
+                          // 实时联动：总库存 = min(各组之和)
+                          const draft = structuredClone(specMaps);
+                          draft[g.name] = { ...(draft[g.name] ?? {}), [v]: val };
+                          const sums = Object.entries(draft)
+                            .map(([gn, m]) => ({
+                              tracked: Object.values(m).some((n) => n !== ""),
+                              sum: Object.values(m)
+                                .filter((n) => n !== "")
+                                .reduce((acc, n) => acc + (Number(n) || 0), 0),
+                            }))
+                            .filter((g2) => g2.tracked)
+                            .map((g2) => g2.sum);
+                          if (sums.length > 0)
+                            form.setValue("stock", String(Math.min(...sums)), { shouldDirty: true });
+                        }}
+                      />
+                      <p className="text-center text-[11px] text-muted-foreground">{v}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
         ) : null}
 

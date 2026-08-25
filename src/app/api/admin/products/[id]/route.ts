@@ -3,6 +3,7 @@ import { conflict } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import { getProductById } from "@/server/services/product.service";
 import { notifyRestock } from "@/server/services/notify-me.service";
+import { aggregateTrackedStock } from "@/server/services/spec-stock";
 import { serializeProduct } from "@/server/serializers";
 import { invalidateProductsCache } from "@/lib/cache";
 import { audit } from "@/lib/audit";
@@ -38,14 +39,8 @@ export const PUT = apiHandler(async (req, ctx) => {
   }
 
   const { sizeChart, specStock, ...rest } = input;
-  // 规格级库存提供时，总库存 = 各规格之和（后台与前台口径一致）
-  let summedStock: number | undefined;
-  if (specStock) {
-    const firstGroup = Object.values(specStock)[0];
-    if (firstGroup && Object.keys(firstGroup).length > 0) {
-      summedStock = Object.values(firstGroup).reduce((a, b) => a + b, 0);
-    }
-  }
+  // 一致性兜底：带规格库存时总库存强制 = min(各组之和)，杜绝整件数与规格数漂移
+  const summedStock = specStock !== undefined ? aggregateTrackedStock(specStock) ?? undefined : undefined;
   const product = await prisma.product.update({
     where: { id },
     data: {

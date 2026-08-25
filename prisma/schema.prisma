@@ -126,6 +126,8 @@ model Category {
   slug      String  @unique
   description String?
   image     String?
+  /// 落地页顶部全宽大横幅(与列表卡片 image 相互独立)
+  bannerImage String?
   parentId  String?
   sortOrder Int     @default(0)
   isActive  Boolean @default(true)

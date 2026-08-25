@@ -77,6 +77,20 @@ export function planSpecDeduction(
   return { ok: true, deducted, next };
 }
 
+/**
+ * 整件库存与规格库存的一致性口径：
+ * 总可售量 = min(每个被追踪组的规格之和)。任一维度的池都是上限，
+ * 取最小值保证 Color×Size 任选组合都不会超卖（与下单扣减口径一致）。
+ * 无任何被追踪数据时返回 null（表示未启用规格库存管理）。
+ */
+export function aggregateTrackedStock(specRaw: unknown): number | null {
+  const spec = parseSpecStock(specRaw);
+  const sums = Object.values(spec)
+    .filter((m) => Object.keys(m).length > 0)
+    .map((m) => Object.values(m).reduce((a, b) => a + b, 0));
+  return sums.length > 0 ? Math.min(...sums) : null;
+}
+
 /** 取消订单时按记录精确回补规格库存 */
 export function applySpecRestock(
   specRaw: unknown,

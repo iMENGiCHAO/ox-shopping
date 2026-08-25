@@ -76,6 +76,12 @@ const categoryFormSchema = z
       .refine((v) => v === "" || /^https?:\/\//.test(v), "Please enter a valid image URL (http/https)")
       .optional()
       .or(z.literal("")),
+    bannerImage: z
+      .string()
+      .max(2048)
+      .refine((v) => v === "" || /^https?:\/\//.test(v), "Please enter a valid image URL (http/https)")
+      .optional()
+      .or(z.literal("")),
     parentId: z.string().optional().or(z.literal("")),
     sortOrder: z.string().min(1, "Please enter a sort order"),
     isActive: z.boolean().default(true),
@@ -172,6 +178,7 @@ export default function AdminCategoriesPage() {
       slug: editing?.slug ?? "",
       description: editing?.description ?? "",
       image: editing?.image ?? "",
+      bannerImage: editing?.bannerImage ?? "",
       parentId: editing?.parentId ?? "",
       sortOrder: String(editing?.sortOrder ?? 0),
       isActive: editing?.isActive ?? true,
@@ -235,6 +242,7 @@ export default function AdminCategoriesPage() {
       slug: values.slug || undefined,
       description: values.description || null,
       image: values.image || null,
+      bannerImage: values.bannerImage || null,
       parentId: values.parentId || null,
       sortOrder: Number(values.sortOrder),
       isActive: values.isActive,
@@ -554,6 +562,20 @@ export default function AdminCategoriesPage() {
               <Input id="cat-image" placeholder="https://..." {...form.register("image")} />
               {form.formState.errors.image ? (
                 <p className="text-xs text-destructive">{form.formState.errors.image.message}</p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cat-banner">Landing hero banner (full-width image at the top of this collection&apos;s page)</Label>
+              <ImageUploader
+                value={form.watch("bannerImage") ? [form.watch("bannerImage")!] : []}
+                onChange={(urls) =>
+                  form.setValue("bannerImage", urls[0] ?? "", { shouldValidate: true })
+                }
+                max={1}
+              />
+              <Input id="cat-banner" placeholder="https://..." {...form.register("bannerImage")} />
+              {form.formState.errors.bannerImage ? (
+                <p className="text-xs text-destructive">{form.formState.errors.bannerImage.message}</p>
               ) : null}
             </div>
             <div className="space-y-2">

@@ -157,6 +157,8 @@ export interface CategoryNode {
   slug: string;
   description: string | null;
   image: string | null;
+  /** 落地页顶部全宽大横幅(独立于列表卡片图) */
+  bannerImage?: string | null;
   sortOrder: number;
   children: CategoryNode[];
   productCount?: number;
@@ -191,6 +193,7 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
       slug: c.slug,
       description: c.description,
       image: c.image,
+      bannerImage: c.bannerImage,
       sortOrder: c.sortOrder,
       children: [],
       productCount: c._count.products,

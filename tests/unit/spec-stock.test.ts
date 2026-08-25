@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aggregateTrackedStock,
   applySpecRestock,
   parseSpecStock,
   planSpecDeduction,
@@ -89,5 +90,27 @@ describe("applySpecRestock(取消回补)", () => {
   it("畸形键安全跳过", () => {
     const next = applySpecRestock({ Color: { Black: 1 } }, { "BadKey": 5, "Color/Black": 1 });
     expect(next!.Color!.Black).toBe(2);
+  });
+});
+
+
+describe("aggregateTrackedStock — 整件库存与规格库存一致性口径", () => {
+  it("单组：总库存 = 该组之和", () => {
+    expect(aggregateTrackedStock({ Size: { S: 3, M: 4 } })).toBe(7);
+  });
+
+  it("多组(Color×Size)：取各组之和的最小值，任一维度都是上限", () => {
+    // Color Σ=8，Size Σ=12 → 可售上限由 Color 决定
+    expect(aggregateTrackedStock({ Color: { 黑: 5, 白: 3 }, Size: { M: 10, L: 2 } })).toBe(8);
+  });
+
+  it("某组售罄(全 0) → 总库存为 0", () => {
+    expect(aggregateTrackedStock({ Color: { 红: 0 }, Size: { M: 9 } })).toBe(0);
+  });
+
+  it("空映射/无追踪数据返回 null（表示未启用规格库存）", () => {
+    expect(aggregateTrackedStock({})).toBeNull();
+    expect(aggregateTrackedStock(null)).toBeNull();
+    expect(aggregateTrackedStock({ Color: {} })).toBeNull();
   });
 });

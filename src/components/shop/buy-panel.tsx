@@ -5,6 +5,7 @@ import { QuantityInput } from "@/components/shop/quantity-input";
 import { AddToCartButton } from "@/components/shop/add-to-cart-button";
 import { BuyNowButton } from "@/components/shop/buy-now-button";
 import type { SpecSelection } from "@/components/shop/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/shop/lang-provider";
 
@@ -114,7 +115,8 @@ export function BuyPanel({
                   <div className="flex flex-wrap gap-2.5">
                     {g.values.map((v) => {
                       const active = selections[g.name] === v;
-                      const out = soldOut.includes(v);
+                      /* 官方：部分缺货或整件售罄均画反斜杠；整件售罄仍可点（到货提醒） */
+                      const out = soldOut.includes(v) || disabled;
                       return (
                         <button
                           key={v}
@@ -126,24 +128,20 @@ export function BuyPanel({
                           aria-pressed={active}
                           onClick={() => setSelections((s) => ({ ...s, [g.name]: v }))}
                           className={cn(
-                            "relative h-[34px] w-[34px] overflow-hidden rounded-full border p-0 transition-colors",
+                            "relative h-[34px] w-[34px] rounded-full border p-0 transition-colors",
                             active ? "border-foreground" : "border-transparent hover:border-border",
                             !disabled && out && "cursor-not-allowed",
                           )}
                         >
                           <span
-                            className="block h-full w-full rounded-full border border-black/10"
+                            className="block h-full w-full overflow-hidden rounded-full border border-black/10"
                             style={{ backgroundColor: COLOR_HEX[v] ?? "#D4D4D4" }}
                           />
-                          {/* 官方售罄样式：与官方同款渐变画斜线（"/"，被圆形裁切不出头） */}
+                          {/* 官方售罄样式：反斜杠细线，两端略超出圆外更易识别 */}
                           {out ? (
                             <span
                               aria-hidden="true"
-                              className="pointer-events-none absolute inset-0 rounded-full"
-                              style={{
-                                background:
-                                  "linear-gradient(to right bottom, transparent calc(50% - 0.5px), #1c1c1c calc(50% - 0.5px), #1c1c1c calc(50% + 0.5px), transparent calc(50% + 0.5px))",
-                              }}
+                              className="pointer-events-none absolute left-1/2 top-1/2 h-[1.5px] w-[42px] -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full bg-[#1c1c1c]"
                             />
                           ) : null}
                         </button>
@@ -151,24 +149,37 @@ export function BuyPanel({
                     })}
                   </div>
                 ) : (
-                  /* Square full-width select — sold-out values struck through */
-                  <select
+                  /* Square full-width select — dropdown matches trigger width,
+                     anchored directly below it (official behaviour) */
+                  <Select
                     value={selections[g.name] ?? ""}
-                    onChange={(e) => setSelections((s) => ({ ...s, [g.name]: e.target.value }))}
-                    className="h-[46px] w-full max-w-xs border border-input bg-card px-3 text-sm text-foreground focus:border-foreground focus:outline-none"
-                    aria-label={g.name}
+                    onValueChange={(v) => setSelections((s) => ({ ...s, [g.name]: v }))}
                   >
-                    {g.values.map((v) => (
-                      <option
-                        key={v}
-                        value={v}
-                        /* 整件售罄时全部可选（到货提醒用）；仅部分缺货的值禁用 */
-                        disabled={!disabled && soldOut.includes(v)}
-                      >
-                        {soldOut.includes(v) ? `${v} — ${t("Sold out")}` : v}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger
+                      aria-label={g.name}
+                      className="h-[46px] w-full max-w-xs rounded-none border-input bg-card px-3 text-sm text-foreground focus:outline-none focus-visible:ring-0 data-[state=open]:border-foreground"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent
+                      position="popper"
+                      sideOffset={2}
+                      align="start"
+                      className="w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
+                    >
+                      {g.values.map((v) => (
+                        <SelectItem
+                          key={v}
+                          value={v}
+                          /* 整件售罄时全部可选（到货提醒用）；仅部分缺货的值禁用 */
+                          disabled={!disabled && soldOut.includes(v)}
+                          className="text-sm"
+                        >
+                          {soldOut.includes(v) ? `${v} — ${t("Sold out")}` : v}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               </div>
             );

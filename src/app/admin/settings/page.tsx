@@ -4,11 +4,10 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { FileText, Globe, Info, Loader2, Save } from "lucide-react";
+import { Globe, Info, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
-import { POLICY_DEFAULTS } from "@/lib/policy-defaults";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AccountSettings } from "@/components/admin/account-settings";
 import { Button } from "@/components/ui/button";
@@ -37,21 +36,9 @@ const settingsFormSchema = z.object({
   // Policy content — stored as the canonical (language-neutral) text. The service
   // layer wraps it as { zh, en } on read for the policy pages, which fall back to
   // the value when a language-specific entry is missing.
-  policyPrivacy: z.string().max(20000).default(""),
-  policyTerms: z.string().max(20000).default(""),
-  policyRefund: z.string().max(20000).default(""),
-  policyCookies: z.string().max(20000).default(""),
 });
 
 type SettingsFormValues = z.infer<typeof settingsFormSchema>;
-
-// Backwards-compatible fallback for old single-locale seed values.
-const POLICY_FALLBACK = {
-  privacy: POLICY_DEFAULTS.privacy.en || POLICY_DEFAULTS.privacy.zh || "",
-  terms: POLICY_DEFAULTS.terms.en || POLICY_DEFAULTS.terms.zh || "",
-  refund: POLICY_DEFAULTS.refund.en || POLICY_DEFAULTS.refund.zh || "",
-  cookies: POLICY_DEFAULTS.cookies.en || POLICY_DEFAULTS.cookies.zh || "",
-};
 
 const DEFAULT_VALUES: SettingsFormValues = {
   siteName: "",
@@ -62,10 +49,6 @@ const DEFAULT_VALUES: SettingsFormValues = {
   seoKeywords: "",
   announcementEnabled: false,
   announcement: "",
-  policyPrivacy: POLICY_FALLBACK.privacy,
-  policyTerms: POLICY_FALLBACK.terms,
-  policyRefund: POLICY_FALLBACK.refund,
-  policyCookies: POLICY_FALLBACK.cookies,
 };
 
 /** safely get a string value from arbitrary API key-value pairs (handles i18n objects). */
@@ -111,10 +94,6 @@ export default function AdminSettingsPage() {
           settings?.announcementEnabled === true ||
           settings?.announcementEnabled === "true",
         announcement: pickString(settings, "announcement"),
-        policyPrivacy: pickString(settings, "policyPrivacy") || POLICY_FALLBACK.privacy,
-        policyTerms: pickString(settings, "policyTerms") || POLICY_FALLBACK.terms,
-        policyRefund: pickString(settings, "policyRefund") || POLICY_FALLBACK.refund,
-        policyCookies: pickString(settings, "policyCookies") || POLICY_FALLBACK.cookies,
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load site settings");
@@ -293,56 +272,6 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Policy pages */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <FileText className="h-4 w-4 text-muted-foreground" />
-              {t('Policy pages')}
-            </CardTitle>
-            <CardDescription>
-              {t("Edit the storefront Privacy / Terms / Refund / Cookie policy content here.")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="st-policy-privacy">{t("Privacy policy")}</Label>
-              <Textarea
-                id="st-policy-privacy"
-                rows={10}
-                className="font-mono text-xs leading-relaxed"
-                {...form.register("policyPrivacy")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="st-policy-terms">{t("Terms of service")}</Label>
-              <Textarea
-                id="st-policy-terms"
-                rows={10}
-                className="font-mono text-xs leading-relaxed"
-                {...form.register("policyTerms")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="st-policy-refund">{t("Refund policy")}</Label>
-              <Textarea
-                id="st-policy-refund"
-                rows={10}
-                className="font-mono text-xs leading-relaxed"
-                {...form.register("policyRefund")}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="st-policy-cookies">{t("Cookie policy")}</Label>
-              <Textarea
-                id="st-policy-cookies"
-                rows={10}
-                className="font-mono text-xs leading-relaxed"
-                {...form.register("policyCookies")}
-              />
-            </div>
-          </CardContent>
-        </Card>
 
         {/* Environment variable notice */}
         <Card className="border-dashed">

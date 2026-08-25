@@ -102,6 +102,10 @@ export default async function ProductDetailPage({ params }: DetailPageProps) {
       }
       return { name, values, soldOutValues };
     });
+  // 预售商品按预订售卖：不因整件/规格库存为 0 而禁选规格
+  const effectiveSelectable = product.isPresale
+    ? selectableAttributes.map((g) => ({ ...g, soldOutValues: [] as string[] }))
+    : selectableAttributes;
   const infoAttributes = attributes.filter((a) => a.selectable !== true);
   const price = toNumberPrice(product.price);
   const inStock = product.stock > 0;
@@ -216,7 +220,7 @@ export default async function ProductDetailPage({ params }: DetailPageProps) {
             isPresale={product.isPresale}
             defaultEmail={user?.email ?? undefined}
             productName={productName}
-            selectableAttributes={selectableAttributes}
+            selectableAttributes={effectiveSelectable}
             descriptionSlot={
               productDesc ? (
                 <div className="mt-6 space-y-4 text-[13px] leading-relaxed text-foreground/80">

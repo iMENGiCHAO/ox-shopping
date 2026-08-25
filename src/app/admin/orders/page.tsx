@@ -58,6 +58,7 @@ export default function AdminOrdersPage() {
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("all");
+  const [presaleOnly, setPresaleOnly] = React.useState(false);
 
   const [drawerOrder, setDrawerOrder] = React.useState<AdminOrder | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
@@ -69,7 +70,7 @@ export default function AdminOrdersPage() {
 
   React.useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, statusFilter]);
+  }, [debouncedSearch, statusFilter, presaleOnly]);
 
   const load = React.useCallback(async () => {
     const params = new URLSearchParams();
@@ -77,6 +78,7 @@ export default function AdminOrdersPage() {
     params.set("pageSize", String(PAGE_SIZE));
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (statusFilter !== "all") params.set("status", statusFilter);
+    if (presaleOnly) params.set("presale", "true");
     setLoading(true);
     try {
       const res = await apiFetchRaw<AdminListResult<AdminOrder>>(
@@ -90,7 +92,7 @@ export default function AdminOrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, statusFilter]);
+  }, [page, debouncedSearch, statusFilter, presaleOnly]);
 
   React.useEffect(() => {
     void load();
@@ -101,6 +103,7 @@ export default function AdminOrdersPage() {
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (statusFilter !== "all") params.set("status", statusFilter);
+    if (presaleOnly) params.set("presale", "true");
     params.set("pageSize", "500");
     window.open(`/api/admin/orders/export?${params.toString()}`, "_blank");
   };
@@ -149,6 +152,15 @@ export default function AdminOrdersPage() {
                 ))}
               </SelectContent>
             </Select>
+            <label className="flex cursor-pointer select-none items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={presaleOnly}
+                onChange={(e) => setPresaleOnly(e.target.checked)}
+                className="h-4 w-4 accent-foreground"
+              />
+              {t("Pre-order only")}
+            </label>
           </div>
         </CardContent>
       </Card>

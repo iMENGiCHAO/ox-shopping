@@ -46,9 +46,18 @@ function readPolicy(value: PolicyValue, key: PolicyKey): { zh: string; en: strin
   };
 }
 
-/** Get the policy text for a given language — convenience used by the policy pages. */
+/**
+ * Get the policy text for a given language — convenience used by the policy pages.
+ * 优先级:后台自定义(当前语言) > 后台自定义(另一语言) > 内置默认。
+ * 后台「法务页面」保存的内容必须能即时生效,不得被内置默认遮蔽。
+ */
 export function getPolicyText(map: PolicyContentMap, key: PolicyKey, lang: Lang): string {
-  return getPolicyContent(key, lang) || map[key][lang] || map[key].en || POLICY_DEFAULTS[key].en;
+  const custom = map?.[key];
+  if (custom) {
+    const otherLang: Lang = lang === "zh" ? "en" : "zh";
+    return custom[lang] || custom[otherLang] || getPolicyContent(key, lang);
+  }
+  return getPolicyContent(key, lang);
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
@@ -102,6 +111,7 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     announcementEnabled: map.announcementEnabled === true,
     announcement: typeof map.announcement === "string" ? map.announcement : "",
     policies: {
+      accessibility: readPolicy(map.policyAccessibility as PolicyValue, "accessibility"),
       privacy: readPolicy(map.policyPrivacy as PolicyValue, "privacy"),
       terms: readPolicy(map.policyTerms as PolicyValue, "terms"),
       refund: readPolicy(map.policyRefund as PolicyValue, "refund"),

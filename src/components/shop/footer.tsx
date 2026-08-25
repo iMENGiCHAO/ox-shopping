@@ -31,7 +31,7 @@ export async function Footer() {
             <Link
               key={link.href}
               href={link.href}
-              className="text-[15px] leading-[24.75px] opacity-65 transition-opacity hover:opacity-100"
+              className="text-[15px] leading-[24.75px] opacity-65 outline-none transition-opacity hover:opacity-100 focus-visible:[outline:none] focus-visible:[box-shadow:none] focus-visible:underline focus-visible:underline-offset-4"
             >
               {t(link.labelKey)}
             </Link>

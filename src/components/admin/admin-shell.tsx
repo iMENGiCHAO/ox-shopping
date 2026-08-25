@@ -17,6 +17,7 @@ import { Bell, Mail,ChevronsUpDown,
   Ticket,
   Users,
   MailOpen,
+  Scale,
   type LucideIcon, Images, HelpCircle } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +56,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/coupons", label: "Coupons", icon: Ticket, adminOnly: true },
   { href: "/admin/refunds", label: "Refunds", icon: RotateCcw, adminOnly: true },
   { href: "/admin/audit-logs", label: "Audit Logs", icon: ScrollText, adminOnly: true },
+  { href: "/admin/legal", label: "Legal pages", icon: Scale, adminOnly: true },
   { href: "/admin/settings", label: "Settings", icon: Settings, adminOnly: true },
 ];
 

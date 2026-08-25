@@ -33,6 +33,9 @@ export const GET = apiHandler(async (req) => {
   if (status && (ORDER_STATUSES as string[]).includes(status)) {
     where.status = status as OrderStatus;
   }
+  if (searchParam(sp, "presale") === "true") {
+    where.items = { some: { product: { isPresale: true } } };
+  }
   if (q) {
     where.OR = [
       { orderNumber: { contains: q, mode: "insensitive" } },

@@ -52,12 +52,13 @@ export default async function ProductsPage({
 
   return (
     <div className="pb-16">
-      {/* Collection hero — full-width dark banner when a collection is selected */}
-      {currentCategory?.image ? (
+      {/* Collection hero — full-width dark banner when a collection is selected.
+          优先使用分类专属落地页大横幅(bannerImage),未设置时回落列表卡片图。 */}
+      {currentCategory?.bannerImage || currentCategory?.image ? (
         <section className="relative aspect-[3.49/1] min-h-[220px] w-full overflow-hidden bg-ink">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={currentCategory.image}
+            src={currentCategory.bannerImage || currentCategory.image || ""}
             alt={catLabel(currentCategory)}
             className="h-full w-full object-cover"
           />
@@ -69,7 +70,7 @@ export default async function ProductsPage({
       ) : null}
 
       {/* Plain white heading for the unfiltered catalog (x.com /collections/all) */}
-      {!currentCategory?.image ? (
+      {!currentCategory?.bannerImage && !currentCategory?.image ? (
         <section className={cn("pb-2 pt-12 text-center")}>
           <div className="container">
             <h1 className="text-[28px] font-normal leading-tight text-foreground">
