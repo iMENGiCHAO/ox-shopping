@@ -86,15 +86,10 @@ async function seedUsers() {
 async function seedCategories() {
   const map = new Map<string, string>();
   for (const cat of xcomCategories) {
+    // 非破坏性：已存在的分类不做覆盖（保护后台编辑过的名称/图片）
     const row = await prisma.category.upsert({
       where: { slug: cat.slug },
-      update: {
-        name: cat.name,
-        nameEn: cat.nameEn,
-        sortOrder: cat.sortOrder,
-        image: cat.image,
-        description: cat.description,
-      },
+      update: {},
       create: {
         name: cat.name,
         nameEn: cat.nameEn,
@@ -111,6 +106,17 @@ async function seedCategories() {
 }
 
 async function seedProducts(categoryMap: Map<string, string>) {
+  const existingCount = await prisma.product.count();
+  if (existingCount > 0 && process.env.FORCE_RESEED !== "true") {
+    console.log(
+      `⏭ 已存在 ${existingCount} 个商品，跳过目录种子（不覆盖运营数据；如需重建请显式设置 FORCE_RESEED=true）`,
+    );
+    return;
+  }
+  if (process.env.FORCE_RESEED === "true") {
+    console.log("⚠️ FORCE_RESEED=true：清空并重建商品目录（仅限开发环境使用！）");
+    await prisma.product.deleteMany({});
+  }
   // 官方首页陈列顺序（2026-08 实测 /shop.x.com frontpage）
   const HOME_ORDER = [
     "xai-multi-tumbler", "xai-vessel", "hardcore-grok-reflective-tee",
@@ -123,16 +129,18 @@ async function seedProducts(categoryMap: Map<string, string>) {
     "x-signature-crew-sock-set", "x-embroidery-trucker-cap", "x-icon-t-shirt",
     "unisex-3d-x-logo-hoodie", "unisex-3d-logo-dad-hat",
   ];
-  // 目录为官方商店的完整镜像：整表重建（购物车行级联删除、历史订单商品置空）
-  await prisma.product.deleteMany({});
+  let created = 0;
   for (const p of xcomProducts) {
     const categoryId = categoryMap.get(p.categorySlug);
     if (!categoryId) throw new Error(`分类不存在：${p.categorySlug}`);
     // createdAt 编码官方首页陈列顺序（sort=newest 还原）；未上列表页的商品排最后
     const rank = HOME_ORDER.indexOf(p.slug);
-    const created = new Date(Date.now() - (rank >= 0 ? rank : 100 + Number(p.slug.length)) * 60_000);
-    await prisma.product.create({
-      data: {
+    const createdAt = new Date(Date.now() - (rank >= 0 ? rank : 100 + Number(p.slug.length)) * 60_000);
+    // 幂等且非破坏：缺失才创建，绝不覆盖既有商品的库存/价格/图片
+    const row = await prisma.product.upsert({
+      where: { slug: p.slug },
+      update: {},
+      create: {
         name: p.name,
         nameEn: p.nameEn,
         slug: p.slug,
@@ -147,18 +155,14 @@ async function seedProducts(categoryMap: Map<string, string>) {
         attributes: p.attributes,
         categoryId,
         status: ProductStatus.ACTIVE,
-        createdAt: created,
-        updatedAt: created,
+        createdAt,
+        updatedAt: createdAt,
       },
     });
+    if (row.createdAt.getTime() === createdAt.getTime()) created++;
   }
 
-  // 清理旧镜像分类，保证前台只陈列官方目录
-  const keptSlugs = xcomCategories.map((c) => c.slug);
-  const removedCats = await prisma.category.deleteMany({ where: { slug: { notIn: keptSlugs } } });
-  if (removedCats.count) console.log(`✓ 清理旧分类：${removedCats.count} 条`);
-
-  console.log(`✓ 商品创建完成（${xcomProducts.length} 个）`);
+  console.log(`✓ 商品创建完成（新建 ${created} 个 / 目录 ${xcomProducts.length} 个，既有数据未覆盖）`);
 }
 
 async function seedCoupons() {
@@ -246,15 +250,27 @@ async function seedSiteSettings() {
 
 async function main() {
   console.log("开始写入种子数据...");
-  await seedUsers();
+  // 演示账号门控：生产环境默认跳过（admin@example.com 等已知口令绝不入生产库）。
+  // 需要时显式设置 SEED_DEMO_ACCOUNTS=true（仅限演示/测试环境！）。
+  const seedDemo =
+    process.env.SEED_DEMO_ACCOUNTS === "true" ||
+    (process.env.NODE_ENV !== "production" && process.env.SEED_DEMO_ACCOUNTS !== "false");
+  if (seedDemo) {
+    await seedUsers();
+  } else {
+    console.log("⏭ 跳过演示账号种子（生产模式：SEED_DEMO_ACCOUNTS 未显式开启）");
+    console.log("⚠️ 生产环境请用 `npm run admin:create -- <email>` 创建首个管理员");
+  }
   const categoryMap = await seedCategories();
   await seedProducts(categoryMap);
   await seedCoupons();
   await seedSiteSettings();
   console.log("种子数据全部完成 ✔");
-  console.log("  管理员: admin@example.com / Admin@123456");
-  console.log("  用户:   user@example.com / User@123456");
-  console.log("  客服:   support@example.com / Support@123456");
+  if (seedDemo) {
+    console.log("  管理员: admin@example.com / Admin@123456");
+    console.log("  用户:   user@example.com / User@123456");
+    console.log("  客服:   support@example.com / Support@123456");
+  }
 }
 
 main()

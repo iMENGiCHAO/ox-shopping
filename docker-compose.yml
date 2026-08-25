@@ -89,6 +89,8 @@ services:
       CACHE_TTL: "60"
       JWT_ACCESS_SECRET: docker-compose-access-secret-change-in-prod
       JWT_REFRESH_SECRET: docker-compose-refresh-secret-change-in-prod
+      # ⚠️ 仅限本地一键演示：跳过生产密钥强度检查。真实部署务必删除本行并配置 ≥32 位随机密钥！
+      REQUIRE_STRONG_SECRETS: "false"
       ACCESS_TOKEN_TTL: "900"
       REFRESH_TOKEN_TTL: "604800"
       # 本地演示默认模拟支付；接入 Stripe 时改为 stripe 并配置密钥

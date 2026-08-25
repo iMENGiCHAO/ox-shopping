@@ -74,6 +74,11 @@ const envSchema = z.object({
 
   // 日志
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
+
+  // 安全:生产环境强制校验密钥强度(本地演示可显式关闭)
+  REQUIRE_STRONG_SECRETS: booleanFromString.default(
+    process.env.NODE_ENV === "production" ? "true" : "false",
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -85,6 +90,27 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+// ---------- 生产安全守卫：弱默认密钥直接拒绝启动 ----------
+{
+  const weak: string[] = [];
+  const isWeakSecret = (v: string, fallback: string) =>
+    v === fallback || v.length < 32 || /change[-_ ]?(me|in-prod)|^dev-/i.test(v);
+  if (isWeakSecret(env.JWT_ACCESS_SECRET, "dev-access-secret-change-me")) {
+    weak.push("JWT_ACCESS_SECRET");
+  }
+  if (isWeakSecret(env.JWT_REFRESH_SECRET, "dev-refresh-secret-change-me")) {
+    weak.push("JWT_REFRESH_SECRET");
+  }
+  if (weak.length > 0 && env.REQUIRE_STRONG_SECRETS) {
+    throw new Error(
+      `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)检测到不安全的 JWT 密钥：\n` +
+        weak.map((k) => `  - ${k}`).join("\n") +
+        `\n请设置 ≥32 位随机密钥(如 openssl rand -base64 48)。` +
+        `\n本地一键演示如需跳过此检查，请显式设置 REQUIRE_STRONG_SECRETS=false。`,
+    );
+  }
+}
 
 export const isProduction = env.NODE_ENV === "production";
 export const isTest = env.NODE_ENV === "test";
