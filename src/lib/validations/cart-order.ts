@@ -48,7 +48,8 @@ export const orderCreateSchema = z.object({
   items: z.array(orderItemInputSchema).min(1, "Shopping Bag为空").max(50),
   addressId: z.string().min(1, "请选择收货地址"),
   couponCode: z.string().trim().max(64).optional().nullable(),
-  shippingMethod: z.enum(["standard", "express"]).default("standard"),
+  /** 物流方式 code（DB 中 ShippingMethod.code；默认 "standard"） */
+  shippingMethod: z.string().trim().min(1).max(64).default("standard"),
   note: z.string().trim().max(300).optional().nullable(),
 });
 

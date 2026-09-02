@@ -119,15 +119,33 @@ async function seedProducts(categoryMap: Map<string, string>) {
   }
   // 官方首页陈列顺序（2026-08 实测 /shop.x.com frontpage）
   const HOME_ORDER = [
-    "xai-multi-tumbler", "xai-vessel", "hardcore-grok-reflective-tee",
-    "kids-grok-to-understand-tee", "kids-grok-to-understand-tee-copy",
-    "xai-thermal-beanie", "x-the-everything-mug", "xai-human-connection-tee",
-    "xai-dark-ani-tee", "grok-logo-tee-copy", "grok-logo-tee", "grok-logo-tee-copy-1",
-    "xai-trucker-hat", "the-xai-hoodie", "xai-dad-hat", "grok-trucker-hat",
-    "the-grok-hoodie", "xai-dad-hat-copy", "unisex-retro-x-com-short-sleeve-tee-pre-sale",
-    "unisex-retro-x-com-crewneck-pre-sale", "the-core-x-crewneck", "x-beanie",
-    "x-signature-crew-sock-set", "x-embroidery-trucker-cap", "x-icon-t-shirt",
-    "unisex-3d-x-logo-hoodie", "unisex-3d-logo-dad-hat",
+    "xai-multi-tumbler",
+    "xai-vessel",
+    "hardcore-grok-reflective-tee",
+    "kids-grok-to-understand-tee",
+    "kids-grok-to-understand-tee-copy",
+    "xai-thermal-beanie",
+    "x-the-everything-mug",
+    "xai-human-connection-tee",
+    "xai-dark-ani-tee",
+    "grok-logo-tee-copy",
+    "grok-logo-tee",
+    "grok-logo-tee-copy-1",
+    "xai-trucker-hat",
+    "the-xai-hoodie",
+    "xai-dad-hat",
+    "grok-trucker-hat",
+    "the-grok-hoodie",
+    "xai-dad-hat-copy",
+    "unisex-retro-x-com-short-sleeve-tee-pre-sale",
+    "unisex-retro-x-com-crewneck-pre-sale",
+    "the-core-x-crewneck",
+    "x-beanie",
+    "x-signature-crew-sock-set",
+    "x-embroidery-trucker-cap",
+    "x-icon-t-shirt",
+    "unisex-3d-x-logo-hoodie",
+    "unisex-3d-logo-dad-hat",
   ];
   let created = 0;
   for (const p of xcomProducts) {
@@ -135,7 +153,9 @@ async function seedProducts(categoryMap: Map<string, string>) {
     if (!categoryId) throw new Error(`分类不存在：${p.categorySlug}`);
     // createdAt 编码官方首页陈列顺序（sort=newest 还原）；未上列表页的商品排最后
     const rank = HOME_ORDER.indexOf(p.slug);
-    const createdAt = new Date(Date.now() - (rank >= 0 ? rank : 100 + Number(p.slug.length)) * 60_000);
+    const createdAt = new Date(
+      Date.now() - (rank >= 0 ? rank : 100 + Number(p.slug.length)) * 60_000,
+    );
     // 幂等且非破坏：缺失才创建，绝不覆盖既有商品的库存/价格/图片
     const row = await prisma.product.upsert({
       where: { slug: p.slug },
@@ -162,7 +182,9 @@ async function seedProducts(categoryMap: Map<string, string>) {
     if (row.createdAt.getTime() === createdAt.getTime()) created++;
   }
 
-  console.log(`✓ 商品创建完成（新建 ${created} 个 / 目录 ${xcomProducts.length} 个，既有数据未覆盖）`);
+  console.log(
+    `✓ 商品创建完成（新建 ${created} 个 / 目录 ${xcomProducts.length} 个，既有数据未覆盖）`,
+  );
 }
 
 async function seedCoupons() {
@@ -215,6 +237,59 @@ async function seedCoupons() {
   console.log("✓ 优惠券创建完成（WELCOME10 九折 / SAVE50 满300减50 / FREESHIP 免运费）");
 }
 
+/** 物流方式种子（幂等）：后台可编辑，测试与演示环境依赖 standard/express */
+async function seedShippingMethods() {
+  const methods = [
+    {
+      code: "standard",
+      name: "标准快递",
+      nameEn: "Standard",
+      description: "3-5 个工作日送达",
+      descriptionEn: "Delivery in 3-5 business days",
+      fee: 10,
+      freeOver: 200,
+      isCashOnDelivery: false,
+      sortOrder: 1,
+      etaZh: "3-5 个工作日",
+      etaEn: "3-5 business days",
+    },
+    {
+      code: "express",
+      name: "次日达",
+      nameEn: "Express",
+      description: "1-2 个工作日加急送达",
+      descriptionEn: "Express delivery in 1-2 business days",
+      fee: 25,
+      freeOver: 500,
+      isCashOnDelivery: false,
+      sortOrder: 2,
+      etaZh: "1-2 个工作日",
+      etaEn: "1-2 business days",
+    },
+    {
+      code: "cod",
+      name: "货到付款",
+      nameEn: "Cash on Delivery",
+      description: "签收时向快递员付款（运费另计）",
+      descriptionEn: "Pay on delivery (shipping fee collected separately)",
+      fee: 0,
+      freeOver: 0,
+      isCashOnDelivery: true,
+      sortOrder: 3,
+      etaZh: "3-5 个工作日",
+      etaEn: "3-5 business days",
+    },
+  ];
+  for (const m of methods) {
+    await prisma.shippingMethod.upsert({
+      where: { code: m.code },
+      update: {}, // 不覆盖后台已编辑内容
+      create: m,
+    });
+  }
+  console.log("✓ 物流方式初始化完成（standard / express / cod）");
+}
+
 async function seedSiteSettings() {
   const defaults: Record<string, unknown> = {
     siteName: "Ox Shopping",
@@ -240,8 +315,8 @@ async function seedSiteSettings() {
   for (const [key, value] of Object.entries(defaults)) {
     await prisma.siteSetting.upsert({
       where: { key },
-      // 强制覆盖旧品牌文案（update:{} 会让历史库残留旧站名）
-      update: { value: value as Prisma.InputJsonValue },
+      // 仅缺失时创建：绝不覆盖后台已编辑的站点设置/横幅/法务内容
+      update: {},
       create: { key, value: value as Prisma.InputJsonValue },
     });
   }
@@ -263,7 +338,12 @@ async function main() {
   }
   const categoryMap = await seedCategories();
   await seedProducts(categoryMap);
-  await seedCoupons();
+  await seedShippingMethods();
+  if (process.env.NODE_ENV !== "production" || seedDemo) {
+    await seedCoupons();
+  } else {
+    console.log("⏭ 跳过优惠券种子（生产环境：由运营后台创建）");
+  }
   await seedSiteSettings();
   console.log("种子数据全部完成 ✔");
   if (seedDemo) {

@@ -4,7 +4,8 @@ import { signEmailToken } from "@/lib/auth/jwt";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
-import { getClientIp, sha256 } from "@/lib/utils";
+import { getClientIp } from "@/lib/server/utils-server";
+import { sha256 } from "@/lib/utils";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { forgotPasswordSchema } from "@/lib/validations/auth";
@@ -17,6 +18,13 @@ export const POST = apiHandler(async (req) => {
 
   const rl = await rateLimit({ key: `forgot:${getClientIp(req)}`, limit: 3, windowSeconds: 60 });
   if (!rl.ok) throw rateLimited();
+  // 防邮件轰炸：同一邮箱每小时最多 3 封重置邮件
+  const rlEmail = await rateLimit({
+    key: `forgot-email:${input.email.toLowerCase()}`,
+    limit: 3,
+    windowSeconds: 3600,
+  });
+  if (!rlEmail.ok) throw rateLimited("发送过于频繁，请稍后再试");
 
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   if (user) {

@@ -6,8 +6,8 @@ import { getLang, getT } from "@/lib/shop-i18n-server";
 import { POLICY_TITLES } from "@/lib/policy-defaults";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = getT();
-  const lang = getLang();
+  const t = await getT();
+  const lang = await getLang();
   const titleEn = POLICY_TITLES.privacy.en;
   return {
     title: lang === "zh" ? POLICY_TITLES.privacy.zh : titleEn,
@@ -17,8 +17,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function PrivacyPolicyPage() {
   const settings = await getSiteSettings();
-  const t = getT();
-  const lang = getLang();
+  const t = await getT();
+  const lang = await getLang();
   return (
     <PolicyPage title={t("Privacy Policy")} updatedAt={t("As last published")}>
       {renderPolicyMarkdown(getPolicyText(settings.policies, "privacy", lang))}

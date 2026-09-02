@@ -34,6 +34,7 @@ export interface CartLine {
   status: string;
   quantity: number;
   subtotal: number;
+  isPresale?: boolean;
   attributes?: SpecSelection[];
   attributesKey: string;
 }
@@ -165,7 +166,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
       setItems(lines);
     } catch (err) {
-      console.error("Failed to load guest cart", err);
+      // warn 而非 error：DB 不可达时是预期降级，不应让浏览器 console 红字
+      console.warn("Failed to load guest cart", err);
       setItems([]);
     }
   }, []);
@@ -195,7 +197,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         );
         setItems(cart.items ?? []);
       } catch (err) {
-        console.error("Failed to load server-side cart", err);
+        console.warn("Failed to load server-side cart", err);
         setItems([]);
       }
     } catch {

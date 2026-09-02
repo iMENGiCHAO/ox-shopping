@@ -8,11 +8,12 @@ export const metadata: Metadata = {
 };
 
 interface ResetPasswordPageProps {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 /** 重置密码页(服务端包装：读取 token 传给客户端表单，避免客户端 useSearchParams) */
-export default function ResetPasswordPage({ searchParams }: ResetPasswordPageProps) {
+export default async function ResetPasswordPage(props: ResetPasswordPageProps) {
+  const searchParams = await props.searchParams;
   const token = typeof searchParams.token === "string" ? searchParams.token : "";
   return <ResetPasswordForm token={token} />;
 }

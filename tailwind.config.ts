@@ -116,12 +116,14 @@ const config = {
         DEFAULT: "var(--radius)",
       },
       boxShadow: {
-        /* Hairline-first system: elevation is carried by borders, shadows
-           stay whisper-subtle for overlays only */
-        soft: "0 1px 2px hsl(0 0% 0% / 0.04)",
-        "soft-lg": "0 2px 6px hsl(0 0% 0% / 0.05), 0 12px 32px hsl(0 0% 0% / 0.06)",
-        card: "none",
-        "card-hover": "none",
+        /* 阴影走 CSS 变量：前台 :root 保持 whisper-subtle/no-shadow，
+           admin 作用域(.admin-theme)覆盖为柔和多层阴影 */
+        soft: "var(--shadow-soft)",
+        "soft-lg": "var(--shadow-soft-lg)",
+        card: "var(--shadow-card)",
+        "card-hover": "var(--shadow-card-hover)",
+        popover: "var(--shadow-popover)",
+        overlay: "var(--shadow-overlay)",
       },
       keyframes: {
         "accordion-down": {

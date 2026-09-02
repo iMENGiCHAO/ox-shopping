@@ -245,3 +245,50 @@ sharp → nodemailer → prisma 6 → next 16；每步跑 CI 三层测试 + 手�
 DeletionRequest 执行链路 → html lang/metadata 动态化 → 品牌文案收敛 → 埋点/客服/税务对接立项。
 
 > 判定线：S1-S3 完成且 CI 全绿 → 可小规模试营业；S4-S5 完成 → 可放量；S6 与运营功能并行推进。
+
+---
+
+## 五、实施状态（2026-08-25 晚 · 梦哥已动手落地）
+
+### ✅ 已完成（代码已改并通过验证）
+
+| 项 | 说明 |
+| --- | --- |
+| S1-1 Webhook 错误码 | 签名失败 400 / 处理失败 500（Stripe 会重试）+ 处理异常上 Sentry |
+| S1-2 部分退款状态机 | webhook 按累计已退金额判断，只有全额才置整单 REFUNDED；不再全量置退款单 |
+| S1-3 退款原子认领 | 订单行锁 + `updateMany(REQUESTED→REFUNDED)` 认领后再调网关；网关失败回滚可重试 |
+| S1-4 券限额事务化 | 下单事务内锁券行，usedCount + 待支付占用 < usageLimit；支付时行锁原子递增 |
+| S1-5 券取消释放 | cancelOrder 删除该订单 redemption，用户可再次使用；自动超时取消同样生效 |
+| S1-6 价格竞态 | 锁行后用最新价格重算小计/折扣/运费/税额，杜绝改价窗口旧价成交 |
+| S2-1 可信代理 IP | `TRUST_PROXY`（生产默认 true）取 XFF 最后一跳；nginx 改为覆盖写入 `$remote_addr` |
+| S2-2 账号锁定 | 同邮箱跨 IP 5 次/15 分钟锁定，登录成功清零 |
+| S2-3 券码限流 | validate/apply 按 IP+券码限流；忘记密码按邮箱限流防轰炸 |
+| S2-4 CSV 注入 | escapeCell 对 `= + - @` 开头单元格加 `'` 前缀 |
+| S2-5 HSTS | 应用层补 Strict-Transport-Security（nginx 层已有） |
+| S2-6 sitemap/robots | 移除认证页收录，robots 禁 /auth |
+| S3-1 wait-for-db | 新增 scripts/wait-for-db.mjs（零依赖 TCP 探测），容器启动不再报找不到模块 |
+| S3-2 容器去 seed | ENTRYPOINT 默认不执行 seed（SEED_ON_START=false 时），本地演示叠加文件置 true |
+| S3-3 seed 非覆盖 | seedSiteSettings 改为仅缺失时创建，不再重置后台配置；生产跳过优惠券种子 |
+| S3-4 compose 拆分 | 生产版严格 `${VAR:?}` 缺项拒启；本地演示版 docker-compose.local.yml（弱密钥仅限本地） |
+| S3-5 索引迁移 | orders.paymentId / paymentSessionId 索引 + 补录 categories.bannerImage 列，迁移基线零漂移 |
+| S3-6 依赖补丁 | nodemailer 9.0.5、sharp 0.35.3（高危 4→2，剩余为 Next.js 主框架，需 S5 升级） |
+| S3-7 仓库卫生 | .settings.yaml.bak 移出 git 跟踪并 gitignore；缓存前缀残留字符串清理 |
+| 测试 | 新增资金完整性集成测试 3 例 + CSV 单元测试 3 例 |
+| S5 Next 16 升级 | next 16.3.3 + react 19.2.8 + @react-email v1 + @sentry 10 + eslint 9 平铺配置；middleware→proxy、params/cookies 全异步、Turbopack 默认、standalone 验证通过；npm audit 0 漏洞 |
+
+**验证结果**：typecheck ✅ lint 0 error ✅ 单元 72/72 ✅ 集成 34/34 ✅ Next 16 Turbopack 生产 build ✅ standalone 生产冒烟（首页/商品/后台/登录 API 全 200）✅ 迁移 diff 零漂移 ✅ npm audit 0 漏洞 ✅
+
+### ⏳ 未落地（需专项窗口或产品决策，已在路线图标注）
+
+- ~~S5 依赖升级~~（已完成：Next 16 / React 19 / ESLint 9 / @sentry 10 / @react-email v1 / sharp / nodemailer；npm audit 0 漏洞）。后续可选：Prisma 5 → 6。
+- S4 可靠性：邮件失败重试/队列、Sentry 全覆盖（@sentry/nextjs + instrumentation）、readiness 探针、静态页 ISR。
+- S6 合规闭环：DeletionRequest 管理端执行链路、改邮箱 pending 确认模式、html lang/metadata 动态化。
+- 运营侧：异地备份自动上传、恢复演练 SOP、埋点/客服/税务对接。
+
+### 上线前仍需人工完成的清单
+
+1. 在 Docker 主机执行 `docker compose -f docker-compose.yml -f docker-compose.local.yml up --build` 冒烟（本机无 Docker）。
+2. 生产 `.env` 生成强密钥并轮换：`openssl rand -base64 48`（JWT 双密钥，当前 .env 仍是演示占位值，生产守卫会拒启——这是预期行为）、新 S3/Stripe 密钥。
+3. 执行 `npm run db:deploy`（迁移）→ `npm run admin:create -- <email>` 创建首个管理员。
+4. 配置 Stripe Webhook（订阅 checkout.session.completed / payment_intent.payment_failed / charge.refunded）与发信域名 SPF/DKIM。
+5. 备份 cron（每日 pg_dump + 异地存放）与季度恢复演练。

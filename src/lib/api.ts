@@ -1,5 +1,5 @@
 import "server-only";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import type { ZodType } from "zod";
 import { ApiError, toApiError } from "@/lib/errors";
 import { logError, withRequest } from "@/lib/logger";
@@ -31,10 +31,18 @@ export function jsonError(error: ApiError, init?: ResponseInit): NextResponse {
   });
 }
 
+/** Next.js 16：动态路由 params 为 Promise，包装器统一 await 后传给业务 handler。
+ * 类型放宽为 Promise<unknown> 以满足 Next 构建期对路由签名（Promise<{}>）的校验。 */
+type RouteContext = {
+  params: Record<string, string | string[]> | Promise<unknown>;
+};
+
 type Handler = (
-  req: Request,
+  req: NextRequest,
   ctx: { params: Record<string, string | string[]> },
 ) => Promise<Response>;
+/** 导出的路由函数签名：兼容 Next 16 传入的 { params: Promise<{}> } */
+type RouteHandler = (req: NextRequest, ctx: RouteContext) => Promise<Response>;
 
 /**
  * Route Handler 统一包装器：
@@ -42,12 +50,14 @@ type Handler = (
  * - 请求日志(requestId 贯穿)
  * - 未知错误上报 Sentry(可选)
  */
-export function apiHandler(handler: Handler): Handler {
-  return async (req, ctx) => {
+export function apiHandler(handler: Handler): RouteHandler {
+  return async (req, ctx: RouteContext) => {
     const log = withRequest(req);
     const started = Date.now();
     try {
-      const res = await handler(req, ctx);
+      const res = await handler(req, {
+        params: (await ctx.params) as Record<string, string | string[]>,
+      });
       log.info(
         {
           method: req.method,

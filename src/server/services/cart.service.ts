@@ -20,6 +20,7 @@ export interface CartLine {
   status: string;
   quantity: number;
   subtotal: number;
+  isPresale?: boolean;
   attributes?: SpecSelection[];
   /** 规格去重键(区分同商品不同规格的Shopping Bag行) */
   attributesKey: string;
@@ -59,7 +60,7 @@ export function selectableSpecs(productAttributes: unknown): Map<string, Set<str
 }
 
 /** 校验规格选择是否属于商品的可选规格组 */
-function assertValidSpecs(
+export function assertValidSpecs(
   productAttributes: unknown,
   attributes?: SpecSelection[] | null,
 ): void {
@@ -97,6 +98,7 @@ export async function getCart(
       status: item.product.status,
       quantity: item.quantity,
       subtotal: round2(Number(item.product.price) * item.quantity),
+      isPresale: item.product.isPresale,
       attributes: Array.isArray(item.attributes)
         ? (item.attributes as unknown as SpecSelection[])
         : undefined,
@@ -184,11 +186,13 @@ export async function mergeLocalCart(userId: string, local: LocalCartLine[]): Pr
   const products = await prisma.product.findMany({
     where: { id: { in: productIds }, status: "ACTIVE" },
   });
-  const stockById = new Map(products.map((p) => [p.id, p.stock]));
+  // 同时携带 stock 与 isPresale，预售 stock=0 仍允许加购
+  const productInfo = new Map(products.map((p) => [p.id, { stock: p.stock, isPresale: p.isPresale }]));
 
   for (const line of local) {
-    const stock = stockById.get(line.productId);
-    if (!stock) continue; // 下架/不存在的商品跳过
+    const info = productInfo.get(line.productId);
+    // 修复：原 `!stock` 会把预售 stock=0 误判为下架；现在按"存在"判断，下架/不存在的商品才跳过
+    if (!info) continue;
     const key = specKey(line.attributes);
     const existing = await prisma.cartItem.findUnique({
       where: {
@@ -199,11 +203,9 @@ export async function mergeLocalCart(userId: string, local: LocalCartLine[]): Pr
         },
       },
     });
-    const merged = Math.min(
-      (existing?.quantity ?? 0) + line.quantity,
-      MAX_CART_ITEM_QUANTITY,
-      stock,
-    );
+    // 预售：不受库存上限约束；普通商品按 stock 封顶
+    const cap = info.isPresale ? MAX_CART_ITEM_QUANTITY : Math.min(MAX_CART_ITEM_QUANTITY, info.stock);
+    const merged = Math.min((existing?.quantity ?? 0) + line.quantity, cap);
     if (existing) {
       await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: merged } });
     } else {

@@ -5,7 +5,13 @@ import { QuantityInput } from "@/components/shop/quantity-input";
 import { AddToCartButton } from "@/components/shop/add-to-cart-button";
 import { BuyNowButton } from "@/components/shop/buy-now-button";
 import type { SpecSelection } from "@/components/shop/types";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useT } from "@/components/shop/lang-provider";
 
@@ -21,6 +27,12 @@ export interface BuyPanelProps {
   stock: number;
   /** 预售：0 库存仍可下单 */
   isPresale?: boolean;
+  /**
+   * 预售提示文案（多语言）。
+   * 优先级：商品级覆盖 → 站级默认（SiteSetting）→ 内置兜底文案。
+   * 在服务端按当前 lang 注入对应的语种；缺该语种时回退到另一种，再回退到内置。
+   */
+  presaleNote?: string | null;
   /** Selectable spec groups (color/size/config etc) — the customer must pick */
   selectableAttributes?: SpecGroup[];
   /** 服务端渲染的描述块 — 官方顺序：规格之后、数量行之前 */
@@ -36,18 +48,44 @@ const MAX_PRESALE_QTY = 5;
 
 /* Color value → hex for round swatches (x.com style) */
 const COLOR_HEX: Record<string, string> = {
-  Black: "#1C1C1C", "Obsidian Black": "#1A1A1A", "Patterned Black": "#2B2B2B",
-  Charcoal: "#2D2D2D", "Space Gray": "#3F3F3F", "Dark Grey": "#3F3F3F",
-  Silver: "#D4D4D4", "Stellar Silver": "#D4D4D4", White: "#FAFAFA",
-  "Glacier Blue": "#A8C5D9", Blue: "#4A6B8A", Navy: "#1F2D3D",
-  "Pearl White": "#F5F1EA", Khaki: "#C3B091",
-  Red: "#B8434A", Green: "#5A7255", Olive: "#6B6730", Yellow: "#D4A436",
-  Gold: "#B8973D", Purple: "#6B4D7A", Pink: "#D4A0B5", Brown: "#6B4A2D",
+  Black: "#1C1C1C",
+  "Obsidian Black": "#1A1A1A",
+  "Patterned Black": "#2B2B2B",
+  Charcoal: "#2D2D2D",
+  "Space Gray": "#3F3F3F",
+  "Dark Grey": "#3F3F3F",
+  Silver: "#D4D4D4",
+  "Stellar Silver": "#D4D4D4",
+  White: "#FAFAFA",
+  "Glacier Blue": "#A8C5D9",
+  Blue: "#4A6B8A",
+  Navy: "#1F2D3D",
+  "Pearl White": "#F5F1EA",
+  Khaki: "#C3B091",
+  Red: "#B8434A",
+  Green: "#5A7255",
+  Olive: "#6B6730",
+  Yellow: "#D4A436",
+  Gold: "#B8973D",
+  Purple: "#6B4D7A",
+  Pink: "#D4A0B5",
+  Brown: "#6B4A2D",
   /* zh */
-  黑色: "#1C1C1C", 白色: "#FAFAFA", 银色: "#D4D4D4", 灰色: "#808080",
-  蓝色: "#4A6B8A", 红色: "#B8434A", 绿色: "#5A7255", 黄色: "#D4A436",
-  金色: "#B8973D", 粉色: "#D4A0B5", 紫色: "#6B4D7A", 棕色: "#6B4A2D",
-  深空灰: "#3F3F3F", 冰川蓝: "#A8C5D9", 曜石黑: "#1A1A1A",
+  黑色: "#1C1C1C",
+  白色: "#FAFAFA",
+  银色: "#D4D4D4",
+  灰色: "#808080",
+  蓝色: "#4A6B8A",
+  红色: "#B8434A",
+  绿色: "#5A7255",
+  黄色: "#D4A436",
+  金色: "#B8973D",
+  粉色: "#D4A0B5",
+  紫色: "#6B4D7A",
+  棕色: "#6B4A2D",
+  深空灰: "#3F3F3F",
+  冰川蓝: "#A8C5D9",
+  曜石黑: "#1A1A1A",
 };
 
 function isColorGroup(name: string, values: string[]): boolean {
@@ -65,6 +103,7 @@ export function BuyPanel({
   productId,
   stock,
   isPresale = false,
+  presaleNote,
   selectableAttributes = [],
   descriptionSlot,
   className,
@@ -97,8 +136,11 @@ export function BuyPanel({
 
   return (
     <div className={className}>
+      {/* 官方顺序：描述位于分隔线之后、规格选择器之前 */}
+      {descriptionSlot}
+
       {selectableAttributes.length > 0 ? (
-        <div className="space-y-5">
+        <div className={descriptionSlot ? "mt-4 space-y-5" : "space-y-5"}>
           {selectableAttributes.map((g) => {
             const colorMode = isColorGroup(g.name, g.values);
             const soldOut = g.soldOutValues ?? [];
@@ -157,15 +199,15 @@ export function BuyPanel({
                   >
                     <SelectTrigger
                       aria-label={g.name}
-                      className="h-[46px] w-full max-w-xs rounded-none border-input bg-card px-3 text-sm text-foreground focus:outline-none focus-visible:ring-0 data-[state=open]:border-foreground"
+                      className="h-[46px] w-full rounded-none border-input bg-card px-3 text-sm text-foreground focus:outline-none focus-visible:ring-0 data-[state=open]:border-foreground"
                     >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent
                       position="popper"
                       sideOffset={2}
-                      align="start"
-                      className="w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
+                      align="center"
+                      className="select-content-full w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
                     >
                       {g.values.map((v) => (
                         <SelectItem
@@ -187,11 +229,7 @@ export function BuyPanel({
         </div>
       ) : null}
 
-      {/* 官方顺序：描述位于规格之后、数量行之前 */}
-      {descriptionSlot}
-
       <div className="mt-8 flex items-center gap-3">
-        
         <QuantityInput
           value={quantity}
           min={1}
@@ -202,10 +240,10 @@ export function BuyPanel({
       </div>
       {isPresale ? (
         <p className="mt-4 border border-border bg-secondary px-3 py-2 text-[13px] text-foreground/80">
-          {t("Pre-order item — ships within 14 days of payment")}
+          {presaleNote ?? t("Pre-order item — ships within 14 days of payment")}
         </p>
       ) : null}
-      <div className="mt-5 flex flex-col gap-3">
+      <div className="mt-8 flex flex-col gap-3">
         {/* 对齐官方 PDP：有货仅 Add to Bag；售罄（非预售）仅 Notify me */}
         {disabled && !isPresale ? null : (
           <AddToCartButton

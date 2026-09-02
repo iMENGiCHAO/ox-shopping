@@ -60,13 +60,28 @@ export const GET = apiHandler(async (req) => {
   const [rows, total] = await Promise.all([
     prisma.order.findMany({
       where,
-      include: { items: true, user: { select: { id: true, name: true, email: true } } },
-      orderBy: { createdAt: "desc" },
+      include: {
+        items: true,
+        user: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
+        shippingMethod: true,
+      },
+      // 排序：未读 + 需处理状态置顶（desc），再按时间倒序
+      orderBy: [{ isUnread: "desc" }, { createdAt: "desc" }],
       skip,
       take,
     }),
     prisma.order.count({ where }),
   ]);
+
+  // 拉取后批量标记 isUnread=false（admin 看到就视为已读）
+  const visibleIds = rows.map((r) => r.id);
+  if (visibleIds.length > 0) {
+    await prisma.order.updateMany({
+      where: { id: { in: visibleIds }, isUnread: true },
+      data: { isUnread: false },
+    });
+  }
 
   return jsonPaginated(rows.map(serializeOrder), {
     page,

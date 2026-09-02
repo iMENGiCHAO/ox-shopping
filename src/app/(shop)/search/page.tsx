@@ -7,6 +7,9 @@ import { ProductCard } from "@/components/shop/product-card";
 import { toCardData } from "@/components/shop/types";
 import { getT, getLang } from "@/lib/shop-i18n-server";
 import { cn } from "@/lib/utils";
+import { matchSearchablePages } from "@/lib/searchable-pages";
+import { searchSizeChartProducts } from "@/server/services/chart-search";
+import { SearchPopover } from "@/components/shop/search-popover";
 
 export const dynamic = "force-dynamic";
 
@@ -21,25 +24,12 @@ const SORT_OPTIONS = [
 
 type SortValue = (typeof SORT_OPTIONS)[number]["value"];
 
-/** Pages tab 检索的静态页面注册表（官方 Pages 结果为 Shopify Pages） */
-const SEARCHABLE_PAGES: {
-  title: string;
-  titleZh: string;
-  href: string;
-  keywords: string;
-}[] = [
-  { title: "FAQs", titleZh: "常见问题", href: "/pages/faqs", keywords: "faq faqs 常见问题 帮助 shipping returns 发货 退货 order tracking 订单 tracking payment 支付 refund 退款 pre-order 预售 presale 预售" },
-  { title: "Accessibility Statement", titleZh: "无障碍声明", href: "/pages/accessibility-statement", keywords: "accessibility wcag screen reader disability 无障碍 读屏 辅助" },
-  { title: "Privacy Policy", titleZh: "隐私政策", href: "/policies/privacy", keywords: "privacy 数据 个人信息 privacy policy 隐私政策 gdpr cookies" },
-  { title: "Terms and Conditions", titleZh: "条款与条件", href: "/policies/terms", keywords: "terms 条款 conditions 服务条款 service legal agreement 协议" },
-  { title: "Cookie Consent", titleZh: "Cookie 同意", href: "/policies/cookies", keywords: "cookie consent 追踪 存储 cookie 同意 tracking storage" },
-];
-
 interface SearchPageProps {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export async function generateMetadata({ searchParams }: SearchPageProps): Promise<Metadata> {
+export async function generateMetadata(props: SearchPageProps): Promise<Metadata> {
+  const searchParams = await props.searchParams;
   const sp = await Promise.resolve(searchParams);
   const q = (typeof sp.q === "string" ? sp.q : "").trim();
   if (!q) return { title: "Search", robots: { index: false, follow: true } };
@@ -47,12 +37,19 @@ export async function generateMetadata({ searchParams }: SearchPageProps): Promi
   // 官方 title 格式：Search: N results found for "q"
   const rawSort = typeof sp.sort === "string" ? sp.sort : "";
   const inStock = sp.in_stock === "1";
-  const minRaw = typeof sp.price_min === "string" && sp.price_min !== "" ? Number(sp.price_min) : NaN;
-  const maxRaw = typeof sp.price_max === "string" && sp.price_max !== "" ? Number(sp.price_max) : NaN;
+  const minRaw =
+    typeof sp.price_min === "string" && sp.price_min !== "" ? Number(sp.price_min) : NaN;
+  const maxRaw =
+    typeof sp.price_max === "string" && sp.price_max !== "" ? Number(sp.price_max) : NaN;
   try {
     const { total } = await listProducts({
       search: q,
-      sort: rawSort === "price-ascending" ? "price_asc" : rawSort === "price-descending" ? "price_desc" : "relevance",
+      sort:
+        rawSort === "price-ascending"
+          ? "price_asc"
+          : rawSort === "price-descending"
+            ? "price_desc"
+            : "relevance",
       inStockOnly: inStock,
       minPrice: Number.isFinite(minRaw) ? minRaw : undefined,
       maxPrice: Number.isFinite(maxRaw) ? maxRaw : undefined,
@@ -78,51 +75,27 @@ function buildSearchUrl(q: string, overrides: Record<string, string | undefined>
   return s ? `/search?${s}` : "/search";
 }
 
-/** 官方同款弹层触发按钮 + 面板容器（<details> 无 JS 实现） */
-function ToolbarPopover({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <details className="group relative h-full">
-      <summary className="flex h-full cursor-pointer list-none items-center gap-1.5 px-9 text-[11px] uppercase tracking-[0.08em] text-foreground [&::-webkit-details-marker]:hidden">
-        {label}
-        <svg
-          aria-hidden="true"
-          width="10"
-          viewBox="0 0 10 10"
-          fill="none"
-          className="transition-transform group-open:rotate-180"
-        >
-          <path d="m1 3 4 4 4-4" stroke="currentColor" strokeWidth="1" strokeLinecap="square" />
-        </svg>
-      </summary>
-      {children}
-    </details>
-  );
-}
-
-export default async function SearchPage({ searchParams }: SearchPageProps) {
-  const t = getT();
-  const lang = getLang();
+export default async function SearchPage(props: SearchPageProps) {
+  const searchParams = await props.searchParams;
+  const t = await getT();
+  const lang = await getLang();
   const sp = searchParams;
   const q = (typeof sp.q === "string" ? sp.q : "").trim().slice(0, 80);
   const rawSort = typeof sp.sort === "string" ? sp.sort : "relevance";
-  const sort: SortValue = (SORT_OPTIONS.some((o) => o.value === rawSort)
-    ? rawSort
-    : "relevance") as SortValue;
+  const sort: SortValue = (
+    SORT_OPTIONS.some((o) => o.value === rawSort) ? rawSort : "relevance"
+  ) as SortValue;
   const inStock = sp.in_stock === "1";
-  const minRaw = typeof sp.price_min === "string" && sp.price_min !== "" ? Number(sp.price_min) : NaN;
-  const maxRaw = typeof sp.price_max === "string" && sp.price_max !== "" ? Number(sp.price_max) : NaN;
+  const minRaw =
+    typeof sp.price_min === "string" && sp.price_min !== "" ? Number(sp.price_min) : NaN;
+  const maxRaw =
+    typeof sp.price_max === "string" && sp.price_max !== "" ? Number(sp.price_max) : NaN;
   const tab = sp.tab === "pages" ? "pages" : "products";
 
   /* ── 空态：官方为居中 H1(18px) + 搜索框 + 放大镜提交，页面大部分留白 ── */
   if (!q) {
     return (
-      <div className="flex flex-col items-center pt-[250px] pb-[240px]">
+      <div className="flex flex-col items-center pb-[240px] pt-[250px]">
         <div className="w-[300px] text-center">
           <h1 className="text-[18px] font-normal leading-snug text-foreground">{t("Search")}</h1>
           <form action="/search" method="get" role="search" className="mt-5 text-left">
@@ -157,11 +130,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const { rows, total } = await listProducts({
     search: q,
     sort:
-      sort === "relevance"
-        ? "relevance"
-        : sort === "price-ascending"
-          ? "price_asc"
-          : "price_desc",
+      sort === "relevance" ? "relevance" : sort === "price-ascending" ? "price_asc" : "price_desc",
     inStockOnly: inStock,
     minPrice: Number.isFinite(minRaw) ? minRaw : undefined,
     maxPrice: Number.isFinite(maxRaw) ? maxRaw : undefined,
@@ -169,17 +138,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     pageSize: PAGE_SIZE,
   });
 
-  const ql = q.toLowerCase();
   // 页面命中：标题(中/英)子串 或 关键词(中/英)子串
-  const matchedPages = SEARCHABLE_PAGES.filter(
-    (pg) =>
-      pg.title.toLowerCase().includes(ql) ||
-      pg.titleZh.includes(q) ||
-      pg.keywords
-        .toLowerCase()
-        .split(" ")
-        .some((k) => k.includes(ql)),
-  );
+  const matchedPages = matchSearchablePages(q);
 
   // FAQ 内容命中（后台可维护的真实页面内容）：问题或答案包含关键词
   let faqHits: { question: string; answer: string }[] = [];
@@ -200,6 +160,14 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     /* DB 故障时 Pages 结果退化为静态注册表 */
   }
 
+  // 商品参数对照表（Size Chart）命中：官方 Pages 结果包含商品的 Size Chart
+  let chartHits: { slug: string; name: string }[] = [];
+  try {
+    chartHits = await searchSizeChartProducts(q);
+  } catch {
+    /* DB 故障时忽略 */
+  }
+
   const commonOverrides = {
     sort: sort !== "relevance" ? sort : undefined,
     in_stock: inStock ? "1" : undefined,
@@ -213,8 +181,8 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <section className="pt-16 text-center">
         <h1 className="text-[28px] font-normal leading-tight text-foreground">{t("Search")}</h1>
         <p className="mt-4 text-[15px] font-normal text-foreground">
-          {(tab === "pages" ? matchedPages.length + faqHits.length : total)}{" "}
-          {(tab === "pages" ? matchedPages.length + faqHits.length : total) === 1
+          {tab === "pages" ? matchedPages.length + faqHits.length + chartHits.length : total}{" "}
+          {(tab === "pages" ? matchedPages.length + faqHits.length + chartHits.length : total) === 1
             ? t("result for")
             : t("results for")}{" "}
           &quot;{q}&quot;
@@ -226,7 +194,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         {(["products", "pages"] as const).map((tb) => (
           <Link
             key={tb}
-            href={buildSearchUrl(q, { ...commonOverrides, tab: tb === "pages" ? "pages" : undefined })}
+            href={buildSearchUrl(q, {
+              ...commonOverrides,
+              tab: tb === "pages" ? "pages" : undefined,
+            })}
             className={cn(
               "border-b pb-2 text-[12px] leading-none transition-colors",
               tab === tb
@@ -239,137 +210,31 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         ))}
       </div>
 
-      {/* 工具行 — 最左 Availability/Price(桌面) · Filters(移动端) · 右 Sort by（官方 y320 h54） */}
-      <div className="mt-12 flex h-[54px] items-center justify-end gap-8">
-        {/* Availability — 官方式筛选按钮:点击立即切换,无下拉菜单 */}
-        <div className="mr-auto flex items-center gap-2 self-center lg:self-auto">
-          <Link
-            href={buildSearchUrl(q, {
-              ...commonOverrides,
-              in_stock: inStock ? undefined : "1",
-              tab: tab === "pages" ? "pages" : undefined,
-            })}
-            aria-pressed={inStock}
-            className={cn(
-              "flex h-[38px] items-center gap-1.5 whitespace-nowrap border px-4 text-[13px] leading-none transition-colors",
-              inStock
-                ? "border-foreground bg-foreground text-primary-foreground"
-                : "border-border bg-background text-foreground hover:border-foreground",
-            )}
-          >
-            {t("Availability")}
-            {inStock ? (
-              <>
-                <span aria-hidden="true">·</span>
-                <span>{t("In stock only")} ✓</span>
-              </>
-            ) : null}
-          </Link>
-        </div>
-
-        {/* Price — 官方独立弹层 */}
-        <div className="hidden lg:block">
-          <ToolbarPopover label={t("Price")}>
-            <form
-              action="/search"
-              method="get"
-              className="absolute right-0 top-full z-30 w-72 space-y-4 border border-border bg-background p-5 shadow-lg"
+      {/* 工具行 — 左 Availability 弹出菜单 · 右 Sort by（官方同构：Filter 左 / Sort by 右） */}
+      <div className="mt-12 flex h-[54px] items-center justify-between gap-8">
+        {/* Availability — 左侧菜单，弹层向右展开不露边（与 Sort by 同款交互） */}
+        <SearchPopover label={t("Availability")} align="left">
+          <div className="mt-0 w-60 border border-border bg-background p-2 shadow-xl">
+            <Link
+              href={buildSearchUrl(q, {
+                ...commonOverrides,
+                in_stock: inStock ? undefined : "1",
+                tab: tab === "pages" ? "pages" : undefined,
+              })}
+              className={cn(
+                "flex items-center justify-between px-3 py-2.5 text-[15px] transition-colors hover:bg-accent",
+                inStock ? "text-foreground" : "text-foreground/65",
+              )}
             >
-              <input type="hidden" name="q" value={q} />
-              {sort !== "relevance" ? <input type="hidden" name="sort" value={sort} /> : null}
-              {inStock ? <input type="hidden" name="in_stock" value="1" /> : null}
-              {tab === "pages" ? <input type="hidden" name="tab" value="pages" /> : null}
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] opacity-70">$</span>
-                <input
-                  type="number"
-                  name="price_min"
-                  min="0"
-                  defaultValue={typeof sp.price_min === "string" ? sp.price_min : ""}
-                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
-                />
-                <span className="text-[13px] opacity-70">{t("to")}</span>
-                <span className="text-[13px] opacity-70">$</span>
-                <input
-                  type="number"
-                  name="price_max"
-                  min="0"
-                  defaultValue={typeof sp.price_max === "string" ? sp.price_max : ""}
-                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
-                />
-              </div>
-              <button
-                type="submit"
-                className="h-[46px] w-full bg-primary text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
-              >
-                {t("View results")}
-              </button>
-            </form>
-          </ToolbarPopover>
-        </div>
-        {/* Filters — 官方桌面端隐藏，仅移动端抽屉；此处用弹层等效 */}
-        <details className="group relative lg:hidden">
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[11px] uppercase tracking-[0.08em] text-foreground [&::-webkit-details-marker]:hidden">
-            {t("Filters")}
-            <svg aria-hidden="true" width="10" viewBox="0 0 10 10" fill="none" className="transition-transform group-open:rotate-180">
-              <path d="m1 3 4 4 4-4" stroke="currentColor" strokeWidth="1" strokeLinecap="square" />
-            </svg>
-          </summary>
-          <form
-            action="/search"
-            method="get"
-            className="absolute right-0 top-full z-30 w-72 space-y-6 border border-border bg-background p-5 shadow-lg"
-          >
-            <input type="hidden" name="q" value={q} />
-            <input type="hidden" name="sort" value={sort} />
-            {tab === "pages" ? <input type="hidden" name="tab" value="pages" /> : null}
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.08em] text-foreground">{t("Availability")}</p>
-              <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-[13px] text-foreground">
-                <input
-                  type="checkbox"
-                  name="in_stock"
-                  value="1"
-                  defaultChecked={inStock}
-                  className="h-3.5 w-3.5 accent-[#1C1C1C]"
-                />
-                {t("In stock only")}
-              </label>
-            </div>
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.08em] text-foreground">{t("Price")}</p>
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-[13px] opacity-70">$</span>
-                <input
-                  type="number"
-                  name="price_min"
-                  min="0"
-                  defaultValue={typeof sp.price_min === "string" ? sp.price_min : ""}
-                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
-                />
-                <span className="text-[13px] opacity-70">{t("to")}</span>
-                <span className="text-[13px] opacity-70">$</span>
-                <input
-                  type="number"
-                  name="price_max"
-                  min="0"
-                  defaultValue={typeof sp.price_max === "string" ? sp.price_max : ""}
-                  className="h-9 w-full border border-input bg-card px-2 text-sm outline-none focus:border-foreground"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              className="h-[46px] w-full bg-primary text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
-            >
-              {t("View results")}
-            </button>
-          </form>
-        </details>
+              {t("In stock only")}
+              {inStock ? <span aria-hidden="true">✓</span> : null}
+            </Link>
+          </div>
+        </SearchPopover>
 
-        {/* Sort by — 黑底弹层三项（官方实测 Relevance / Price 升降序） */}
-        <ToolbarPopover label={t("Sort by")}>
-          <div className="absolute right-0 top-full z-30 w-60 bg-ink p-2 shadow-xl">
+        {/* Sort by — 可关闭展开按钮（官方 Relevance / Price 升降序） */}
+        <SearchPopover label={t("Sort by")} align="right">
+          <div className="mt-0 w-60 bg-ink p-2 shadow-xl">
             {SORT_OPTIONS.map((o) => (
               <Link
                 key={o.value}
@@ -386,7 +251,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               </Link>
             ))}
           </div>
-        </ToolbarPopover>
+        </SearchPopover>
       </div>
 
       {/* 内容区 — 官方结构：240px 桌面空侧栏 + 主列（4 列网格，219px 卡 / 60px 列距 / 64px 行距） */}
@@ -396,8 +261,31 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
         <div className="min-w-0 flex-1">
           {tab === "pages" ? (
-            matchedPages.length > 0 || faqHits.length > 0 ? (
+            matchedPages.length > 0 || faqHits.length > 0 || chartHits.length > 0 ? (
               <div className="space-y-10">
+                {chartHits.length > 0 ? (
+                  <div className="space-y-3">
+                    <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
+                      {t("Size Charts")}
+                    </p>
+                    <div className="divide-y divide-border border border-border">
+                      {chartHits.map((c) => (
+                        <Link
+                          key={c.slug}
+                          href={`/products/${c.slug}`}
+                          className="group flex items-center justify-between px-5 py-4 transition-colors hover:bg-accent"
+                        >
+                          <span className="text-[15px] text-foreground underline-offset-4 group-hover:underline">
+                            {c.name}
+                          </span>
+                          <span className="text-[11px] uppercase tracking-[0.08em] text-foreground/50">
+                            {t("Size Charts")}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 {faqHits.length > 0 ? (
                   <div className="space-y-3">
                     <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
@@ -430,7 +318,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                         className="group block border border-border p-5 transition-colors hover:border-foreground"
                       >
                         <p className="text-[15px] font-normal text-foreground underline-offset-4 group-hover:underline">
-                          {t("Accessibility Statement") && lang === "zh" ? pg.titleZh : pg.title}
+                          {lang === "zh" ? pg.titleZh : pg.title}
                         </p>
                       </Link>
                     ))}
@@ -438,7 +326,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                 ) : null}
               </div>
             ) : (
-              <p className="py-16 text-center text-[15px] text-foreground/70">{t("No results found.")}</p>
+              <p className="py-16 text-center text-[15px] text-foreground/70">
+                {t("No results found.")}
+              </p>
             )
           ) : rows.length > 0 ? (
             <div className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 sm:gap-x-3 sm:gap-y-16 lg:grid-cols-3 lg:gap-x-[60px] min-[1400px]:grid-cols-4">
@@ -447,7 +337,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
               ))}
             </div>
           ) : (
-            <p className="py-16 text-center text-[15px] text-foreground/70">{t("No results found.")}</p>
+            <p className="py-16 text-center text-[15px] text-foreground/70">
+              {t("No results found.")}
+            </p>
           )}
         </div>
       </div>

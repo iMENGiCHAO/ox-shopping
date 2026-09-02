@@ -32,7 +32,7 @@ export interface OrderCardData {
 
 /** Order card (order list page, server-render) */
 export async function OrderCard({ order }: { order: OrderCardData }) {
-  const t = getT();
+  const t = await getT();
   const t2 = t as (key: string, params?: Record<string, string | number>) => string;
   const lang = t("__lang__") === "zh" ? "zh" : "en";
   const dateLocale = lang === "zh" ? zhCN : enUS;

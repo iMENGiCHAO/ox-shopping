@@ -1,16 +1,31 @@
 import "server-only";
 import PDFDocument from "pdfkit";
 import path from "node:path";
+import fs from "node:fs";
 import { env } from "@/lib/env";
 import { formatMoney, dateString } from "@/lib/utils";
 
 /**
  * 发票 PDF(pdfkit + Noto Sans CJK 中文字体)
  * 覆盖：订单号、日期、账单地址、商品明细、小计/Discount/Shipping/税额/合计。
+ *
+ * 字体路径：可通过 INVOICE_FONT_PATH 环境变量覆盖；默认从 public/fonts 加载。
+ * 字体缺失时显式抛出（避免静默使用 Helvetica 渲染中文乱码），
+ * 业务方可在 /api/orders/[orderNumber]/invoice 路由里 catch 后回退返回 HTML 收据。
  */
 
-const FONT_PATH = path.join(process.cwd(), "public", "fonts", "NotoSansCJKsc-Regular.otf");
+const DEFAULT_FONT_PATH = path.join(process.cwd(), "public", "fonts", "NotoSansCJKsc-Regular.otf");
 const FONT_NAME = "NotoSansCJK";
+
+function resolveFontPath(): string {
+  const override = process.env.INVOICE_FONT_PATH;
+  if (override && fs.existsSync(override)) return override;
+  if (fs.existsSync(DEFAULT_FONT_PATH)) return DEFAULT_FONT_PATH;
+  // 不再静默回退 Helvetica —— 暴露问题给运维处理
+  throw new Error(
+    `中文字体未找到：${DEFAULT_FONT_PATH}（可通过 INVOICE_FONT_PATH 环境变量覆盖）`,
+  );
+}
 
 export interface InvoiceInput {
   orderNumber: string;
@@ -43,10 +58,13 @@ export function generateInvoicePdf(input: InvoiceInput): Promise<Buffer> {
     doc.on("error", reject);
 
     try {
-      doc.registerFont(FONT_NAME, FONT_PATH);
+      const fontPath = resolveFontPath();
+      doc.registerFont(FONT_NAME, fontPath);
     } catch (err) {
-      // 字体缺失时退回内置字体(中文会乱码，但不阻断下载)
-      doc.font("Helvetica");
+      // 业务方应在路由层捕获 → 返回 HTML 收据或英文版；
+      // 这里再次抛出中断 PDF 生成，避免静默中文乱码。
+      reject(err);
+      return;
     }
 
     const F = FONT_NAME;

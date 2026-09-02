@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { cacheGet, cacheSet, productsCacheKey } from "@/lib/cache";
 import { createHash } from "crypto";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 
 /** 商品与分类服务(用户端) */
 
@@ -44,7 +45,7 @@ export async function listProducts(params: ListProductsParams) {
     try {
       category = await resolveCategory();
     } catch (err) {
-      console.error("[catalog] 分类解析失败，降级为空列表:", (err as Error).message);
+      logger.warn({ err: (err as Error).message }, "[catalog] 分类解析失败，降级为空列表");
       return { rows: [], total: 0 };
     }
     if (!category) throw notFound("分类不存在");
@@ -102,7 +103,7 @@ export async function listProducts(params: ListProductsParams) {
       prisma.product.count({ where }),
     ]);
   } catch (err) {
-    console.error("[catalog] 商品列表读取失败，降级为空货架:", (err as Error).message);
+    logger.warn({ err: (err as Error).message }, "[catalog] 商品列表读取失败，降级为空货架");
     return { rows: [], total: 0 };
   }
 
@@ -134,7 +135,7 @@ export async function getProductBySlug(slug: string) {
   const product = await prisma.product
     .findUnique({ where: { slug }, include: { category: true } })
     .catch((err: unknown) => {
-      console.error("[catalog] 商品详情读取失败:", (err as Error).message);
+      logger.warn({ err: (err as Error).message }, "[catalog] 商品详情读取失败");
       return null;
     });
   if (!product || product.status !== "ACTIVE") throw notFound("商品不存在或已下架");
@@ -179,7 +180,7 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
       include: { _count: { select: { products: { where: { status: "ACTIVE" } } } } },
     })
     .catch((err: unknown) => {
-      console.error("[catalog] 分类树读取失败，降级为空列表:", (err as Error).message);
+      logger.warn({ err: (err as Error).message }, "[catalog] 分类树读取失败，降级为空列表");
       return null;
     });
   if (!categories) return [];
@@ -217,7 +218,7 @@ export async function getCategoryBySlug(slug: string) {
   const category = await prisma.category
     .findUnique({ where: { slug }, include: { children: true } })
     .catch((err: unknown) => {
-      console.error("[catalog] 分类详情读取失败:", (err as Error).message);
+      logger.warn({ err: (err as Error).message }, "[catalog] 分类详情读取失败");
       return null;
     });
   if (!category || !category.isActive) throw notFound("分类不存在");

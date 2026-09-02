@@ -57,7 +57,7 @@ export function toSessionUser(
 
 /** 读取当前会话用户(校验 JWT + 数据库状态，禁用用户即时失效) */
 export async function getSessionUser(): Promise<SessionUser | null> {
-  const token = cookies().get(ACCESS_TOKEN_COOKIE)?.value;
+  const token = (await cookies()).get(ACCESS_TOKEN_COOKIE)?.value;
   if (!token) return null;
   const payload = await verifyAccessToken(token);
   if (!payload?.sub) return null;
@@ -119,6 +119,11 @@ export interface RotatedTokens {
  * refresh token 轮换(含重放检测)：
  * - 合法未用 token：作废旧记录、签发新记录与新 token 对
  * - 已使用/已吊销 token 再次出现 → 判定泄露，吊销该用户全部会话
+ *
+ * 关键不变量：必须保证"创建新 record"与"作废旧 record"原子性。
+ * 旧实现里 issueSession 提前独立 commit，新 record 已入库；后续旧 record
+ * 标 replacedBy 失败时链断裂，下一次轮换会把合法新 token 当作重放误吊销。
+ * 此版本把两步放进同一 $transaction，并先在事务内预生成新 token 字符串。
  */
 export async function rotateSession(refreshToken: string): Promise<RotatedTokens> {
   const payload = await verifyRefreshToken(refreshToken);
@@ -144,16 +149,33 @@ export async function rotateSession(refreshToken: string): Promise<RotatedTokens
   });
   if (!user || user.status !== "ACTIVE") throw unauthorized("账号已被禁用");
 
-  const newTokens = await issueSession(user);
+  // 1) 预生成新 token 字符串（事务外，JWT 签名无副作用）
+  const newRefreshToken = await signRefreshToken(user.id);
+  const newRefreshHash = await sha256(newRefreshToken);
 
+  // 2) 事务：写新 record + 旧 record 标 replacedBy + revokedAt。任一失败全回滚。
   await prisma.$transaction([
+    prisma.refreshToken.create({
+      data: {
+        userId: user.id,
+        tokenHash: newRefreshHash,
+        expiresAt: new Date(Date.now() + env.REFRESH_TOKEN_TTL * 1000),
+      },
+    }),
     prisma.refreshToken.update({
       where: { id: record.id },
-      data: { revokedAt: new Date(), replacedBy: newTokens.refreshTokenId },
+      data: { revokedAt: new Date(), replacedBy: newRefreshHash },
     }),
   ]);
 
-  return { ...newTokens, user: toSessionUser(user) };
+  const accessToken = await signAccessToken({
+    sub: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    purpose: "access",
+  });
+  return { accessToken, refreshToken: newRefreshToken, user: toSessionUser(user) };
 }
 
 /** 吊销用户全部 refresh token(登出/重放/改密) */

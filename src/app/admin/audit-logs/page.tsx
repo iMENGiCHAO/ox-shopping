@@ -22,6 +22,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminAuditLog, AdminListResult } from "@/components/admin/types";
+import { CellText, CellPair } from "@/components/admin/cell-text";
 
 import { useT } from "@/components/admin/lang-provider";
 const PAGE_SIZE = 20;
@@ -82,7 +83,7 @@ export default function AdminAuditLogsPage() {
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load audit logs");
+      toast.error(err instanceof Error ? err.message : "加载审计日志失败");
     } finally {
       setLoading(false);
     }
@@ -101,7 +102,7 @@ export default function AdminAuditLogsPage() {
 
   return (
     <div className="space-y-4">
-      <AdminPageHeader title={t("Audit Logs")} description="Sensitive admin operations for security auditing and traceability" />
+      <AdminPageHeader title={t("Audit Logs")} description={t("Sensitive admin operations for security auditing and compliance")} />
 
       {/* Filters */}
       <Card>
@@ -109,31 +110,31 @@ export default function AdminAuditLogsPage() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1.5">
               <Label htmlFor="log-action" className="text-xs">
-                Action
+                动作
               </Label>
               <Input
                 id="log-action"
                 value={action}
                 onChange={(e) => setAction(e.target.value)}
-                placeholder="e.g. product.update"
+                placeholder="例如 product.update"
                 className="h-9 w-52"
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="log-user" className="text-xs">
-                Operator ID
+                操作人 ID
               </Label>
               <Input
                 id="log-user"
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
-                placeholder="operator id"
+                placeholder="操作人 id"
                 className="h-9 w-44"
               />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="log-from" className="text-xs">
-                Start date
+                起始日期
               </Label>
               <Input
                 id="log-from"
@@ -145,7 +146,7 @@ export default function AdminAuditLogsPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="log-to" className="text-xs">
-                End date
+                截止日期
               </Label>
               <Input
                 id="log-to"
@@ -156,7 +157,7 @@ export default function AdminAuditLogsPage() {
               />
             </div>
             <Button variant="outline" size="sm" className="h-9" onClick={resetFilters}>
-              Reset
+              重置
             </Button>
           </div>
         </CardContent>
@@ -164,15 +165,15 @@ export default function AdminAuditLogsPage() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto"><Table className="min-w-[880px]">
+          <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-40">{t('Time')}</TableHead>
-                <TableHead className="w-40">Operator</TableHead>
-                <TableHead className="w-44">action</TableHead>
-                <TableHead>Target</TableHead>
-                <TableHead className="w-28">{t('IP')}</TableHead>
-                <TableHead>meta</TableHead>
+                <TableHead className="w-[140px]">时间</TableHead>
+                <TableHead className="w-[160px]">操作人</TableHead>
+                <TableHead className="w-[140px]">动作</TableHead>
+                <TableHead className="min-w-0">对象</TableHead>
+                <TableHead className="w-24">{t("IP Address")}</TableHead>
+                <TableHead className="min-w-0">详情</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -192,63 +193,68 @@ export default function AdminAuditLogsPage() {
                     <EmptyState
                       icon={<ScrollText className="h-6 w-6" />}
                       title={t("No log entries")}
-                      description="Try adjusting your filters"
+                      description="请尝试调整筛选条件"
                     />
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((log) => (
                   <TableRow key={log.id}>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      {new Date(log.createdAt).toLocaleString("zh-CN")}
+                    <TableCell className="tabular-nums text-xs text-muted-foreground">
+                      {new Date(log.createdAt).toLocaleString("zh-CN", {
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })}
                     </TableCell>
-                    <TableCell className="max-w-[160px]">
+                    <TableCell>
                       {log.user ? (
-                        <>
-                          <div className="truncate text-sm">{log.user.name}</div>
-                          <div className="truncate text-xs text-muted-foreground">
-                            {log.user.email}
-                          </div>
-                        </>
+                        <CellPair
+                          primary={log.user.name}
+                          secondary={log.user.email}
+                        />
                       ) : (
-                        <span className="text-xs text-muted-foreground">system</span>
+                        <span className="text-xs text-muted-foreground">系统</span>
                       )}
                     </TableCell>
                     <TableCell>
-                      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+                      <code className="block truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
                         {log.action}
                       </code>
                     </TableCell>
-                    <TableCell className="max-w-[160px]">
-                      <div className="truncate text-xs">
-                        {log.entity ? (
-                          <>
-                            <span className="text-muted-foreground">{log.entity}</span>
-                            {log.entityId ? (
-                              <span className="ml-1 font-mono">{log.entityId}</span>
-                            ) : null}
-                          </>
-                        ) : (
-                          "-"
-                        )}
-                      </div>
+                    <TableCell>
+                      {log.entity ? (
+                        <CellText
+                          value={
+                            <>
+                              <span className="text-muted-foreground">{log.entity}</span>
+                              {log.entityId ? (
+                                <span className="ml-1 font-mono">{log.entityId}</span>
+                              ) : null}
+                            </>
+                          }
+                        />
+                      ) : (
+                        <CellText value="-" className="text-xs text-muted-foreground" />
+                      )}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {log.ip ?? "-"}
                     </TableCell>
-                    <TableCell className="max-w-[260px]">
-                      <div
-                        className="truncate font-mono text-xs text-muted-foreground"
+                    <TableCell>
+                      <CellText
+                        value={metaPreview(log.meta)}
                         title={metaPreview(log.meta)}
-                      >
-                        {metaPreview(log.meta)}
-                      </div>
+                        className="font-mono text-xs text-muted-foreground"
+                      />
                     </TableCell>
                   </TableRow>
                 ))
               )}
             </TableBody>
-          </Table></div>
+          </Table>
         </CardContent>
       </Card>
 

@@ -1,3 +1,4 @@
+import "server-only";
 import { z } from "zod";
 
 /**
@@ -31,12 +32,22 @@ const envSchema = z.object({
   ACCESS_TOKEN_TTL: z.coerce.number().int().positive().default(900),
   REFRESH_TOKEN_TTL: z.coerce.number().int().positive().default(604800),
   COOKIE_DOMAIN: z.string().optional(),
+  // 网络：是否位于可信反向代理之后（nginx/CDN 覆盖 X-Forwarded-For 写入客户端真实 IP）。
+  // 生产默认 true：取 XFF 最后一跳（反代追加的条目可信）；直连公网部署请显式设 false。
+  TRUST_PROXY: booleanFromString.default(process.env.NODE_ENV === "production" ? "true" : "false"),
 
   // 支付
   PAYMENT_MODE: z.enum(["auto", "stripe", "mock"]).default("auto"),
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
-  CURRENCY: z.string().min(3).default("USD"),
+  /**
+   * 基础币种（商品价格库单位 + 默认展示币种）。
+   * 受 Stripe 支持范围限制的子集，CNY 在 Stripe 通道下会被拒 → 走 mock。
+   * 注：用户选择其他币种时由汇率换算，Order.currency 记录实际支付币种。
+   */
+  CURRENCY: z
+    .enum(["USD", "EUR", "GBP", "JPY", "HKD", "CNY", "AUD", "CAD", "SGD"])
+    .default("USD"),
 
   // 邮件
   MAIL_PROVIDER: z.enum(["resend", "smtp", "console"]).default("console"),

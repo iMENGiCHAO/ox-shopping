@@ -2,42 +2,200 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 移动端规格下拉：从底部展开的满宽面板（官方移动端为原生底部选择器）。
+   Radix popper 包装层改贴视口底边并铺满全宽。 */
+@media (max-width: 639px) {
+  [data-radix-popper-content-wrapper]:has(.select-content-full) {
+    inset: auto 0 0 0 !important;
+    transform: none !important;
+    width: 100vw !important;
+    display: flex;
+    justify-content: center;
+  }
+  .select-content-full {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-radius: 0 !important;
+  }
+}
+
+/* 桌面端产品画廊/参数表：官方容器较窄，相对视口左缘多 30px 内缩；
+   右缘同样内缩 30px（与官方画廊内容右缘对齐） */
+@media (min-width: 1024px) {
+  .gallery-thumb-offset {
+    padding-left: 30px;
+    padding-right: 30px;
+  }
+}
+
+/* ── 顶栏（shop.x.com 对齐）：桌面 LOGO 固定左缘 48px；
+      移动端 LOGO 居中、右侧仅搜索+购物车图标 ── */
+.header-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 65px;
+  padding: 0 20px;
+  gap: 14px;
+}
+/* LOGO 上下各 6px padding：顶栏 65px − LOGO ~52px = 13px 剩余 → padding 各 6px。
+   之前 4px 太紧，现在 6px 让 LOGO 与顶栏有更明显的呼吸空间。 */
+.header-logo {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+}
+.header-utils {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+}
+.header-util-desktop {
+  display: none;
+}
+.header-cart-icon {
+  display: inline-flex;
+}
+.header-cart-text {
+  display: none;
+}
+/* 搜索图标：官方 24px */
+.header-search-icon {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+/* 账号图标：移动端显示；桌面端官方为纯文字（无图标） */
+.header-account-icon {
+  display: block;
+}
+@media (min-width: 640px) {
+  .header-bar {
+    padding: 0 48px;
+    gap: 20px;
+  }
+  .header-logo {
+    position: static;
+    transform: none;
+  }
+  .header-utils {
+    gap: 20px;
+    margin-left: 0;
+  }
+  .header-util-desktop {
+    display: block;
+  }
+  .header-cart-icon {
+    display: none;
+  }
+  .header-cart-text {
+    display: inline;
+  }
+  .header-search-icon,
+  .header-account-icon {
+    display: none;
+  }
+}
+@media (max-width: 639px) {
+  .header-logo {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
+/* 集合页透明顶栏（官方 is-solid 机制）：
+   页面顶部未滚动时顶栏透明叠在 hero 上，滚动后恢复实心黑 */
+[data-testid="header-shell"] header {
+  transition: background-color 0.3s ease;
+}
+[data-testid="header-shell"][data-transparent="true"] > header {
+  background-color: transparent;
+}
+/* 集合 hero 上顶：负边距拉到透明顶栏下方（图片垫底、标题仍在下缘） */
+.collection-hero-under-header {
+  margin-top: -65px;
+}
+
+/* 数量选择器（官方实测：输入框 40×25 / 15px、零圆角、步进钮 25×25） */
+.qty-control {
+  border-radius: 0;
+}
+.qty-control input {
+  height: 25px;
+  width: 40px;
+  font-size: 15px;
+}
+.qty-control button {
+  height: 25px;
+  width: 25px;
+}
+.qty-control svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* 28px 标题行高对齐官方（28 × 1.4 = 39.2px） */
+.text-\[28px\] {
+  line-height: 1.4;
+}
+
+/* 移动端币种下拉：从窗口底部弹出、左右贴边的满宽面板（官方移动端底部选择器） */
+@media (max-width: 639px) {
+  .currency-sheet {
+    position: fixed !important;
+    inset: auto 0 0 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    transform: none !important;
+    max-height: 55vh !important;
+    border-radius: 0 !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+    border-bottom: 0 !important;
+    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.16) !important;
+  }
+}
+
 @layer base {
   :root {
     /* ── shop.x.com aligned palette — white canvas, near-black ink,
        zero radius, hairline borders. Fashion-minimal system. ── */
 
     /* ── Surfaces ─────────────────────────────────────────── */
-    --background: 0 0% 100%;          /* #FFFFFF — canvas */
-    --foreground: 0 0% 11%;           /* #1C1C1C — ink/text */
+    --background: 0 0% 100%; /* #FFFFFF — canvas */
+    --foreground: 0 0% 11%; /* #1C1C1C — ink/text */
 
-    --card: 0 0% 100%;                 /* #FFFFFF */
+    --card: 0 0% 100%; /* #FFFFFF */
     --card-foreground: 0 0% 11%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 11%;
 
-    --muted: 0 0% 93.7%;              /* #EFEFEF — product image ground */
-    --muted-foreground: 0 0% 45%;     /* #737373 — secondary text */
+    --muted: 0 0% 93.7%; /* #EFEFEF — product image ground */
+    --muted-foreground: 0 0% 45%; /* #737373 — secondary text */
 
-    --border: 0 0% 86.7%;             /* #DDDDDD rgb(221) — hairline, matches shop.x.com */
-    --input: 0 0% 87%;
-    --ring: 0 0% 11%;                 /* black focus ring */
+    --border: 0 0% 86.7%; /* #DDDDDD rgb(221) — hairline, matches shop.x.com */
+    --input: 0 0% 86.7%; /* #DDDDDD — 与官方输入框描边一致 */
+    --ring: 0 0% 11%; /* black focus ring */
 
     /* Primary — near-black, white text */
-    --primary: 0 0% 9%;               /* #171717 */
+    --primary: 0 0% 9%; /* #171717 */
     --primary-foreground: 0 0% 100%;
 
     /* Secondary — pale gray panel */
-    --secondary: 0 0% 96%;            /* #F5F5F5 */
+    --secondary: 0 0% 96%; /* #F5F5F5 */
     --secondary-foreground: 0 0% 11%;
 
     /* Accent — hover step for black surfaces */
-    --accent: 0 0% 26%;               /* #424242 */
+    --accent: 0 0% 26%; /* #424242 */
     --accent-foreground: 0 0% 100%;
 
     /* Ink — pure black chrome (header/footer/admin sidebar) */
-    --ink: 0 0% 0%;                   /* #000000 */
+    --ink: 0 0% 0%; /* #000000 */
     --ink-foreground: 0 0% 100%;
 
     /* Semantic */
@@ -52,13 +210,137 @@
 
     /* Zero-radius system — every corner square */
     --radius: 0rem;
+
+    /* 阴影令牌（boxShadow 走 var() 以便 admin 覆盖）——前台保持 whisper-subtle */
+    --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.04);
+    --shadow-soft-lg: 0 2px 6px hsl(0 0% 0% / 0.05), 0 12px 32px hsl(0 0% 0% / 0.06);
+    --shadow-card: 0 0 0 hsl(0 0% 0% / 0);
+    --shadow-card-hover: 0 0 0 hsl(0 0% 0% / 0);
+    --shadow-popover: 0 2px 8px hsl(0 0% 0% / 0.08), 0 8px 24px hsl(0 0% 0% / 0.08);
+    --shadow-overlay: 0 12px 40px hsl(0 0% 0% / 0.14);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────────────
+   * Admin 专属设计令牌（作用域化：仅作用于后台，店铺前台完全不受影响）
+   *
+   * 设计方向（2024-2026 一线后台）：Vercel × Linear × Notion 融合
+   *   - 页面背景：接近白的冷调浅灰（#F5F6F8）——与纯白卡片形成层次
+   *   - 卡片/侧栏/顶栏：纯白，8px 圆角，柔和多层阴影 + 1px 极浅边框
+   *   - 顶栏：毛玻璃 backdrop-blur，半透明白
+   *   - 保持黑白主调（与品牌一致），靠圆角/阴影/留白/间距做出现代感
+   * ───────────────────────────────────────────────────────────────────────── */
+  .admin-theme {
+    /* Surfaces —— 冷调浅灰 canvas + 纯白浮层 */
+    --background: 216 20% 96.5%; /* #F5F6F8 */
+    --foreground: 220 12% 12%; /* #1B1C1E */
+
+    --card: 0 0% 100%; /* #FFFFFF */
+    --card-foreground: 220 12% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 12% 12%;
+
+    --muted: 216 20% 94%; /* #EDEFF2 */
+    --muted-foreground: 220 6% 45%; /* #6C7077 */
+
+    --border: 216 16% 89%; /* #E0E3E7 */
+    --input: 216 16% 87%;
+    --ring: 220 12% 20%; /* 柔和黑 focus ring */
+
+    --primary: 220 14% 10%; /* #16181B 近黑主色 */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 216 20% 95%;
+    --secondary-foreground: 220 12% 12%;
+
+    --accent: 216 16% 92%;
+    --accent-foreground: 220 12% 12%;
+
+    /* 语义色微调——更柔、更现代 */
+    --destructive: 0 72% 47%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 152 50% 35%;
+    --success-foreground: 0 0% 100%;
+    --warning: 35 91% 46%;
+    --warning-foreground: 0 0% 9%;
+    --info: 210 88% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* 圆角：8px 系统（rounded-full 保持胶囊） */
+    --radius: 0.5rem;
+
+    /* 柔和多层阴影 */
+    --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.05);
+    --shadow-soft-lg: 0 2px 8px hsl(0 0% 0% / 0.06), 0 12px 32px hsl(0 0% 0% / 0.08);
+    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.04), 0 2px 6px hsl(0 0% 0% / 0.04);
+    --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.06), 0 8px 20px hsl(0 0% 0% / 0.06);
+    --shadow-popover: 0 2px 8px hsl(0 0% 0% / 0.08), 0 8px 24px hsl(0 0% 0% / 0.1);
+    --shadow-overlay: 0 12px 40px hsl(0 0% 0% / 0.16);
+  }
+
+  .admin-theme.dark {
+    --background: 220 14% 6%; /* #0D0E10 */
+    --foreground: 220 10% 92%;
+    --card: 220 12% 9%;
+    --card-foreground: 220 10% 92%;
+    --popover: 220 12% 9%;
+    --popover-foreground: 220 10% 92%;
+    --muted: 220 12% 14%;
+    --muted-foreground: 220 6% 60%;
+    --border: 220 10% 18%;
+    --input: 220 10% 18%;
+    --ring: 220 10% 70%;
+    --primary: 220 10% 92%;
+    --primary-foreground: 220 14% 8%;
+    --secondary: 220 12% 14%;
+    --secondary-foreground: 220 10% 92%;
+    --accent: 220 10% 20%;
+    --accent-foreground: 220 10% 92%;
+    --destructive: 0 72% 55%;
+    --success: 152 50% 45%;
+    --warning: 35 91% 52%;
+    --info: 210 88% 58%;
+    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.3), 0 2px 6px hsl(0 0% 0% / 0.3);
+    --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.4), 0 8px 20px hsl(0 0% 0% / 0.4);
+  }
+
+  /* Dark mode — 启用方式: <html class="dark"> 或 .dark 父元素
+     设计目标: 在黑白极简品牌上不破坏调性
+     背景: #0A0A0A (ink-90) / 文字: #FAFAFA (zinc-50) / 边框: #2A2A2A (zinc-800) */
+  .dark {
+    --background: 0 0% 4%; /* #0A0A0A — canvas */
+    --foreground: 0 0% 98%; /* #FAFAFA — text */
+    --card: 0 0% 7%; /* #121212 */
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
+    --muted: 0 0% 14%; /* #232323 */
+    --muted-foreground: 0 0% 64%; /* #A3A3A3 */
+    --border: 0 0% 18%; /* #2E2E2E */
+    --input: 0 0% 18%;
+    --ring: 0 0% 98%;
+    --primary: 0 0% 98%; /* 暗色下用白色当主色(对比度) */
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 98%;
+    --accent: 0 0% 26%;
+    --accent-foreground: 0 0% 98%;
+    --ink: 0 0% 100%;
+    --ink-foreground: 0 0% 0%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 60% 45%;
+    --warning: 38 92% 55%;
+    --info: 210 90% 55%;
   }
 
   @layer base {
     * {
       @apply border-border;
     }
-    html { scroll-behavior: smooth; }
+    html {
+      scroll-behavior: smooth;
+    }
     body {
       @apply bg-background text-foreground antialiased;
     }
@@ -66,17 +348,28 @@
       background: hsl(var(--foreground));
       color: hsl(var(--background));
     }
-    ::-webkit-scrollbar { width: 10px; height: 10px; }
-    ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: hsl(var(--background));
+    }
     ::-webkit-scrollbar-thumb {
       background: hsl(0 0% 70%);
       border: 2px solid hsl(var(--background));
     }
-    ::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 55%); }
+    ::-webkit-scrollbar-thumb:hover {
+      background: hsl(0 0% 55%);
+    }
 
     @media (prefers-reduced-motion: reduce) {
-      html { scroll-behavior: auto; }
-      *, *::before, *::after {
+      html {
+        scroll-behavior: auto;
+      }
+      *,
+      *::before,
+      *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
@@ -136,5 +429,34 @@
   }
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
+  }
+
+  /* ── 表格 sticky 列规范（admin 数据表）────────────────────────
+     实心背景（不透字）+ 分隔线 + 明确 z 层级：
+     - 表头 z-20，表体 z-10 → 左右 sticky 列互不覆盖
+     - 横向滚动时 sticky 列始终盖住普通列内容，操作按钮不被遮挡 */
+  .sticky-col-left {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background-color: hsl(var(--card));
+    border-right: 1px solid hsl(var(--border));
+  }
+  .sticky-col-right {
+    position: sticky;
+    right: 0;
+    z-index: 10;
+    background-color: hsl(var(--card));
+    border-left: 1px solid hsl(var(--border));
+    /* 操作列统一紧凑内边距（覆盖 TableCell 默认 p-2 md:p-4，防按钮溢出） */
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+  .sticky-col-right + .sticky-col-right {
+    z-index: 11;
+  }
+  thead .sticky-col-left,
+  thead .sticky-col-right {
+    z-index: 20;
   }
 }

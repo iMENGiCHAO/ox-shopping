@@ -13,7 +13,7 @@ export interface RatingStarsProps {
 export function RatingStars({ value, size = 16, className }: RatingStarsProps) {
   const clamped = Math.max(0, Math.min(5, Math.round(value)));
   return (
-    <div className={cn("flex items-center gap-0.5", className)} aria-label={`Rated ${clamped} of 5`}>
+    <div className={cn("flex items-center gap-0.5", className)} aria-label={`评分 ${clamped} 星，共 5 星`}>
       {Array.from({ length: 5 }, (_, i) => (
         <Star
           key={i}

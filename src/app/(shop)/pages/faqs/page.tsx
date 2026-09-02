@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = getT();
+  const t = await getT();
   return { title: t("FAQs · Frequently Asked Questions") };
 }
 
@@ -65,7 +65,7 @@ async function loadContact() {
 
 /** /pages/faqs — FAQ 内容页（后台「FAQ 管理」实时维护 + 底部联系我们板块） */
 export default async function FaqsPage() {
-  const t = getT();
+  const t = await getT();
   const [faqs, contact] = await Promise.all([loadFaqs(), loadContact()]);
 
   const faqJsonLd = {

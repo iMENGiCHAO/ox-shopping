@@ -11,12 +11,13 @@ export const metadata: Metadata = {
 };
 
 interface CheckoutPageProps {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 /** Checkout page (server wrapper: reads searchParams and passes to the client checkout flow) */
-export default function CheckoutPage({ searchParams }: CheckoutPageProps) {
-  const t = getT();
+export default async function CheckoutPage(props: CheckoutPageProps) {
+  const searchParams = await props.searchParams;
+  const t = await getT();
   const buyNow = typeof searchParams.buyNow === "string" ? searchParams.buyNow : undefined;
   const quantity = typeof searchParams.quantity === "string" ? searchParams.quantity : undefined;
   const attrs = typeof searchParams.attrs === "string" ? searchParams.attrs : undefined;

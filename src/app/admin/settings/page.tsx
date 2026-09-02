@@ -22,13 +22,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 import { useT } from "@/components/admin/lang-provider";
 const settingsFormSchema = z.object({
-  siteName: z.string().trim().min(1, "Please enter a site name").max(60),
+  siteName: z.string().trim().min(1, "请填写站点名称").max(60),
   siteDescription: z.string().max(200).default(""),
   contactEmail: z
     .string()
     .trim()
     .max(254)
-    .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Invalid email format")
+    .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "邮箱格式不正确")
     .default(""),
   contactPhone: z.string().max(30).default(""),
   icp: z.string().max(64).default(""),
@@ -100,7 +100,7 @@ export default function AdminSettingsPage() {
         announcement: pickString(settings, "announcement"),
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load site settings");
+      toast.error(err instanceof Error ? err.message : "加载站点设置失败");
     } finally {
       setLoading(false);
     }
@@ -197,7 +197,7 @@ export default function AdminSettingsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="st-icp">{t("ICP filing number")}</Label>
-              <Input id="st-icp" placeholder="e.g. ICP-00000000" {...form.register("icp")} />
+              <Input id="st-icp" placeholder="例如 ICP-00000000" {...form.register("icp")} />
               {form.formState.errors.icp ? (
                 <p className="text-xs text-destructive">{form.formState.errors.icp.message}</p>
               ) : null}
@@ -267,7 +267,7 @@ export default function AdminSettingsPage() {
         {/* SEO */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">SEO settings</CardTitle>
+            <CardTitle className="text-base">{t("SEO settings")}</CardTitle>
             <CardDescription>{t('Search engine keyword configuration')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
@@ -276,7 +276,7 @@ export default function AdminSettingsPage() {
               id="st-keywords"
               rows={3}
               maxLength={200}
-              placeholder="ecommerce, store, electronics, appliances"
+              placeholder="电商, 商城, 数码, 家电"
               {...form.register("seoKeywords")}
             />
             {form.formState.errors.seoKeywords ? (
@@ -308,8 +308,8 @@ export default function AdminSettingsPage() {
             <div className="text-sm text-muted-foreground">
               <p className="font-medium text-foreground">{t('Payment / email / storage sensitive config')}</p>
               <p className="mt-1">
-                Payment keys (Stripe), email services (Resend/SMTP), object storage (S3), etc. are managed via environment variables (.env).
-                They are not editable here — have ops edit the .env file directly.
+                支付密钥（Stripe）、邮件服务（Resend/SMTP）、对象存储（S3）等敏感配置均通过环境变量（.env）管理，
+                在此处不可编辑——如需修改请联系运维直接修改 .env 文件。
               </p>
             </div>
           </CardContent>

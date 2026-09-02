@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { getClientIp } from "@/lib/utils";
+import { getClientIp } from "@/lib/server/utils-server";
 import { logger } from "@/lib/logger";
 
 /**

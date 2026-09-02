@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { env } from "@/lib/env";
 import { sendMail } from "@/lib/mail";
 import { formatMoney } from "@/lib/utils";
+import { notifyAdmins } from "@/server/services/notification.service";
 
 /**
  * 到货通知（Notify me）补货触发：
@@ -92,6 +93,8 @@ export async function notifyRestock(productId: string): Promise<number> {
           ? { compareAtText: formatMoney(compareNum, env.CURRENCY) }
           : {}),
         productUrl: `${env.SITE_URL}/products/${product.slug}`,
+        // 按订阅时记录的用户语种发邮件（null/未记录 → 默认 en）
+        lang: sub.lang === "zh" ? "zh" : "en",
       },
     });
 
@@ -100,6 +103,20 @@ export async function notifyRestock(productId: string): Promise<number> {
       data: { status: "notified", notifiedAt: new Date() },
     });
     sent++;
+  }
+
+  // 站内消息：通知管理员「补货已自动提醒 N 位客户」（不静默）
+  if (sent > 0) {
+    const name = product.nameEn ?? product.name;
+    void notifyAdmins({
+      type: "system",
+      title: "到货提醒已发送",
+      titleEn: "Restock alerts sent",
+      body: `「${name}」补货成功，已自动向 ${sent} 位登记的客户发送到货提醒邮件（含商品卡）。`,
+      bodyEn: `"${name}" is back in stock. Restock emails with product cards were sent to ${sent} subscribers.`,
+      link: "/admin/notify-me",
+      meta: { productId, productName: name, sent },
+    });
   }
   return sent;
 }

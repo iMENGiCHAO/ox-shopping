@@ -35,6 +35,9 @@ export const productCreateSchema = z.object({
   stock: z.number().int().min(0, "库存不能为负").max(9999999),
   /// 预售：售罄后仍可下单(Pre-Order)
   isPresale: z.boolean().default(false),
+  /// 预售提示文案（多语言）— 留空 = null，前端会用 SiteSetting.presaleNote 站级默认
+  presaleNoteZh: z.string().max(200).nullable().optional(),
+  presaleNoteEn: z.string().max(200).nullable().optional(),
   /// 运营标签：新品上市 / 热卖
   isNew: z.boolean().default(false),
   isHot: z.boolean().default(false),

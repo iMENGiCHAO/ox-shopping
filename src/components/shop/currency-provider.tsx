@@ -20,6 +20,7 @@ import {
   parseCurrencyCode,
   type CurrencyDef,
 } from "@/components/shop/currency";
+import { SHOP_LANG_KEY } from "@/lib/shop-i18n";
 
 interface CurrencyContextValue {
   def: CurrencyDef;
@@ -37,6 +38,27 @@ function readCookie(): string {
   if (typeof document === "undefined") return DEFAULT_CURRENCY;
   const match = document.cookie.match(new RegExp(`(?:^|; )${CURRENCY_COOKIE}=([^;]*)`));
   return parseCurrencyCode(match?.[1]);
+}
+
+/**
+ * CNY ↔ zh 联动：选 CNY 时自动写 shop-lang=zh；选非 CNY 时强制刷回 en。
+ *
+ * 关键：必须 **同时** 清 cookie + 清 localStorage。
+ * 只清 cookie 没用 — ShopLangProvider 挂载时从 localStorage 读 langState
+ * 又会回写 cookie 强制切回中文。
+ */
+function syncLangCookie(currency: string) {
+  if (typeof document === "undefined") return;
+  const isCNY = currency.toUpperCase() === "CNY";
+  const targetLang = isCNY ? "zh" : "en";
+  // 1) 写 cookie：下次 RSC 读到一致值
+  document.cookie = `${SHOP_LANG_KEY}=${targetLang}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+  // 2) 同步写 localStorage：避免 ShopLangProvider useEffect 读到旧值再回滚
+  try {
+    localStorage.setItem(SHOP_LANG_KEY, targetLang);
+  } catch {
+    /* localStorage 不可用时（隐私模式）静默 */
+  }
 }
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
@@ -67,6 +89,7 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       setCodeState(valid);
       if (typeof document !== "undefined") {
         document.cookie = `${CURRENCY_COOKIE}=${valid}; path=/; max-age=31536000`;
+        syncLangCookie(valid);
       }
       router.refresh();
     },

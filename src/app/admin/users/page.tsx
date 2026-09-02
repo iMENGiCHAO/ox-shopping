@@ -8,6 +8,7 @@ import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminDrawer, AdminDrawerHeader } from "@/components/admin/admin-drawer";
+import { DataTableActions } from "@/components/admin/data-table-actions";
 import { UserEditDialog } from "@/components/admin/user-edit-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { useT } from "@/components/admin/lang-provider";
+import { CellText, CellPair } from "@/components/admin/cell-text";
 import {
   Select,
   SelectContent,
@@ -41,12 +43,31 @@ import type {
 } from "@/components/admin/types";
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN: "Administrator",
-  SUPPORT: "Support",
-  CUSTOMER: "User",
+  ADMIN: "管理员",
+  SUPPORT: "客服",
+  CUSTOMER: "顾客",
 };
 
 const PAGE_SIZE = 10;
+
+function formatDateShort(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (Number.isNaN(d.getTime())) return "-";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDateTimeShort(iso: string | Date): string {
+  const d = typeof iso === "string" ? new Date(iso) : iso;
+  if (Number.isNaN(d.getTime())) return "-";
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${mm}-${dd} ${hh}:${mi}`;
+}
 
 export default function AdminUsersPage() {
   const t = useT();
@@ -91,7 +112,7 @@ export default function AdminUsersPage() {
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load users");
+      toast.error(err instanceof Error ? err.message : "加载用户列表失败");
     } finally {
       setLoading(false);
     }
@@ -108,10 +129,10 @@ export default function AdminUsersPage() {
         method: "PUT",
         body: JSON.stringify({ status }),
       });
-      toast.success(status === "ACTIVE" ? "User activated" : "User disabled");
+      toast.success(status === "ACTIVE" ? "已启用用户" : "已停用用户");
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update user status");
+      toast.error(err instanceof Error ? err.message : "更新用户状态失败");
     } finally {
       setUpdatingId(null);
     }
@@ -127,7 +148,7 @@ export default function AdminUsersPage() {
       );
       setDetail({ ...res.user, orders: res.orders ?? [] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load user details");
+      toast.error(err instanceof Error ? err.message : "加载用户详情失败");
     } finally {
       setDetailLoading(false);
     }
@@ -154,9 +175,9 @@ export default function AdminUsersPage() {
                 <SelectValue placeholder={t("All statuses")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All statuses</SelectItem>
-                <SelectItem value="ACTIVE">Active</SelectItem>
-                <SelectItem value="DISABLED">Disabled</SelectItem>
+                <SelectItem value="all">{t("All statuses")}</SelectItem>
+                <SelectItem value="ACTIVE">{t("Active")}</SelectItem>
+                <SelectItem value="DISABLED">{t("Inactive")}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -168,20 +189,21 @@ export default function AdminUsersPage() {
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead>Display name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Joined</TableHead>
-                <TableHead>Orders</TableHead>
-                <TableHead>{t("Status")}</TableHead>
-                <TableHead className="w-24 text-right">{t("Actions")}</TableHead>
+                <TableHead className="min-w-0">{t("User Name")}</TableHead>
+                <TableHead className="w-20">{t("Role")}</TableHead>
+                <TableHead className="w-[120px]">注册时间</TableHead>
+                <TableHead className="w-20 text-right">订单数</TableHead>
+                <TableHead className="w-24">{t("Status")}</TableHead>
+                <TableHead className="sticky-col-right w-[140px] text-right">
+                  {t("Actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 6 }, (_, i) => (
                   <TableRow key={`sk-${i}`}>
-                    {Array.from({ length: 7 }, (_, j) => (
+                    {Array.from({ length: 6 }, (_, j) => (
                       <TableCell key={j}>
                         <Skeleton className="h-6 w-full" />
                       </TableCell>
@@ -190,54 +212,45 @@ export default function AdminUsersPage() {
                 ))
               ) : rows.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="p-0">
+                  <TableCell colSpan={6} className="p-0">
                     <EmptyState
                       icon={<Search className="h-6 w-6" />}
                       title={t("No users yet")}
-                      description="Try adjusting your filters"
+                      description="请尝试调整筛选条件"
                     />
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((user) => (
                   <TableRow key={user.id}>
-                    <TableCell className="font-medium">{user.name}</TableCell>
-                    <TableCell>{user.email}</TableCell>
+                    <TableCell className="min-w-0">
+                      <CellPair primary={user.name} secondary={user.email} />
+                    </TableCell>
                     <TableCell>
                       <StatusBadge status={user.role} labelMap={{ ...ROLE_LABELS }} />
                     </TableCell>
-                    <TableCell className="whitespace-nowrap text-muted-foreground">
-                      {new Date(user.createdAt).toLocaleString("zh-CN")}
+                    <TableCell className="text-xs tabular-nums text-muted-foreground">
+                      {formatDateShort(user.createdAt)}
                     </TableCell>
-                    <TableCell>{user._count?.orders ?? 0}</TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {user._count?.orders ?? 0}
+                    </TableCell>
                     <TableCell>
                       <Switch
                         checked={user.status === "ACTIVE"}
                         disabled={updatingId === user.id}
                         onCheckedChange={(v) => void toggleStatus(user, v ? "ACTIVE" : "DISABLED")}
-                        aria-label={`toggle ${user.name} Account status`}
+                        aria-label={`切换 ${user.name} 的账户状态`}
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2"
-                          onClick={() => setEditing(user)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2"
-                          onClick={() => void openDetail(user)}
-                        >
-                          <Eye className="h-3.5 w-3.5" />
-                          Details
-                        </Button>
+                    <TableCell className="sticky-col-right">
+                      <div className="flex justify-end">
+                        <DataTableActions
+                          actions={[
+                            { label: "编辑", icon: Pencil, onClick: () => setEditing(user) },
+                            { label: "查看详情", icon: Eye, onClick: () => void openDetail(user), primary: true },
+                          ]}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -258,7 +271,7 @@ export default function AdminUsersPage() {
       {/* User details drawer */}
       <AdminDrawer open={detailOpen} onOpenChange={setDetailOpen}>
         <AdminDrawerHeader
-          title={detail ? `User: ${detail.name}` : "User details"}
+          title={detail ? `用户：${detail.name}` : "用户详情"}
           description={detail ? detail.email : undefined}
         />
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
@@ -270,28 +283,28 @@ export default function AdminUsersPage() {
           ) : (
             <>
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold">Profile</h3>
+                <h3 className="text-sm font-semibold">资料</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border bg-muted/30 p-4 text-sm">
-                  <div className="text-muted-foreground">Display name</div>
+                  <div className="text-muted-foreground">{t("User Name")}</div>
                   <div>{detail.name}</div>
-                  <div className="text-muted-foreground">Email</div>
+                  <div className="text-muted-foreground">{t("Email")}</div>
                   <div>{detail.email}</div>
-                  <div className="text-muted-foreground">Role</div>
+                  <div className="text-muted-foreground">{t("Role")}</div>
                   <div>
                     <StatusBadge status={detail.role} labelMap={{ ...ROLE_LABELS }} />
                   </div>
-                  <div className="text-muted-foreground">Account status</div>
+                  <div className="text-muted-foreground">账户状态</div>
                   <div>
                     <StatusBadge
                       status={detail.status}
-                      labelMap={{ ACTIVE: "Active", DISABLED: "Disabled" }}
+                      labelMap={{ ACTIVE: t("Active"), DISABLED: t("Inactive") }}
                     />
                   </div>
-                  <div className="text-muted-foreground">Email verified</div>
-                  <div>{detail.emailVerified ? "Verified" : "Unverified"}</div>
-                  <div className="text-muted-foreground">Joined</div>
+                  <div className="text-muted-foreground">邮箱已验证</div>
+                  <div>{detail.emailVerified ? "已验证" : "未验证"}</div>
+                  <div className="text-muted-foreground">注册时间</div>
                   <div>{new Date(detail.createdAt).toLocaleString("zh-CN")}</div>
-                  <div className="text-muted-foreground">Last login</div>
+                  <div className="text-muted-foreground">最后登录</div>
                   <div>
                     {detail.lastLoginAt
                       ? new Date(detail.lastLoginAt).toLocaleString("zh-CN")
@@ -300,27 +313,31 @@ export default function AdminUsersPage() {
                 </div>
               </section>
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold">Recent orders ({detail.orders?.length ?? 0})</h3>
+                <h3 className="text-sm font-semibold">最近订单（{detail.orders?.length ?? 0}）</h3>
                 {detail.orders && detail.orders.length > 0 ? (
                   <Table className="w-full">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Order #</TableHead>
-                        <TableHead>{t("Status")}</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Time</TableHead>
+                        <TableHead className="w-[140px]">{t("Order #")}</TableHead>
+                        <TableHead className="w-24">{t("Status")}</TableHead>
+                        <TableHead className="w-24 text-right">金额</TableHead>
+                        <TableHead className="w-[120px]">时间</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {detail.orders.map((order) => (
                         <TableRow key={order.id}>
-                          <TableCell className="font-mono text-xs">{order.orderNumber}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            <CellText value={order.orderNumber} />
+                          </TableCell>
                           <TableCell>
                             <StatusBadge status={order.status} />
                           </TableCell>
-                          <TableCell>{formatMoney(order.total)}</TableCell>
-                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                            {new Date(order.createdAt).toLocaleString("zh-CN")}
+                          <TableCell className="text-right tabular-nums">
+                            {formatMoney(order.total)}
+                          </TableCell>
+                          <TableCell className="text-xs tabular-nums text-muted-foreground">
+                            {formatDateTimeShort(order.createdAt)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -328,7 +345,7 @@ export default function AdminUsersPage() {
                   </Table>
                 ) : (
                   <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                    This user has no orders yet
+                    该用户暂无订单
                   </p>
                 )}
               </section>

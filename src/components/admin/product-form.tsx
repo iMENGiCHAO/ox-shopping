@@ -31,35 +31,38 @@ import type {
 /** Product form validation: numeric fields are strings, converted on submit */
 export const productFormSchema = z
   .object({
-    name: z.string().trim().min(2, "Product name must be at least 2 characters").max(120),
+    name: z.string().trim().min(2, "商品名称至少 2 个字符").max(120),
     slug: z
       .string()
       .trim()
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may only contain lowercase letters, digits and hyphens")
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "路径标识只能包含小写字母、数字与连字符")
       .max(150)
       .optional()
       .or(z.literal("")),
-    sku: z.string().trim().min(3, "SKU must be at least 3 characters").max(64),
-    price: z.string().min(1, "Please enter a price"),
+    sku: z.string().trim().min(3, "SKU 至少 3 个字符").max(64),
+    price: z.string().min(1, "请填写价格"),
     compareAtPrice: z.string().optional().or(z.literal("")),
     costPrice: z.string().optional().or(z.literal("")),
-    stock: z.string().min(1, "Please enter stock"),
+    stock: z.string().min(1, "请填写库存"),
     isPresale: z.boolean(),
+    /** 预售提示文案（多语言）。留空 = 使用站级默认（站点设置中可改）。 */
+    presaleNoteZh: z.string().max(200).optional().or(z.literal("")),
+    presaleNoteEn: z.string().max(200).optional().or(z.literal("")),
     isNew: z.boolean(),
     isHot: z.boolean(),
-    categoryId: z.string().min(1, "Please select a category"),
+    categoryId: z.string().min(1, "请选择分类"),
     status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]),
     description: z.string().max(20000).default(""),
     images: z.array(z.string()).default([]),
     attributes: z
       .array(
         z.object({
-          name: z.string().trim().max(30, "Attribute name must be at most 30 characters"),
-          values: z.string().max(500, "Attribute values are too long"),
+          name: z.string().trim().max(30, "属性名最多 30 个字符"),
+          values: z.string().max(500, "属性值过长"),
           selectable: z.boolean().default(false),
         }),
       )
-      .max(30, "At most 30 attributes")
+      .max(30, "最多 30 个属性")
       .default([]),
   })
   .refine(
@@ -67,24 +70,24 @@ export const productFormSchema = z
       const n = Number(d.price);
       return Number.isFinite(n) && n > 0;
     },
-    { message: "Price must be greater than 0", path: ["price"] },
+    { message: "价格必须大于 0", path: ["price"] },
   )
   .refine(
     (d) => {
       const n = Number(d.stock);
       return Number.isInteger(n) && n >= 0;
     },
-    { message: "Stock must be a non-negative integer", path: ["stock"] },
+    { message: "库存必须为非负整数", path: ["stock"] },
   )
   .refine(
     (d) =>
       !d.compareAtPrice ||
       (Number.isFinite(Number(d.compareAtPrice)) && Number(d.compareAtPrice) >= 0),
-    { message: "Compare-at price must be a number >= 0", path: ["compareAtPrice"] },
+    { message: "划线价必须为大于等于 0 的数字", path: ["compareAtPrice"] },
   )
   .refine(
     (d) => !d.costPrice || (Number.isFinite(Number(d.costPrice)) && Number(d.costPrice) >= 0),
-    { message: "Cost price must be a number >= 0", path: ["costPrice"] },
+    { message: "成本价必须为大于等于 0 的数字", path: ["costPrice"] },
   );
 
 export type ProductFormValues = z.infer<typeof productFormSchema>;
@@ -100,6 +103,9 @@ export interface ProductFormPayload {
   costPrice: number | null;
   stock: number;
   isPresale?: boolean;
+  /** 预售提示文案（多语言）— 留空 = null（前台使用 SiteSetting 站级默认） */
+  presaleNoteZh?: string | null;
+  presaleNoteEn?: string | null;
   isNew?: boolean;
   isHot?: boolean;
   sizeChart?: { headers: string[]; rows: string[][] } | null;
@@ -137,6 +143,8 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       costPrice: initial?.costPrice != null ? String(Number(initial.costPrice)) : "",
       stock: initial ? String(initial.stock) : "",
       isPresale: initial?.isPresale ?? false,
+      presaleNoteZh: initial?.presaleNoteZh ?? "",
+      presaleNoteEn: initial?.presaleNoteEn ?? "",
       isNew: initial?.isNew ?? false,
       isHot: initial?.isHot ?? false,
       categoryId: initial?.categoryId ?? "",
@@ -180,13 +188,30 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       ]),
     ),
   );
-  // 属性组/规格值变化时补齐缺失键（保留已填数字）
+  // 属性组/规格值变化时：
+  // 1) 补齐缺失键（保留已填数字）
+  // 2) 检测 group name 重命名：若旧 key 不在新列表里但有一个未匹配项，迁移其库存
   React.useEffect(() => {
     setSpecMaps((prev) => {
       const next: typeof prev = {};
+      const newNames = new Set(selectableGroups.map((g) => g.name));
       for (const g of selectableGroups) {
         next[g.name] = { ...(prev[g.name] ?? {}) };
         for (const v of g.values) if (!(v in next[g.name]!)) next[g.name]![v] = "";
+      }
+      // 迁移：prev 里存在但 newNames 里没有的 key（被改名的旧组）
+      const orphans = Object.keys(prev).filter((k) => !newNames.has(k));
+      for (const oldKey of orphans) {
+        // 在 next 里找一个未匹配的同前缀组名（启发式：startsWith），尽量自动迁移
+        const candidate = selectableGroups.find(
+          (g) => g.name !== oldKey && g.name.toLowerCase().includes(oldKey.toLowerCase().slice(0, 3)),
+        );
+        if (candidate && next[candidate.name] && Object.keys(next[candidate.name] ?? {}).length === 0) {
+          next[candidate.name] = { ...prev[oldKey]! };
+        } else {
+          // 找不到匹配的新组：保留为孤儿键，最终不写入 payload（用户可手动复制）
+          // 不在 next 里放孤儿键即可
+        }
       }
       return next;
     });
@@ -194,7 +219,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
 
   // 参数表编辑（官方 Size Chart 结构：headers + rows）
   const [chart, setChart] = React.useState<{ headers: string[]; rows: string[][] }>(
-    () => initial?.sizeChart ?? { headers: ["Size"], rows: [] },
+    () => initial?.sizeChart ?? { headers: ["尺码"], rows: [] },
   );
 
   const handleSubmit = form.handleSubmit((values) => {
@@ -239,6 +264,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       costPrice: values.costPrice ? Number(values.costPrice) : null,
       stock: summedStock ?? Number(values.stock),
       isPresale: values.isPresale,
+      // 留空 = null（前端会用站级默认）；非空 = 覆盖
+      presaleNoteZh: values.presaleNoteZh?.trim() || null,
+      presaleNoteEn: values.presaleNoteEn?.trim() || null,
       isNew: values.isNew,
       isHot: values.isHot,
       sizeChart: chartClean,
@@ -252,7 +280,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   });
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-5" aria-label="商品编辑">
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="pf-name">{t("ProductName")} *</Label>
@@ -266,7 +294,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           <Label htmlFor="pf-slug">slug {isEdit ? t("(not editable)") : ""}</Label>
           <Input
             id="pf-slug"
-            placeholder="lowercase letters/digits/hyphens, e.g. iphone-15-pro"
+            placeholder="小写字母/数字/连字符，例如 iphone-15-pro"
             readOnly={isEdit}
             className={cn(isEdit && "bg-muted text-muted-foreground")}
             {...form.register("slug")}
@@ -278,7 +306,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
 
         <div className="space-y-2">
           <Label htmlFor="pf-sku">SKU *</Label>
-          <Input id="pf-sku" placeholder="e.g. IP15PRO-256-BLACK" {...form.register("sku")} />
+          <Input id="pf-sku" placeholder="例如 IP15PRO-256-BLACK" {...form.register("sku")} />
           {form.formState.errors.sku ? (
             <p className="text-xs text-destructive">{form.formState.errors.sku.message}</p>
           ) : null}
@@ -306,7 +334,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             type="number"
             step="0.01"
             min="0"
-            placeholder="leave empty to skip"
+            placeholder="留空表示不填写"
             {...form.register("compareAtPrice")}
           />
           {form.formState.errors.compareAtPrice ? (
@@ -323,7 +351,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             type="number"
             step="0.01"
             min="0"
-            placeholder="leave empty to skip"
+            placeholder="留空表示不填写"
             {...form.register("costPrice")}
           />
           {form.formState.errors.costPrice ? (
@@ -342,13 +370,45 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         <div className="flex items-center justify-between space-y-0.5 rounded-lg border border-border px-3 py-2.5 sm:col-span-2">
           <div>
             <Label htmlFor="pf-presale" className="cursor-pointer">预售商品（Pre-order）</Label>
-            <p className="text-xs text-muted-foreground">开启后库存为 0 时仍可下单，前台显示「预售」标签</p>
+            <p className="text-xs text-muted-foreground">开启后即使库存为 0 仍可下单，前台显示「预售」标签</p>
           </div>
           <Switch
             id="pf-presale"
             checked={form.watch("isPresale")}
             onCheckedChange={(checked) => form.setValue("isPresale", checked, { shouldDirty: true })}
           />
+        </div>
+
+        {/* 预售提示文案（多语言）— 留空 = 使用站级默认（站点设置 → 预售提示）。
+            解耦合：每个商品可单独覆盖中文/英文的预售提示文案；
+            全部留空时前台展示 SiteSetting 中的全局默认。 */}
+        <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="pf-presale-zh">预售提示（中文）</Label>
+            <Input
+              id="pf-presale-zh"
+              type="text"
+              placeholder="留空使用站级默认"
+              maxLength={200}
+              {...form.register("presaleNoteZh")}
+            />
+            <p className="text-xs text-muted-foreground">
+              选 CNY 货币或中文语言时显示
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="pf-presale-en">预售提示（英文）</Label>
+            <Input
+              id="pf-presale-en"
+              type="text"
+              placeholder="留空则使用站点默认提示"
+              maxLength={200}
+              {...form.register("presaleNoteEn")}
+            />
+            <p className="text-xs text-muted-foreground">
+              在非 CNY 货币或英文语言环境下显示
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
@@ -448,7 +508,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
               >
                 添加列
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setChart({ headers: ["Size"], rows: [] })}>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setChart({ headers: ["尺码"], rows: [] })}>
                 清空
               </Button>
             </div>
@@ -461,7 +521,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                     <td key={ci} className="p-1 align-top">
                       <Input
                         value={h}
-                        placeholder={ci === 0 ? "Size" : `列 ${ci + 1}`}
+                        placeholder={ci === 0 ? "尺码" : `列 ${ci + 1}`}
                         onChange={(e) =>
                           setChart((c) => ({
                             ...c,
@@ -582,11 +642,11 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
 
         <div className="space-y-3 sm:col-span-2">
           <Label>
-            Product attributes (check {'"Selectable"'} to make them order options — customers must choose, recorded in cart and order)
+            商品属性（勾选“可选”后将成为下单选项——顾客必须选择，并记录到购物车与订单中）
           </Label>
           {fields.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No attributes yet. Click {'"Add attribute"'} below, e.g. {'"Color: Black, White"'} or {'"Size: S, M, L"'}.
+              暂无属性，点击下方“添加属性”来新增，例如 “颜色: 黑色, 白色” 或 “尺码: S, M, L”。
             </p>
           ) : null}
           {fields.map((field, index) => (
@@ -605,7 +665,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                   className="h-4 w-4 accent-black"
                   {...form.register(`attributes.${index}.selectable` as const)}
                 />
-                Selectable
+                可选
               </label>
               <Button
                 type="button"
@@ -630,7 +690,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             onClick={() => append({ name: "", values: "", selectable: false })}
           >
             <Plus className="h-4 w-4" />
-            Add attribute
+            添加属性
           </Button>
         </div>
       </div>

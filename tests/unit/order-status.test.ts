@@ -31,6 +31,11 @@ describe("订单状态机", () => {
     expect(canTransition("CANCELLED", "PAID")).toBe(false);
     expect(canTransition("REFUNDED", "PAID")).toBe(false);
     expect(canTransition("SHIPPED", "PENDING_PAYMENT")).toBe(false);
+    // 已支付 / 已履约的订单必须走 REFUNDED 流程，禁止直接 CANCELLED
+    expect(canTransition("PAID", "CANCELLED")).toBe(false);
+    expect(canTransition("PROCESSING", "CANCELLED")).toBe(false);
+    expect(canTransition("SHIPPED", "CANCELLED")).toBe(false);
+    expect(canTransition("DELIVERED", "CANCELLED")).toBe(false);
   });
 
   it("终态无后继", () => {

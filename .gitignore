@@ -33,6 +33,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# 环境/配置备份（曾误入库，禁止再次跟踪）
+.settings.yaml.bak
+
 # local dev artifacts
 /storage
 /.mail-out
@@ -44,3 +47,26 @@ next-env.d.ts
 .test-pg*
 .preview-captures/
 backups/
+
+# Embedded Postgres 本地数据（开发用，无状态，不入库）
+.pg-data/
+/.pg-data
+/pg-data
+pg-data/
+
+# dev scripts 输出
+/tmp-pg/
+/pg.log
+
+# 工具链临时
+.eslintcache
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+

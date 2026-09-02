@@ -8,6 +8,7 @@ import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { parsePagination } from "@/lib/utils";
 import { productCreateSchema } from "@/lib/validations/product";
+import { sanitizeHtml } from "@/lib/sanitize";
 import type { ProductStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 
@@ -83,6 +84,9 @@ export const POST = apiHandler(async (req) => {
 
   const slug = await uniqueProductSlug(input.slug ?? slugifyName(input.name));
 
+  // 净化 description：去除危险 HTML（管理端富文本可能被注入恶意脚本）
+  const safeDescription = input.description ? await sanitizeHtml(input.description) : "";
+
   const product = await prisma.product.create({
     data: {
       name: input.name,
@@ -90,13 +94,16 @@ export const POST = apiHandler(async (req) => {
       sku: input.sku,
       price: input.price,
       isPresale: input.isPresale ?? false,
+      // 留空 = null（前端会用站级默认）；非空 = 覆盖
+      presaleNoteZh: input.presaleNoteZh?.trim() || null,
+      presaleNoteEn: input.presaleNoteEn?.trim() || null,
       stock: aggregateTrackedStock(input.specStock) ?? input.stock,
       isNew: input.isNew ?? false,
       isHot: input.isHot ?? false,
       sizeChart: input.sizeChart ?? Prisma.DbNull,
       specStock: input.specStock ?? Prisma.DbNull,
       categoryId: input.categoryId,
-      description: input.description ?? "",
+      description: safeDescription,
       status: input.status ?? "DRAFT",
       compareAtPrice: input.compareAtPrice ?? null,
       costPrice: input.costPrice ?? null,

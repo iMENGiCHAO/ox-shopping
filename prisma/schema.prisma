@@ -71,13 +71,16 @@ model User {
 
   addresses  Address[]
   cartItems  CartItem[]
-  orders     Order[]
+  orders     Order[]         @relation("UserOrders")
+  assignedOrders Order[]     @relation("OrderAssignee")
   reviews    Review[]
   favorites  Favorite[]
   coupons    CouponRedemption[]
   refunds    Refund[]
   auditLogs  AuditLog[]
   refreshTokens RefreshToken[]
+  notifications Notification[]
+  priceAlerts PriceAlert[]
 
   @@index([status])
   @@map("users")
@@ -158,6 +161,9 @@ model Product {
   soldCount     Int           @default(0)
   /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
   isPresale     Boolean       @default(false)
+  /// 预售提示文案（多语言，可选）。为空时使用站级默认（SiteSetting: presale_note_zh/en）。
+  presaleNoteZh String?
+  presaleNoteEn String?
   /// 运营标签：新品上市 / 热卖（前台徽标）
   isNew         Boolean       @default(false)
   isHot         Boolean       @default(false)
@@ -177,6 +183,7 @@ model Product {
   orderItems OrderItem[]
   reviews    Review[]
   favorites  Favorite[]
+  priceAlerts PriceAlert[]
 
   @@index([slug])
   @@index([categoryId])
@@ -233,18 +240,33 @@ model Order {
   deliveredAt     DateTime?
   cancelledAt     DateTime?
   refundedAt      DateTime?
+  // 物流方式（多对多 1：实际选一种；后台管理；nullable=沿用默认值）
+  shippingMethodId String?
+  // 运费到付（货到付款）时为 true，shippingFee 仅作占位记录
+  isCashOnDelivery Boolean   @default(false)
+  // 运营节点：被某个 admin/support 认领处理（防止多端重复处理 / 漏处理）
+  assigneeId       String?
+  assignedAt       DateTime?
+  // 新订单提醒：true = 还没被任何人看过，admin 进入 /orders 列表后自动取消
+  isUnread         Boolean   @default(true)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  user       User              @relation(fields: [userId], references: [id])
-  items      OrderItem[]
-  redemptions CouponRedemption[]
-  refunds    Refund[]
+  user           User              @relation("UserOrders", fields: [userId], references: [id])
+  items          OrderItem[]
+  redemptions    CouponRedemption[]
+  refunds        Refund[]
+  shippingMethod ShippingMethod?   @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  assignee       User?             @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
   @@index([orderNumber])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([createdAt])
+  @@index([paymentId])
+  @@index([paymentSessionId])
+  @@index([assigneeId])
+  @@index([isUnread, status])
   @@map("orders")
 }
 
@@ -305,10 +327,13 @@ model Favorite {
   id        String   @id @default(cuid())
   userId    String
   productId String
+  /// 收藏时浏览器的语种（zh/en），用于按用户原语种发降价通知邮件
+  lang      String?
   createdAt DateTime @default(now())
 
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  priceAlert PriceAlert?
 
   @@unique([userId, productId])
   @@index([userId])
@@ -441,6 +466,8 @@ model NotifyMe {
   attributes Json?
   status    String    @default("draft") // draft=待通知 notified=已通知
   notifiedAt DateTime?
+  /// 订阅时浏览器的语种（"zh" | "en"），用于按用户原语种发到货通知邮件；nullable=未记录
+  lang      String?
   createdAt DateTime  @default(now())
 
   @@unique([email, productId])
@@ -461,4 +488,90 @@ model Faq {
   @@map("faqs")
 }
 
+/// 物流方式（后台「设置 → 物流方式」维护；前台 checkout 选项）
+model ShippingMethod {
+  id        String   @id @default(cuid())
+  /// 后台唯一代号（默认 "standard" / "express"；自定义如 "sf-next-day"）
+  code      String   @unique
+  /// 显示名（zh fallback when nameEn is null）
+  name      String
+  nameEn    String?
+  /// 简介（多语）
+  description String?
+  descriptionEn String?
+  /// 基础运费（统一币种，与 env.CURRENCY 挂钩）
+  fee       Decimal  @db.Decimal(10, 2) @default(0)
+  /// 满 X 金额免运费（0 = 不免邮）
+  freeOver  Decimal  @db.Decimal(10, 2) @default(0)
+  /// 是否到付（到付订单：fee 不计入 total，到付金额另算）
+  isCashOnDelivery Boolean @default(false)
+  /// 排序（小的在前）
+  sortOrder Int      @default(0)
+  /// 是否启用
+  isActive  Boolean  @default(true)
+  /// 估计送达时间（zh / en 多语）
+  etaZh     String?
+  etaEn     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders    Order[]
+
+  @@index([isActive, sortOrder])
+  @@map("shipping_methods")
+}
+
+/// 站内消息中心（个人中心"消息"页 + 顶栏角标）
+///  - type: order | refund | price_alert | system
+///  - 多语 title/body（zh fallback） + 客户 lang 切换显示
+///  - unread=true 时算入角标；客户点开后自动 mark read
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  /// 消息类型：order | refund | price_alert | system
+  type      String
+  /// 标题（zh fallback）
+  title     String
+  titleEn   String?
+  /// 正文（多语；前端按 lang 字段选择）
+  body      String
+  bodyEn    String?
+  /// 跳转链接（绝对/相对）
+  link      String?
+  /// 元数据（订单号、退款 id、商品 id 等）
+  meta      Json?
+  isUnread  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isUnread])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+/// 降价通知（与 Favorite 1:1：收藏 = 关注 = 降价通知订阅）
+/// 不存 email — 收件人直接从 User.email 拿
+model PriceAlert {
+  id        String   @id @default(cuid())
+  favoriteId String  @unique // 一对一：每个 favorite 自动对应一个 price_alert
+  productId String
+  userId    String
+  /// 已通知价（最新一次通知时的价格，避免重复发同一价位邮件）
+  notifiedAt   DateTime?
+  notifiedPrice Decimal? @db.Decimal(10, 2)
+  /// 订阅时浏览器的语种（zh/en），用于按用户原语种发降价通知邮件
+  lang      String?
+  /// true=已取消订阅（保留记录以便追溯；UI 不显示）
+  unsubscribed Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  favorite  Favorite  @relation(fields: [favoriteId], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([productId, unsubscribed])
+  @@index([userId])
+  @@map("price_alerts")
+}
 

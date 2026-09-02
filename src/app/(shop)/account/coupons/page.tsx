@@ -50,7 +50,8 @@ function toCouponData(coupon: {
 export default async function CouponsPage() {
   const user = await getSessionUser();
   if (!user) redirect("/auth/login?next=/account/coupons");
-  const t: TFunc = getT();
+  if (!user) throw new Error("unreachable");
+  const t: TFunc = await getT();
 
   const [usedRedemptions, available] = await Promise.all([
     prisma.couponRedemption.findMany({

@@ -129,7 +129,6 @@ async function refresh(): Promise<RateSnapshot> {
   return cache;
 }
 
-
 /** 读取管理端手动覆写(无则空对象) */
 export async function loadOverrides(): Promise<Record<string, number>> {
   try {
@@ -198,13 +197,13 @@ export async function getExchangeRates(): Promise<Record<string, number>> {
 }
 
 /** 服务端读取当前币种(来自 cookie) */
-export function getCurrencyCode(): string {
-  return parseCurrencyCode(cookies().get(CURRENCY_COOKIE)?.value);
+export async function getCurrencyCode(): Promise<string> {
+  return parseCurrencyCode((await cookies()).get(CURRENCY_COOKIE)?.value);
 }
 
 /** 服务端格式化：USD 基础金额 → 当前币种显示 */
 export async function formatPrice(amountBase: number): Promise<string> {
-  const code = getCurrencyCode();
+  const code = await getCurrencyCode();
   const { rates } = await getRateSnapshot();
   const rate = rates[code] ?? 1;
   return formatAmount(convertPrice(amountBase, rate), code);
@@ -212,7 +211,7 @@ export async function formatPrice(amountBase: number): Promise<string> {
 
 /** 服务端显示当前币种标签，如 China (CNY ¥) */
 export async function currencyLabel(): Promise<string> {
-  const code = getCurrencyCode();
+  const code = await getCurrencyCode();
   const def = getCurrencyDef(code);
   return `${def.country} (${def.code} ${def.symbol})`;
 }

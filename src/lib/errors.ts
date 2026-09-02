@@ -10,6 +10,8 @@ export type ApiErrorCode =
   | "VALIDATION_ERROR"
   | "RATE_LIMITED"
   | "PAYMENT_ERROR"
+  | "REFUND_FAILED"
+  | "PAYMENT_GATEWAY_ERROR"
   | "INTERNAL_ERROR";
 
 /** 统一 API 错误：抛出后由 apiHandler 捕获并序列化 */

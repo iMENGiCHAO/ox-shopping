@@ -109,7 +109,11 @@ export function applySpecRestock(
     const group = key.slice(0, slash);
     const value = key.slice(slash + 1);
     if (!spec[group]) spec[group] = {};
-    spec[group][value] = Math.max(0, Math.floor((spec[group][value] ?? 0))) + Math.floor(n);
+    const cur = spec[group][value];
+    // 严格 NaN 防护：parseSpecStock 已过滤非法值，但保险起见再做一次类型守卫，
+    // 避免上游异常（schema 漂移 / DB 脏数据）造成整张表被 NaN 污染。
+    const safeCur = typeof cur === "number" && Number.isFinite(cur) ? Math.floor(cur) : 0;
+    spec[group][value] = safeCur + Math.floor(n);
   }
   return spec;
 }

@@ -17,8 +17,8 @@ import type { SessionUser } from "@/types/api";
 import { useT } from "@/components/admin/lang-provider";
 
 const adminLoginSchema = z.object({
-  email: z.string().trim().toLowerCase().email("Enter a valid email"),
-  password: z.string().min(1, "Password is required").max(72),
+  email: z.string().trim().toLowerCase().email("请输入有效的邮箱"),
+  password: z.string().min(1, "密码必填").max(72),
 });
 
 type LoginValues = z.infer<typeof adminLoginSchema>;
@@ -73,13 +73,13 @@ function LoginForm() {
   });
 
   return (
-    <div className="w-full max-w-md rounded-2xl border border-border bg-card p-8 shadow-soft-lg">
-      <div className="mb-8 flex flex-col items-center gap-3 text-center">
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
-          <Store className="h-6 w-6" />
+    <div className="w-full max-w-sm rounded-lg border border-border bg-card p-8 shadow-card">
+      <div className="mb-8 flex flex-col items-center gap-4 text-center">
+        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-foreground/[0.04] text-foreground">
+          <Store className="h-6 w-6" strokeWidth={1.75} />
         </span>
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Ox Shopping · {t("Admin")}</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Ox Shopping · {t("Admin")}</h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
             {t("Sign in with your administrator account")}
           </p>
@@ -123,7 +123,7 @@ function LoginForm() {
         </Button>
       </form>
 
-      <div className="mt-6 rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
+      <div className="mt-6 rounded-md bg-secondary/60 p-3 text-xs leading-relaxed text-muted-foreground">
         {t("Demo account")}: admin@example.com / Admin@123456 (Admin)
         <br />
         support@example.com / Support@123456 (Support)
@@ -138,10 +138,10 @@ function LoginForm() {
   );
 }
 
-/** Admin login page — Apple-style clean centered card on soft gradient */
+/** Admin login page — 现代 SaaS 居中卡片（冷调浅灰渐变底） */
 export default function AdminLoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/50 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <React.Suspense fallback={null}>
         <LoginForm />
       </React.Suspense>

@@ -1,105 +1,74 @@
 "use client";
 
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Heart, LogOut, Package, Ticket, UserCircle } from "lucide-react";
+import { UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { apiFetch } from "@/lib/fetch-client";
-import { toast } from "sonner";
 import { useT } from "@/components/shop/lang-provider";
 import type { SessionUser } from "@/types/api";
 
-/** Header user area: not logged in → login/register; logged in → account dropdown */
-export function UserMenu({ user }: { user: SessionUser | null }) {
-  const router = useRouter();
+/**
+ * Header user area — 官方单链接（非下拉菜单）：
+ * 未登录 → /auth/login；已登录 → /account。
+ * 订单/收藏/优惠券/退出登录已收进个人中心右侧导航（/account 布局）。
+ *
+ * 已登录时，未读消息数字以 `Account (n)` 文字形式显示（与 CartBadge 一致），
+ * 30s 拉一次 /api/notifications；0 时不显示括号数字。
+ * 点击 Account 即进入个人中心（消息中心是默认第一个 tab）。
+ *
+ * initialUnread：服务端首屏就查好，SSR 直接显示数字，避免客户端 mount 后才补上。
+ */
+export function UserMenu({
+  user,
+  initialUnread = 0,
+}: {
+  user: SessionUser | null;
+  initialUnread?: number;
+}) {
   const t = useT();
+  const [unread, setUnread] = useState(initialUnread);
 
-  if (!user) {
-    return (
-      <Button
-        asChild
-        variant="ghost"
-        size="sm"
-        className="h-auto p-0 text-sm font-normal text-current opacity-65 hover:bg-transparent hover:opacity-100"
-      >
-        <Link href="/auth/login">{t("Login")}</Link>
-      </Button>
-    );
-  }
-
-  const handleLogout = async () => {
+  const fetchUnread = useCallback(async () => {
+    if (!user) return;
     try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
-      toast.success(t("Signed out successfully"));
-      window.dispatchEvent(new CustomEvent("auth:logout"));
-      router.push("/");
-      router.refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("Sign-out failed, please try again later"));
+      const res = await apiFetch<{ unreadCount: number }>("/api/notifications");
+      setUnread(res.unreadCount ?? 0);
+    } catch {
+      /* 401 等忽略 */
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    void fetchUnread();
+    if (!user) return;
+    const id = setInterval(() => void fetchUnread(), 30_000);
+    const onChanged = () => void fetchUnread();
+    window.addEventListener("notifications:changed", onChanged);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("notifications:changed", onChanged);
+    };
+  }, [user, fetchUnread]);
+
+  const href = user ? "/account" : "/auth/login";
+  // 跟 CartBadge 一致：文字 + 括号数字（0 时不显示括号，避免空 `Account ()`）
+  const label = user && unread > 0
+    ? `${t("Account")} (${unread > 99 ? "99+" : unread})`
+    : t("Account");
+  const finalLabel = user ? label : t("Login");
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto gap-2 p-0 text-sm font-normal text-current opacity-65 hover:bg-transparent hover:opacity-100"
-        >
-          <UserCircle className="hidden h-5 w-5 sm:block" />
-          {/* 对齐官方:固定显示 Account,不渲染用户名(避免长名撑破布局) */}
-          <span>{t("Account")}</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuLabel className="truncate">
-          {user.name ? `${user.name} · ${user.email}` : user.email}
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link href="/account/profile">
-            <UserCircle className="mr-2 h-4 w-4" />
-            {t("My Account")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/orders">
-            <Package className="mr-2 h-4 w-4" />
-            {t("My Orders")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/account/favorites">
-            <Heart className="mr-2 h-4 w-4" />
-            {t("My Favorites")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/account/coupons">
-            <Ticket className="mr-2 h-4 w-4" />
-            {t("My Coupons")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault();
-            void handleLogout();
-          }}
-        >
-          <LogOut className="mr-2 h-4 w-4" />
-          {t("Sign Out")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      asChild
+      variant="ghost"
+      size="sm"
+      className="h-auto gap-2 p-0 text-xs font-normal text-current opacity-65 hover:bg-transparent hover:opacity-100 [&_svg]:size-6"
+    >
+      <Link href={href} className="inline-flex items-center gap-2">
+        <UserCircle className="header-account-icon h-6 w-6" />
+        <span>{finalLabel}</span>
+      </Link>
+    </Button>
   );
 }

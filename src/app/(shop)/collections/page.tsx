@@ -8,7 +8,7 @@ import { pickName } from "@/lib/shop-i18n";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = getT();
+  const t = await getT();
   return { title: t("All collections") };
 }
 
@@ -17,8 +17,8 @@ export async function generateMetadata(): Promise<Metadata> {
  * 居中 28px 标题 + 分类卡片网格（图为主、名称居中在下），hover 图片缓慢放大。
  */
 export default async function CollectionsPage() {
-  const t = getT();
-  const lang = getLang();
+  const t = await getT();
+  const lang = await getLang();
   const categories = await prisma.category.findMany({
     where: { isActive: true },
     orderBy: [{ parentId: "asc" }, { sortOrder: "asc" }],

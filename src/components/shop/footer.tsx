@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CurrencySelect } from "@/components/shop/currency-select";
-import { getT } from "@/lib/shop-i18n-server";
+import { getT, getLang } from "@/lib/shop-i18n-server";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 
 /* shop.x.com footer — exact link list, order and labels */
 const FOOTER_LINKS: { href: string; labelKey: string }[] = [
@@ -13,12 +14,18 @@ const FOOTER_LINKS: { href: string; labelKey: string }[] = [
 ];
 
 /**
- * Site footer — faithful shop.x.com replica: pure black, one centered row
- * of faded links (forced centered on the live site via inline CSS), then a
- * centered utility line (country/currency selector · "X Corp © 2024").
+ * Site footer — pure black, one centered row of faded links, then a centered
+ * utility line (country/currency selector + brand + year).
+ *
+ * 站名/版权统一从 SiteSetting 读取（管理员可在后台修改 siteName / icp），
+ * 之前硬编码 "X Corp © 2024" 与 Ox Shopping 品牌脱节，已修复。
  */
 export async function Footer() {
-  const t = getT();
+  const t = await getT();
+  const lang = await getLang();
+  const settings = await getSiteSettings();
+  const siteName = pickLang(settings.siteName, lang);
+  const year = new Date().getFullYear();
 
   return (
     <footer className="bg-ink text-ink-foreground">
@@ -40,7 +47,10 @@ export async function Footer() {
 
         <div className="mx-auto mt-10 flex w-fit flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
           <CurrencySelect showCountry align="center" direction="up" />
-          <p className="text-xs opacity-65">X Corp © 2024</p>
+          <p className="text-xs opacity-65">
+            © {year} {siteName}
+            {settings.icp ? ` · ${settings.icp}` : null}
+          </p>
         </div>
       </div>
     </footer>

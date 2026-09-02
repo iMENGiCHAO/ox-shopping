@@ -14,34 +14,36 @@ type Ctx = {
 const LangContext = React.createContext<Ctx | null>(null);
 
 /**
- * 前台面向欧美客户：固定返回 "en"，忽略 cookie / 浏览器语言。
- * 后台管理独立使用 admin-lang-provider 锁定中文。
+ * 初始语言解析：服务端 RSC 已经在 layout 阶段读 cookie 注入 initialLang；
+ * 客户端挂载时如果 cookie/localStorage 出现更新（例如用户在另一个 tab 切换），
+ * 同步到 context state。这里不强行覆盖 RSC 已注入的值（避免 hydration mismatch）。
  */
-function detectInitialLang(): Lang {
-  return "en";
-}
 
 export function ShopLangProvider({ children, initialLang }: { children: React.ReactNode; initialLang: Lang }) {
   const router = useRouter();
   const [lang, setLangState] = React.useState<Lang>(initialLang);
 
-  // 挂载时同步 cookie（其它 tab 或 SSR/CSR 不一致时纠正），但不重复 refresh
+  // 关键：currency-provider 切币种后 router.refresh() 触发 RSC 重跑，
+  // 会把新的 initialLang 传过来（因为 getLang() 读新 cookie），
+  // 这里要把 client state 同步到新值，否则 t() 还在用旧 lang。
   React.useEffect(() => {
-    const detected = detectInitialLang();
-    if (detected !== lang) setLangState(detected);
-    try {
-      if (!document.cookie.includes(`${SHOP_LANG_KEY}=`)) {
-        document.cookie = `${SHOP_LANG_KEY}=${detected}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
-      }
-    } catch {
-      /* ignore */
+    if (initialLang !== lang) {
+      setLangState(initialLang);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // 故意依赖 initialLang；lang 是 setter 的闭包，不在依赖里
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialLang]);
+
+  // localStorage 路径已彻底移除。原因：
+  //   - 之前实现从 localStorage 读 lang 覆盖服务端值，导致用户切回 USD 货币后
+  //     localStorage.shop-lang=zh 残留 → 客户端又把 lang 切回中文。
+  //   - 现在 lang 单一来源 = cookie（lang 自身 + currency 推断），
+  //     跨 tab 同步不再需要（用户显式操作会触发 router.refresh，自然同步）。
 
   const persist = (l: Lang) => {
     try {
+      // 只写 cookie，不写 localStorage（避免下次刷新再次被旧值拉回）
       document.cookie = `${SHOP_LANG_KEY}=${l}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
-      localStorage.setItem(SHOP_LANG_KEY, l);
     } catch {
       /* ignore */
     }
@@ -85,12 +87,13 @@ export function ShopLangProvider({ children, initialLang }: { children: React.Re
 export function useShopLang(): Ctx {
   const ctx = React.useContext(LangContext);
   if (!ctx) {
-    // Fallback during SSR or outside provider — 前台英文兜底
+    // Fallback during SSR 或 provider 缺失时：返回与 SSR 注入值一致的英文上下文。
+    // 旧实现 fallback 用 zh 翻译，会导致 hydration 闪屏，已修复。
     return {
       lang: "en",
       setLang: () => {},
       toggle: () => {},
-      t: (k: string, params?: Record<string, string | number>) => translate(k, "zh", params),
+      t: (k: string, params?: Record<string, string | number>) => translate(k, "en", params),
     };
   }
   return ctx;

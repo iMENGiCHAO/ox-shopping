@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { couponUpdateSchema } from "@/lib/validations/cart-order";
 import { routeParam } from "@/app/api/_lib/params";
 import { Prisma } from "@prisma/client";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
@@ -74,4 +75,30 @@ export const DELETE = apiHandler(async (req, ctx) => {
     req,
   });
   return json({ ok: true });
+});
+
+const couponToggleSchema = z.object({ isActive: z.boolean() });
+
+/** PATCH /api/admin/coupons/[id] — 启用/停用(轻量切换) */
+export const PATCH = apiHandler(async (req, ctx) => {
+  const actor = await requireAdmin();
+  const id = routeParam(ctx.params.id);
+  const input = await readJson(req, couponToggleSchema);
+
+  const existing = await prisma.coupon.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) throw notFound("Discount券不存在");
+
+  const coupon = await prisma.coupon.update({
+    where: { id },
+    data: { isActive: input.isActive },
+  });
+
+  await audit({
+    userId: actor.id,
+    action: input.isActive ? "ADMIN_COUPON_ENABLE" : "ADMIN_COUPON_DISABLE",
+    entity: "Coupon",
+    entityId: id,
+    req,
+  });
+  return json({ coupon });
 });

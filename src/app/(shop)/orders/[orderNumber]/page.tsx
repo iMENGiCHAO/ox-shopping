@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { Download, MapPin, Package, Receipt, Truck } from "lucide-react";
+import { Download, ExternalLink, MapPin, Package, Receipt, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -19,10 +19,40 @@ import { getT } from "@/lib/shop-i18n-server";
 export const dynamic = "force-dynamic";
 
 interface OrderDetailPageProps {
-  params: { orderNumber: string };
+  params: Promise<{ orderNumber: string }>;
 }
 
-export async function generateMetadata({ params }: OrderDetailPageProps): Promise<Metadata> {
+/** 常见承运商 → 物流查询 URL（自动按承运商名匹配） */
+function getTrackingUrl(company: string | null, number: string): string {
+  const c = (company ?? "").toLowerCase();
+  if (/sf|顺丰|shunfeng/.test(c)) {
+    return `https://www.sf-express.com/track?nums=${encodeURIComponent(number)}`;
+  }
+  if (/yto|圆通|yuantong/.test(c)) {
+    return `https://www.yto.net.cn/query?waybillNo=${encodeURIComponent(number)}`;
+  }
+  if (/zto|中通|zhongtong/.test(c)) {
+    return `https://www.zto.com/track?billno=${encodeURIComponent(number)}`;
+  }
+  if (/sto|申通|shentong/.test(c)) {
+    return `https://www.sto.cn/track?waybillNo=${encodeURIComponent(number)}`;
+  }
+  if (/yd|韵达|yunda/.test(c)) {
+    return `https://www.yundaex.com/track?waybillNo=${encodeURIComponent(number)}`;
+  }
+  if (/j&j|京东|jd\.com/.test(c)) {
+    return `https://www.jdl.com/track?waybillCodes=${encodeURIComponent(number)}`;
+  }
+  if (/usps|ups|fedex|dhl|tnt|ems/.test(c)) {
+    // 国际通用
+    return `https://www.17track.net/zh-cn/?nums=${encodeURIComponent(number)}`;
+  }
+  // 兜底 17track（万能查单）
+  return `https://www.17track.net/zh-cn/?nums=${encodeURIComponent(number)}`;
+}
+
+export async function generateMetadata(props: OrderDetailPageProps): Promise<Metadata> {
+  const params = await props.params;
   const orderNumber = Array.isArray(params.orderNumber)
     ? params.orderNumber[0]
     : params.orderNumber;
@@ -30,19 +60,25 @@ export async function generateMetadata({ params }: OrderDetailPageProps): Promis
 }
 
 /** Order detail (server): timeline, items, address snapshot, shipping, totals, actions */
-export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
+export default async function OrderDetailPage(props: OrderDetailPageProps) {
+  const params = await props.params;
   const orderNumber = Array.isArray(params.orderNumber)
     ? params.orderNumber[0]
     : params.orderNumber;
   const user = await getSessionUser();
   if (!user) redirect(`/auth/login?next=/orders/${orderNumber}`);
-  const t = getT();
+  // redirect() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
+  if (!user) throw new Error("unreachable");
+  const t = await getT();
+  const lang = t("__lang__") === "zh" ? "zh" : "en";
 
   const order = await prisma.order.findUnique({
     where: { orderNumber },
     include: { items: true },
   });
   if (!order || order.userId !== user.id) notFound();
+  // notFound() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
+  if (!order) throw new Error("order not found");
 
   const address = order.addressSnapshot as {
     recipientName?: string;
@@ -72,12 +108,18 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
         <div>
           <h1 className="text-2xl font-bold">{t("Order detail")}</h1>
           <p className="mt-1 font-mono text-sm text-muted-foreground">
-            {t("Order #")}{order.orderNumber}
+            {t("Order #")}
+            {order.orderNumber}
           </p>
         </div>
-        <StatusBadge status={order.status} labelMap={Object.fromEntries(
-          Object.entries(ORDER_STATUS_LABELS).map(([k, v]) => [k, t(v)])
-        ) as Record<string, string>} />
+        <StatusBadge
+          status={order.status}
+          labelMap={
+            Object.fromEntries(
+              Object.entries(ORDER_STATUS_LABELS).map(([k, v]) => [k, t(v)]),
+            ) as Record<string, string>
+          }
+        />
       </div>
 
       {/* Status timeline + actions */}
@@ -112,7 +154,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             />
             {order.status === "PENDING_PAYMENT" ? (
               <p className="text-xs text-muted-foreground">
-                {t("Please pay as soon as possible — unpaid orders are auto-cancelled when they time out.")}
+                {t(
+                  "Please pay as soon as possible — unpaid orders are auto-cancelled when they time out.",
+                )}
               </p>
             ) : null}
             {canDownloadInvoice ? (
@@ -158,7 +202,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               </div>
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-1 font-medium">{item.productName}</p>
-                <p className="text-xs text-muted-foreground">{t("SKU:")} {item.sku}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("SKU:")} {item.sku}
+                </p>
                 {Array.isArray(item.attributes) &&
                 (item.attributes as { name: string; value: string }[]).length > 0 ? (
                   <p className="text-xs text-muted-foreground">
@@ -167,9 +213,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 ) : null}
               </div>
               <span className="text-muted-foreground">× {item.quantity}</span>
-              <span className="w-24 text-right font-medium">
-                {itemSubtotals[i]}
-              </span>
+              <span className="w-24 text-right font-medium">{itemSubtotals[i]}</span>
             </div>
           ))}
         </CardContent>
@@ -219,9 +263,21 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
                 <p>
                   {t("Tracking No.:")}
                   <span className="font-mono text-muted-foreground">
-                    {" "}{order.trackingNumber ?? "-"}
+                    {" "}
+                    {order.trackingNumber ?? "-"}
                   </span>
                 </p>
+                {order.trackingNumber ? (
+                  <a
+                    href={getTrackingUrl(order.trackingCompany, order.trackingNumber)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {lang === "zh" ? "查询物流轨迹" : "Track shipment"}
+                  </a>
+                ) : null}
               </>
             ) : (
               <p className="text-muted-foreground">
@@ -256,11 +312,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             ) : null}
             <div className="flex justify-between">
               <dt className="text-muted-foreground">{t("Shipping")}</dt>
-              <dd>
-                {Number(order.shippingFee) === 0
-                  ? t("Free shipping")
-                  : shippingText}
-              </dd>
+              <dd>{Number(order.shippingFee) === 0 ? t("Free shipping") : shippingText}</dd>
             </div>
             {Number(order.tax) > 0 ? (
               <div className="flex justify-between">
@@ -271,9 +323,7 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
             <Separator />
             <div className="flex justify-between text-base font-bold">
               <dt>{t("Order total")}</dt>
-              <dd className="text-xl font-normal text-foreground">
-                {totalText}
-              </dd>
+              <dd className="text-xl font-normal text-foreground">{totalText}</dd>
             </div>
           </dl>
         </CardContent>

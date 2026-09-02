@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { POLICY_DEFAULTS, PolicyKey, getPolicyContent } from "@/lib/policy-defaults";
 import { Lang } from "@/lib/shop-i18n";
+import { logger } from "@/lib/logger";
 
 /**
  * 站点设置：读取 SiteSetting(由管理端 /api/admin/settings 维护)。
@@ -22,6 +23,12 @@ export interface SiteSettings {
   /** 品牌LOGO(后台可上传更换);空=使用内置默认 */
   siteLogoUrl: string | null;
   announcement: string;
+  /**
+   * 预售商品缺省提示文案（多语言）。
+   * 站级默认 — 任何 isPresale=true 但自身未配置 presaleNoteZh/En 的商品都显示这条。
+   * 后台「设置」或「商品详情」可改。
+   */
+  presaleNote: { zh: string; en: string };
   policies: PolicyContentMap;
 }
 
@@ -32,6 +39,11 @@ const DEFAULT_DESCRIPTION_EN =
 
 const DEFAULT_SITE_NAME_ZH = "Ox Shopping";
 const DEFAULT_SITE_NAME_EN = "Ox Shopping";
+
+/** 站级默认预售提示 — 任何 isPresale=true 但商品级未覆盖时使用。
+ *  后台「设置 → 预售提示」可改；商品级可在编辑商品时单独覆盖。 */
+const DEFAULT_PRESALE_NOTE_ZH = "预售商品 — 付款后 14 天内发货";
+const DEFAULT_PRESALE_NOTE_EN = "Pre-order item — ships within 14 days of payment";
 
 type PolicyValue = string | { zh?: string; en?: string } | null | undefined;
 
@@ -69,7 +81,9 @@ export async function getSiteSettings(): Promise<SiteSettings> {
   try {
     rows = await prisma.siteSetting.findMany();
   } catch (err) {
-    console.error("[settings] 站点设置读取失败，使用默认值:", (err as Error).message);
+    // 用 warn 而非 error：这是预期降级路径（DB 暂不可用 / 表未迁移），不是真错。
+    // Next 16 devtools 会监听 console.error 并标红，污染浏览器控制台。
+    logger.warn({ err: (err as Error).message }, "[settings] 站点设置读取失败，使用默认值");
     rows = [];
   }
   const map: Record<string, unknown> = {};
@@ -113,6 +127,7 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     announcementEnabled: map.announcementEnabled === true,
     siteLogoUrl: typeof map.siteLogoUrl === "string" && map.siteLogoUrl ? map.siteLogoUrl : null,
     announcement: typeof map.announcement === "string" ? map.announcement : "",
+    presaleNote: readI18n(map.presaleNote, DEFAULT_PRESALE_NOTE_ZH, DEFAULT_PRESALE_NOTE_EN),
     policies: {
       accessibility: readPolicy(map.policyAccessibility as PolicyValue, "accessibility"),
       privacy: readPolicy(map.policyPrivacy as PolicyValue, "privacy"),

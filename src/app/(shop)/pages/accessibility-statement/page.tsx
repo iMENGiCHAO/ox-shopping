@@ -8,8 +8,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 /** Accessibility statement — mirrors shop.x.com/pages/accessibility-statement intent */
-export default function AccessibilityPage() {
-  const t = getT();
+export default async function AccessibilityPage() {
+  const t = await getT();
   return (
     <div className="container max-w-3xl py-16">
       <h1 className="text-[28px] font-normal leading-tight text-foreground">

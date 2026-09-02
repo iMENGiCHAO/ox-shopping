@@ -3,8 +3,8 @@ import { forbidden, rateLimited, unauthorized } from "@/lib/errors";
 import { verifyPassword } from "@/lib/auth/password";
 import { issueSession, setAuthCookies, toSessionUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
-import { rateLimit } from "@/lib/rate-limit";
-import { getClientIp } from "@/lib/utils";
+import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/server/utils-server";
 import { prisma } from "@/lib/prisma";
 import { loginSchema } from "@/lib/validations/auth";
 
@@ -13,6 +13,11 @@ export const runtime = "nodejs";
 /** POST /api/auth/login */
 export const POST = apiHandler(async (req) => {
   const input = await readJson(req, loginSchema);
+
+  // 账号级失败锁定：同一邮箱（跨 IP）连错 5 次锁 15 分钟，防分布式爆破
+  const lockKey = `login-lock:${input.email.toLowerCase()}`;
+  const lock = await rateLimit({ key: lockKey, limit: 5, windowSeconds: 900 });
+  if (!lock.ok) throw rateLimited("失败次数过多，账号已临时锁定，请 15 分钟后再试");
 
   const rl = await rateLimit({
     key: `login:${getClientIp(req)}:${input.email}`,
@@ -56,6 +61,7 @@ export const POST = apiHandler(async (req) => {
   const tokens = await issueSession(user);
   const res = json({ user: toSessionUser(user) });
   setAuthCookies(res, tokens);
+  await resetRateLimit(lockKey);
 
   await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
   await audit({ userId: user.id, action: "AUTH_LOGIN", entity: "User", entityId: user.id, req });

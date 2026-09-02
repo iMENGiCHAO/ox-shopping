@@ -1,14 +1,29 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Truck } from "lucide-react";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCurrency } from "@/components/shop/currency-provider";
 import { useCart } from "@/components/shop/cart-provider";
 import { QuantityInput } from "@/components/shop/quantity-input";
 import { formatSpecs } from "@/components/shop/types";
-import { useT } from "@/components/shop/lang-provider";
+import { useT, useShopLang } from "@/components/shop/lang-provider";
+import { apiFetch } from "@/lib/fetch-client";
+
+interface ShippingMethodLite {
+  id: string;
+  code: string;
+  name: string;
+  nameEn: string | null;
+  fee: number;
+  freeOver: number;
+  isCashOnDelivery: boolean;
+  etaZh: string | null;
+  etaEn: string | null;
+}
 
 /**
  * /cart — shop.x.com 官方同构（1440px 实测）：
@@ -19,8 +34,43 @@ import { useT } from "@/components/shop/lang-provider";
  */
 export default function CartPage() {
   const { items, subtotal, loading, updateQuantity, removeItem } = useCart();
-  const { format } = useCurrency();
+  const { format, code } = useCurrency();
   const t = useT();
+  const { lang } = useShopLang();
+  const [methods, setMethods] = useState<ShippingMethodLite[]>([]);
+  const [selectedMethodCode, setSelectedMethodCode] = useState<string>("");
+
+  // 拉可用物流方式
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await apiFetch<{ methods: ShippingMethodLite[] }>(
+          "/api/shipping-methods",
+        );
+        if (cancelled) return;
+        const list = res.methods ?? [];
+        setMethods(list);
+        if (list.length > 0) {
+          setSelectedMethodCode(list[0]!.code);
+        }
+      } catch {
+        // 静默失败，不影响结账
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const selectedMethod = methods.find((m) => m.code === selectedMethodCode) ?? null;
+  const isCOD = selectedMethod?.isCashOnDelivery ?? false;
+  const freeOver = selectedMethod?.freeOver ?? 0;
+  const freeShipping = !isCOD && freeOver > 0 && subtotal >= freeOver;
+  const shippingFee = isCOD || freeShipping ? 0 : (selectedMethod?.fee ?? 0);
+  const toFreeShipping = freeOver > 0 && subtotal < freeOver ? freeOver - subtotal : 0;
+  const hasOutOfStock = items.some((it) => it.stock <= 0);
+  const hasPresale = items.some((it) => it.isPresale);
 
   const handleremove = async (cartItemId: string) => {
     try {
@@ -44,8 +94,10 @@ export default function CartPage() {
   /* ── 空态 ── */
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center pt-[314px] pb-[250px] text-center">
-        <h1 className="text-[18px] font-normal leading-snug text-foreground">{t("Cart")}</h1>
+      <div className="flex flex-col items-center pb-[250px] pt-[314px] text-center">
+        <h1 className="text-[18px] font-normal text-foreground" style={{ lineHeight: 1.6 }}>
+          {t("Cart")}
+        </h1>
         <p className="mt-4 text-[15px] font-normal text-foreground">{t("Your cart is empty")}</p>
         <Link
           href="/products"
@@ -67,7 +119,7 @@ export default function CartPage() {
       <div className="mx-auto mt-[52px] max-w-[980px]">
         {/* 表头 — md 以上显示 */}
         <div className="hidden items-center pb-3 md:flex">
-          <p className="flex-1 text-[12px] font-normal uppercase-none tracking-wide text-foreground">
+          <p className="uppercase-none flex-1 text-[12px] font-normal tracking-wide text-foreground">
             {t("Product")}
           </p>
           <p className="w-[289px] shrink-0 text-center text-[12px] font-normal text-foreground">
@@ -107,6 +159,16 @@ export default function CartPage() {
                     {typeof item.name === "string" ? item.name : JSON.stringify(item.name)}
                   </Link>
                   <p className="mt-1 text-[13px] text-foreground/70">{format(item.price)}</p>
+                  {/* 库存 / 预购 状态徽章 */}
+                  {item.stock <= 0 && !item.isPresale ? (
+                    <p className="mt-1 inline-block rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
+                      {lang === "zh" ? "缺货" : "Out of stock"}
+                    </p>
+                  ) : item.isPresale ? (
+                    <p className="mt-1 inline-block rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
+                      {lang === "zh" ? "预售" : "Pre-order"}
+                    </p>
+                  ) : null}
                   {formatSpecs(item.attributes) ? (
                     <p className="mt-1 text-[13px] uppercase text-foreground/70">
                       {/* 官方仅显示变体值（如 WHITE），不带选项名前缀 */}
@@ -136,7 +198,9 @@ export default function CartPage() {
                     min={1}
                     max={Math.min(99, Math.max(1, item.stock))}
                     onChange={(q) => {
-                      void updateQuantity(item.id, q).catch((err: Error) => toast.error(err.message));
+                      void updateQuantity(item.id, q).catch((err: Error) =>
+                        toast.error(err.message),
+                      );
                     }}
                   />
                   <button
@@ -160,12 +224,94 @@ export default function CartPage() {
           ))}
         </ul>
 
+        {/* 库存/预购警示（购物车栏里已标） */}
+        {hasOutOfStock ? (
+          <div className="mt-6 rounded-md border border-destructive/40 bg-destructive/[0.06] p-3 text-sm text-foreground">
+            <p className="font-medium text-destructive">
+              {lang === "zh"
+                ? "⚠️ 购物车中有缺货商品，请删除后再结账"
+                : "⚠️ Some items are out of stock. Please remove them before checkout."}
+            </p>
+          </div>
+        ) : null}
+        {hasPresale ? (
+          <div className="mt-3 rounded-md border border-warning/40 bg-warning/[0.06] p-3 text-sm text-foreground">
+            <p className="text-warning-foreground">
+              {lang === "zh"
+                ? "🕐 购物车中有预售商品，发货时间会延后到货时再发出"
+                : "🕐 Your cart contains pre-order items. They will ship once back in stock."}
+            </p>
+          </div>
+        ) : null}
+
+        {/* 物流方式 + 凑单 + 运费预览 */}
+        {methods.length > 0 ? (
+          <div className="mt-8 flex flex-col items-end gap-2 border-t pt-6">
+            <p className="flex items-center gap-2 text-[12px] text-foreground/70">
+              <Truck className="h-3.5 w-3.5" />
+              {lang === "zh" ? "预计运费" : "Estimated shipping"}：
+            </p>
+            <select
+              value={selectedMethodCode}
+              onChange={(e) => setSelectedMethodCode(e.target.value)}
+              className="h-8 rounded border border-border bg-card px-2 text-sm"
+            >
+              {methods.map((m) => {
+                const label = lang === "zh" ? m.name : (m.nameEn ?? m.name);
+                const eta = lang === "zh" ? m.etaZh : m.etaEn;
+                return (
+                  <option key={m.id} value={m.code}>
+                    {label}
+                    {eta ? `（${eta}）` : ""}
+                    {m.isCashOnDelivery ? " · 货到付款" : ""}
+                  </option>
+                );
+              })}
+            </select>
+            <p className="text-[13px] text-foreground/70">
+              {isCOD ? (
+                <span className="text-warning">
+                  {lang === "zh"
+                    ? `货到付款，到付 ${format(selectedMethod?.fee ?? 0)}`
+                    : `Pay on delivery: ${format(selectedMethod?.fee ?? 0)}`}
+                </span>
+              ) : freeShipping ? (
+                <span className="text-success">
+                  {lang === "zh" ? "已享免邮" : "Free shipping unlocked"}
+                </span>
+              ) : shippingFee > 0 ? (
+                <>
+                  {format(shippingFee)}{" "}
+                  <span className="text-foreground/50">
+                    ({lang === "zh" ? "订单确认时计算" : "calculated at checkout"})
+                  </span>
+                </>
+              ) : null}
+            </p>
+            {toFreeShipping > 0 ? (
+              <p className="text-[12px] text-foreground/65">
+                {lang === "zh" ? (
+                  <>
+                    再凑 <span className="font-bold text-primary">{format(toFreeShipping)}</span>{" "}
+                    即可享免邮
+                  </>
+                ) : (
+                  <>
+                    Spend <span className="font-bold text-primary">{format(toFreeShipping)}</span>{" "}
+                    more for free shipping
+                  </>
+                )}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         {/* 汇总 — 右对齐 */}
-        <div className="mt-10 flex flex-col items-end gap-3">
+        <div className="mt-8 flex flex-col items-end gap-3 border-t pt-6">
           <p className="text-[17px] font-normal text-foreground">
             {t("Total:")}{" "}
             <span className="tabular-nums">
-              {format(subtotal)} {t("USD")}
+              {format(subtotal)} {code}
             </span>
           </p>
           <p className="text-[14px] font-normal text-foreground/65">
@@ -173,7 +319,18 @@ export default function CartPage() {
           </p>
           <Link
             href="/checkout"
-            className="mt-3 inline-flex h-[46px] items-center justify-center bg-primary px-[30px] text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
+            className="mt-3 inline-flex h-[46px] items-center justify-center bg-primary px-[30px] text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-disabled={hasOutOfStock}
+            onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
+              if (hasOutOfStock) {
+                e.preventDefault();
+                toast.error(
+                  lang === "zh"
+                    ? "请先删除缺货商品"
+                    : "Please remove out-of-stock items first",
+                );
+              }
+            }}
           >
             {t("Checkout")}
           </Link>

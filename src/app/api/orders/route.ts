@@ -2,12 +2,13 @@ import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/ap
 import { rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
 import { requireUser } from "@/lib/auth/session";
-import { createOrder, createPaymentUrl, expireStaleOrders } from "@/server/services/order.service";
+import { createOrder, createPaymentUrl } from "@/server/services/order.service";
 import { serializeOrder } from "@/server/serializers";
 import { prisma } from "@/lib/prisma";
 import { parsePagination } from "@/lib/utils";
 import { orderCreateSchema } from "@/lib/validations/cart-order";
 import type { OrderStatus } from "@prisma/client";
+import { logger } from "@/lib/logger";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -25,7 +26,6 @@ const ORDER_STATUSES: OrderStatus[] = [
 /** GET /api/orders — 我的订单列表 */
 export const GET = apiHandler(async (req) => {
   const user = await requireUser();
-  await expireStaleOrders();
 
   const sp = new URL(req.url).searchParams;
   const status = searchParam(sp, "status");
@@ -77,7 +77,11 @@ export const POST = apiHandler(async (req) => {
   let paymentUrl: string | null = null;
   try {
     paymentUrl = await createPaymentUrl(order, user.email);
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err: (err as Error).message, orderId: order.id, userId: user.id },
+      "[orders] 支付地址生成失败（已容错）",
+    );
     paymentUrl = null;
   }
 

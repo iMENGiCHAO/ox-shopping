@@ -22,8 +22,8 @@ interface TimelineStep {
 }
 
 /** Order status timeline (server-render) */
-export function OrderStatusTimeline({ order }: { order: OrderTimelineData }) {
-  const t = getT();
+export async function OrderStatusTimeline({ order }: { order: OrderTimelineData }) {
+  const t = await getT();
   const lang = t("__lang__") === "zh" ? "zh" : "en";
   const dateLocale = lang === "zh" ? zhCN : enUS;
   const steps: TimelineStep[] = [

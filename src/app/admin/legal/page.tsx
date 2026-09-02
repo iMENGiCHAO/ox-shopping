@@ -14,11 +14,11 @@ import { useT } from "@/components/admin/lang-provider";
 
 /** 五份法务文档：键 = site_settings 存储键；labelKey = admin-i18n 词条 */
 const DOCUMENTS = [
-  { key: "policyAccessibility", labelKey: "Accessibility Statement", hint: "/pages/accessibility-statement" },
-  { key: "policyPrivacy", labelKey: "Privacy Policy", hint: "/policies/privacy" },
-  { key: "policyTerms", labelKey: "Terms of Service", hint: "/policies/terms" },
-  { key: "policyRefund", labelKey: "Refund Policy", hint: "/policies/refund" },
-  { key: "policyCookies", labelKey: "Cookie Policy", hint: "/policies/cookies" },
+  { key: "policyAccessibility", labelKey: "无障碍声明", hint: "/pages/accessibility-statement" },
+  { key: "policyPrivacy", labelKey: "隐私政策", hint: "/policies/privacy" },
+  { key: "policyTerms", labelKey: "服务条款", hint: "/policies/terms" },
+  { key: "policyRefund", labelKey: "退款政策", hint: "/policies/refund" },
+  { key: "policyCookies", labelKey: "Cookie 政策", hint: "/policies/cookies" },
 ] as const;
 
 type LegalKey = (typeof DOCUMENTS)[number]["key"];
@@ -56,7 +56,7 @@ export default function LegalPagesPage() {
       );
       setDirty({});
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load legal pages");
+      toast.error(err instanceof Error ? err.message : "加载法务页面失败");
     } finally {
       setLoading(false);
     }

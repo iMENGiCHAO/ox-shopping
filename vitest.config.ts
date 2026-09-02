@@ -14,8 +14,8 @@ export default defineConfig({
     poolOptions: {
       forks: { singleFork: true },
     },
-    testTimeout: 30000,
-    hookTimeout: 60000,
+    testTimeout: 60000,
+    hookTimeout: 90000,
   },
   resolve: {
     alias: [

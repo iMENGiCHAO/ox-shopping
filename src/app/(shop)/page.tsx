@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
 import { listCategoryTree, listProducts } from "@/server/services/product.service";
-import { getPageBanners, type BannerSlotConfig } from "@/server/services/settings.service";
 import { ProductCard } from "@/components/shop/product-card";
 import { ProductGrid } from "@/components/shop/product-grid";
 import { Reveal } from "@/components/shop/reveal";
@@ -21,7 +20,7 @@ const ALL_SIZE = 100;
  * 3-column product grid.
  */
 export default async function HomePage() {
-  const [{ rows }, categories, banners] = await Promise.all([
+  const [{ rows }, categories] = await Promise.all([
     listProducts({
       sort: "newest",
       page: 1,
@@ -29,30 +28,36 @@ export default async function HomePage() {
       excludeSlugs: OFFICIAL_LISTING_EXCLUDE_SLUGS,
     }),
     listCategoryTree(),
-    getPageBanners(),
   ]);
   const featured = categories.slice(0, 2);
 
-  /* 横幅渲染数据：后台配置优先，未配置回落分类默认（图=分类图、链=分类页、题=分类名） */
-  const bannerData = (slot: BannerSlotConfig, index: number) => {
+  const t = await getT();
+  const lang = await getLang();
+  // 提前声明：bannerData 在初始化时就需要 catName，必须在 bannerData 之前完成。
+  const catName = (c: (typeof featured)[number]) => pickName(c.name, c.nameEn ?? null, lang);
+
+  /* 首页横幅：由前两个分类驱动（管理端在「分类」里编辑，无独立横幅入口）
+     - 图：分类落地页大横幅 bannerImage 优先，回落分类卡片图
+     - 链：分类页 / 题：分类名 */
+  const bannerData = (index: number) => {
     const cat = featured[index];
     return {
-      image: slot.image || cat?.image || `https://picsum.photos/seed/${cat?.slug ?? index}/1200/675`,
-      href: slot.href || (cat ? `/products?category=${cat.slug}` : "/products"),
-      title: slot.title || (cat ? catName(cat) : ""),
-      hasContent: Boolean(cat) || Boolean(slot.image),
+      image:
+        cat?.bannerImage ||
+        cat?.image ||
+        `https://picsum.photos/seed/${cat?.slug ?? index}/1200/675`,
+      href: cat ? `/products?category=${cat.slug}` : "/products",
+      title: cat ? catName(cat) : "",
+      hasContent: Boolean(cat),
     };
   };
-  const leftBanner = bannerData(banners.homeLeft, 0);
-  const rightBanner = bannerData(banners.homeRight, 1);
-  const t = getT();
-  const lang = getLang();
-  const catName = (c: (typeof featured)[number]) => pickName(c.name, c.nameEn ?? null, lang);
+  const leftBanner = bannerData(0);
+  const rightBanner = bannerData(1);
 
   return (
     <div className="pb-24">
       {/* ── Collections — two half-width banners, no gap ── */}
-      {featured.length > 0 || banners.homeLeft.image || banners.homeRight.image ? (
+      {featured.length > 0 ? (
         <section className="grid grid-cols-2">
           {[leftBanner, rightBanner].map((bn, i) =>
             bn.hasContent ? (
@@ -67,19 +72,21 @@ export default async function HomePage() {
                   fill
                   priority={i === 0}
                   sizes="(max-width: 640px) 100vw, 50vw"
-                  className="object-cover transition-transform duration-[5000ms] ease-out group-hover:scale-[1.06]"
+                  className="duration-[5000ms] object-cover transition-transform ease-out group-hover:scale-[1.06]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/25 to-black/10" />
 
-                {/* [ Name ] — top-left, 22px regular white */}
-                <h2 className="absolute left-5 top-5 text-[22px] font-normal leading-tight text-white drop-shadow-sm sm:left-8 sm:top-7">
-                  [ {bn.title} ]
-                </h2>
-
-                {/* Shop All — bottom-left, outlined white button (x.com exact) */}
-                <span className="absolute bottom-5 left-5 inline-flex h-[37px] items-center border border-white px-7 text-[14px] font-normal leading-none text-white transition-colors group-hover:bg-white group-hover:text-ink sm:bottom-8 sm:left-8">
-                  {t("Shop All")}
-                </span>
+                {/* [ Name ] + Shop All — 左上角纵向排列：名字在上、按钮在名字下方 24px。
+                    左缘与 header LOGO 左缘对齐：
+                    移动 20px（header padding 20px）/ 桌面 48px（header padding 48px） */}
+                <div className="absolute left-5 top-5 flex flex-col items-start gap-6 sm:left-12 sm:top-7">
+                  <h2 className="text-[22px] font-normal leading-tight text-white drop-shadow-sm">
+                    [ {bn.title} ]
+                  </h2>
+                  <span className="inline-flex h-[46px] items-center border border-white px-7 text-[14px] font-normal leading-none text-white transition-colors group-hover:bg-white group-hover:text-ink">
+                    {t("Shop All")}
+                  </span>
+                </div>
               </Link>
             ) : null,
           )}
@@ -101,6 +108,34 @@ export default async function HomePage() {
           ))}
         </ProductGrid>
       </section>
+
+      {/* Organization + WebSite JSON-LD — 提升 Google 搜索品牌认知 */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify([
+            {
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Ox Shopping",
+              url: "https://ox.example.com",
+              logo: "https://ox.example.com/images/brand/favicon.png",
+              sameAs: ["https://x.com"],
+            },
+            {
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Ox Shopping",
+              url: "https://ox.example.com",
+              potentialAction: {
+                "@type": "SearchAction",
+                target: "https://ox.example.com/products?q={search_term_string}",
+                "query-input": "required name=search_term_string",
+              },
+            },
+          ]),
+        }}
+      />
     </div>
   );
 }

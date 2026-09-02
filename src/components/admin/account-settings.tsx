@@ -15,24 +15,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 import { useT } from "@/components/admin/lang-provider";
 const profileSchema = z.object({
-  name: z.string().trim().min(2, "Display name must be at least 2 characters").max(30, "Display name must be at most 30 characters"),
+  name: z.string().trim().min(2, "显示名至少 2 个字符").max(30, "显示名最多 30 个字符"),
 });
 
 const passwordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Please enter your current password"),
+    currentPassword: z.string().min(1, "请输入当前密码"),
     newPassword: z
       .string()
-      .min(8, "Password must be at least 8 characters")
-      .max(72, "Password must be at most 72 characters")
-      .regex(/[a-z]/, "Must contain a lowercase letter")
-      .regex(/[A-Z]/, "Must contain an uppercase letter")
-      .regex(/[0-9]/, "Must contain a digit"),
-    confirmPassword: z.string().min(1, "Please confirm the new password"),
+      .min(8, "新密码至少 8 个字符")
+      .max(72, "新密码最多 72 个字符")
+      .regex(/[a-z]/, "需包含小写字母")
+      .regex(/[A-Z]/, "需包含大写字母")
+      .regex(/[0-9]/, "需包含数字"),
+    confirmPassword: z.string().min(1, "请再次输入新密码"),
   })
   .refine((v) => v.newPassword === v.confirmPassword, {
     path: ["confirmPassword"],
-    message: "Passwords don't match",
+    message: "两次输入的密码不一致",
   });
 
 type ProfileValues = z.infer<typeof profileSchema>;
@@ -71,7 +71,7 @@ export function AccountSettings() {
       await apiFetch("/api/user/profile", { method: "PUT", body: JSON.stringify(values) });
       toast.success(t("Display name updated"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update display name");
+      toast.error(err instanceof Error ? err.message : "更新显示名失败");
     } finally {
       setSavingProfile(false);
     }
@@ -90,7 +90,7 @@ export function AccountSettings() {
       toast.success(t("Password changed"));
       passwordForm.reset({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to change password");
+      toast.error(err instanceof Error ? err.message : "修改密码失败");
     } finally {
       setSavingPassword(false);
     }
@@ -101,19 +101,19 @@ export function AccountSettings() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <UserRound className="h-4 w-4 text-muted-foreground" />
-          My account
+          我的账户
         </CardTitle>
-        <CardDescription>Change the display name and password of the current account</CardDescription>
+        <CardDescription>修改当前账户的显示名与登录密码</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6 md:grid-cols-2">
         {/* Display name */}
-        <form onSubmit={saveProfile} className="space-y-3">
+        <form onSubmit={saveProfile} className="space-y-3" aria-label="账户资料">
           <div className="space-y-2">
-            <Label htmlFor="acc-email">Login email (not editable)</Label>
+            <Label htmlFor="acc-email">登录邮箱（不可修改）</Label>
             <Input id="acc-email" value={email} readOnly disabled />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="acc-name">Display name *</Label>
+            <Label htmlFor="acc-name">显示名 *</Label>
             <Input id="acc-name" placeholder={t("Enter a display name")} {...profileForm.register("name")} />
             {profileForm.formState.errors.name ? (
               <p className="text-xs text-destructive">{profileForm.formState.errors.name.message}</p>
@@ -121,14 +121,14 @@ export function AccountSettings() {
           </div>
           <Button type="submit" disabled={savingProfile}>
             {savingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Save name
+            保存显示名
           </Button>
         </form>
 
         {/* Password */}
-        <form onSubmit={savePassword} className="space-y-3">
+        <form onSubmit={savePassword} className="space-y-3" aria-label="修改密码">
           <div className="space-y-2">
-            <Label htmlFor="acc-cur">Current password *</Label>
+            <Label htmlFor="acc-cur">当前密码 *</Label>
             <Input
               id="acc-cur"
               type="password"
@@ -142,7 +142,7 @@ export function AccountSettings() {
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="acc-new">New password *</Label>
+            <Label htmlFor="acc-new">新密码 *</Label>
             <Input
               id="acc-new"
               type="password"
@@ -156,7 +156,7 @@ export function AccountSettings() {
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="acc-confirm">Confirm new password *</Label>
+            <Label htmlFor="acc-confirm">确认新密码 *</Label>
             <Input
               id="acc-confirm"
               type="password"
@@ -171,7 +171,7 @@ export function AccountSettings() {
           </div>
           <Button type="submit" disabled={savingPassword}>
             {savingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-            Change password
+            修改密码
           </Button>
         </form>
       </CardContent>

@@ -4,10 +4,12 @@ import "server-only";
 
 function escapeCell(value: unknown): string {
   const s = value === null || value === undefined ? "" : String(value);
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
+  // CSV 公式注入防护：Excel/WPS 会执行 = + - @ 开头的单元格
+  const safe = s.length > 0 && /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+  if (/[",\n\r]/.test(safe)) {
+    return `"${safe.replace(/"/g, '""')}"`;
   }
-  return s;
+  return safe;
 }
 
 /**

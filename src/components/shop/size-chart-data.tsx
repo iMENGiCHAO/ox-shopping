@@ -116,13 +116,28 @@ const SIZE_CHARTS: Record<string, SizeChartTable> = {
   },
 };
 
+/** 代码内置参数表的全部商品 slug（供检索与判断"该商品有参数表"） */
+export const SIZE_CHART_SLUGS: string[] = Object.keys(SIZE_CHARTS);
+
 export function getSizeChart(slug: string): SizeChartTable | null {
   return SIZE_CHARTS[slug] ?? null;
 }
 
+/** 代码内置参数表检索：返回表头/内容命中关键词的商品 slug（官方 Pages 结果含 Size Chart） */
+export function searchSizeChartSlugs(query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const hits: string[] = [];
+  for (const [slug, chart] of Object.entries(SIZE_CHARTS)) {
+    const haystack = [...chart.headers, ...chart.rows.flat()].join(" ").toLowerCase();
+    if (haystack.includes(q)) hits.push(slug);
+  }
+  return hits;
+}
+
 export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
   return (
-    <details className="group border-b border-border">
+    <details className="group border-b border-t border-border">
       <summary className="flex h-[84px] cursor-pointer list-none items-center justify-between [&::-webkit-details-marker]:hidden">
         {/* 官方布局：标题居左，animated-plus 开关居右（展开旋转 45°） */}
         <span className="text-[12px] font-normal text-foreground">Size Chart</span>
@@ -139,13 +154,18 @@ export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[15px] font-normal text-foreground">
             <tbody>
-              {/* 官方结构：1 行表头 + N 行数据（N = rows.length），绝无空行 */}
-              <tr className="border-y border-[#DDDDDD]">
+              {/* 官方结构：1 行表头 + N 行数据（N = rows.length），绝无空行；
+                  单元格 1px #DDD 网格：每行底部横线 + 非首列左边竖线 */}
+              <tr className="border-b border-t border-[#DDDDDD]">
                 {chart.headers.map((cell, ci) => (
                   <th
                     key={ci}
                     scope="col"
-                    className={`py-4 text-left text-[15px] font-normal ${ci === 0 ? "pl-0 pr-0" : "px-3"}`}
+                    className={`py-4 text-[15px] font-bold ${
+                      ci === 0
+                        ? "border-l-0 px-3 pl-0 text-left"
+                        : "border-l border-[#DDDDDD] px-3 text-center"
+                    }`}
                   >
                     {cell}
                   </th>
@@ -156,7 +176,11 @@ export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
                   {row.map((cell, ci) => (
                     <td
                       key={ci}
-                      className={`py-4 align-middle tabular-nums ${ci === 0 ? "pl-0 pr-0" : "px-3"}`}
+                      className={`py-4 align-middle tabular-nums ${
+                        ci === 0
+                          ? "border-l-0 px-3 pl-0 text-left font-bold"
+                          : "border-l border-[#DDDDDD] px-3 text-center"
+                      }`}
                     >
                       {cell}
                     </td>

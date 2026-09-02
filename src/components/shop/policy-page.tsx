@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { getT } from "@/lib/shop-i18n-server";
 
 /** Policy page shared layout (server) */
-export function PolicyPage({
+export async function PolicyPage({
   title,
   updatedAt,
   children,
@@ -11,7 +11,7 @@ export function PolicyPage({
   updatedAt: string;
   children: ReactNode;
 }) {
-  const t = getT();
+  const t = await getT();
   return (
     <div className="container max-w-3xl py-10">
       <h1 className="mb-2 text-2xl font-bold">{title}</h1>

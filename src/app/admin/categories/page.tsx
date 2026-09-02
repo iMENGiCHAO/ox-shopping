@@ -10,9 +10,9 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { DataTableActions } from "@/components/admin/data-table-actions";
 import { ImageUploader } from "@/components/admin/image-uploader";
 import {
-  categoryProductCount,
   collectNodeAndDescendants,
   flattenCategoryTree,
 } from "@/components/admin/category-utils";
@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminCategory } from "@/components/admin/types";
+import { CellText } from "@/components/admin/cell-text";
 
 import { useT } from "@/components/admin/lang-provider";
 /** generate slug from name (lowercase alphanumeric + hyphens only) */
@@ -61,11 +62,11 @@ function slugify(name: string): string {
 
 const categoryFormSchema = z
   .object({
-    name: z.string().trim().min(2, "Category name must be at least 2 characters").max(50),
+    name: z.string().trim().min(2, "分类名称至少 2 个字符").max(50),
     slug: z
       .string()
       .trim()
-      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug may only contain lowercase letters, digits and hyphens")
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "路径标识只能包含小写字母、数字与连字符")
       .max(100)
       .optional()
       .or(z.literal("")),
@@ -73,21 +74,27 @@ const categoryFormSchema = z
     image: z
       .string()
       .max(2048)
-      .refine((v) => v === "" || /^https?:\/\//.test(v), "Please enter a valid image URL (http/https)")
+      .refine(
+        (v) => v === "" || /^https?:\/\//.test(v) || v.startsWith("/"),
+        "请填写合法的图片 URL（http/https）或站内路径",
+      )
       .optional()
       .or(z.literal("")),
     bannerImage: z
       .string()
       .max(2048)
-      .refine((v) => v === "" || /^https?:\/\//.test(v), "Please enter a valid image URL (http/https)")
+      .refine(
+        (v) => v === "" || /^https?:\/\//.test(v) || v.startsWith("/"),
+        "请填写合法的图片 URL（http/https）或站内路径",
+      )
       .optional()
       .or(z.literal("")),
     parentId: z.string().optional().or(z.literal("")),
-    sortOrder: z.string().min(1, "Please enter a sort order"),
+    sortOrder: z.string().min(1, "请填写排序值"),
     isActive: z.boolean().default(true),
   })
   .refine((d) => Number.isInteger(Number(d.sortOrder)), {
-    message: "Sort order must be an integer",
+    message: "排序值必须为整数",
     path: ["sortOrder"],
   });
 
@@ -146,7 +153,7 @@ export default function AdminCategoriesPage() {
       walk(list);
       setExpanded(ids);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load categories");
+      toast.error(err instanceof Error ? err.message : "加载分类失败");
     } finally {
       setLoading(false);
     }
@@ -216,7 +223,7 @@ export default function AdminCategoriesPage() {
       toast.success(t("Sort order updated"));
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update sort order");
+      toast.error(err instanceof Error ? err.message : "更新排序失败");
     } finally {
       setReorderLoading(false);
     }
@@ -228,10 +235,10 @@ export default function AdminCategoriesPage() {
         method: "PATCH",
         body: JSON.stringify({ isActive }),
       });
-      toast.success(isActive ? "Category enabled" : "Category disabled");
+      toast.success(isActive ? "已启用分类" : "已停用分类");
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update category status");
+      toast.error(err instanceof Error ? err.message : "更新分类状态失败");
     }
   };
 
@@ -265,7 +272,7 @@ export default function AdminCategoriesPage() {
       setEditing(null);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save category");
+      toast.error(err instanceof Error ? err.message : "保存分类失败");
     } finally {
       setFormSaving(false);
     }
@@ -280,7 +287,7 @@ export default function AdminCategoriesPage() {
       setDeleting(null);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete category");
+      toast.error(err instanceof Error ? err.message : "删除分类失败");
     } finally {
       setDeleteLoading(false);
     }
@@ -295,17 +302,35 @@ export default function AdminCategoriesPage() {
     nodes.map((node) => {
       const hasChildren = node.children && node.children.length > 0;
       const isOpen = expanded.has(node.id);
+      const parent = node.parentId ? findCategory(tree, node.parentId) : null;
       return (
         <React.Fragment key={node.id}>
           <TableRow className={depth > 0 ? "bg-muted/20" : undefined}>
-            <TableCell>
-              <div className="flex items-center gap-1" style={{ paddingLeft: depth * 24 }}>
+            <TableCell className="w-12">
+              {node.image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={node.image}
+                  alt={node.name}
+                  className="h-8 w-8 rounded object-cover"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded bg-muted text-muted-foreground">
+                  <FolderTree className="h-4 w-4" />
+                </div>
+              )}
+            </TableCell>
+            <TableCell className="min-w-0">
+              <div
+                className="flex items-center gap-1"
+                style={{ paddingLeft: depth * 24 }}
+              >
                 {hasChildren ? (
                   <button
                     type="button"
                     onClick={() => toggleExpand(node.id)}
-                    aria-label={isOpen ? "Collapse" : "Expand"}
-                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={isOpen ? "收起" : "展开"}
+                    className="shrink-0 text-muted-foreground hover:text-foreground"
                   >
                     {isOpen ? (
                       <ChevronDown className="h-4 w-4" />
@@ -314,20 +339,47 @@ export default function AdminCategoriesPage() {
                     )}
                   </button>
                 ) : (
-                  <span className="inline-block w-4" />
+                  <span className="inline-block w-4 shrink-0" />
                 )}
-                <span className="font-medium">{node.name}</span>
-                {depth === 0 && hasChildren ? (
-                  <span className="text-xs text-muted-foreground">
-                    ({node.children?.length ?? 0}  subcategories)
-                  </span>
-                ) : null}
+                <div className="min-w-0 flex-1">
+                  <CellText
+                    value={
+                      <span className="font-medium">
+                        {node.name}
+                        {depth === 0 && hasChildren ? (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({node.children?.length ?? 0})
+                          </span>
+                        ) : null}
+                      </span>
+                    }
+                    className="font-medium"
+                  />
+                </div>
               </div>
             </TableCell>
-            <TableCell className="font-mono text-xs">{node.slug}</TableCell>
-            <TableCell>{categoryProductCount(node)}</TableCell>
-            <TableCell className="text-muted-foreground">{node.sortOrder}</TableCell>
-            <TableCell>
+            <TableCell className="w-[160px]">
+              <CellText
+                value={node.slug}
+                className="font-mono text-xs"
+                title={node.slug}
+              />
+            </TableCell>
+            <TableCell className="w-[140px]">
+              <CellText
+                value={parent?.name ?? (node.parentId ? `…${node.parentId.slice(-6)}` : "—")}
+                className="text-muted-foreground"
+              />
+            </TableCell>
+            <TableCell className="w-16 text-right tabular-nums">{node.sortOrder}</TableCell>
+            <TableCell className="w-20">
+              <Switch
+                checked={node.isActive}
+                onCheckedChange={(v) => void toggleActive(node, v)}
+                aria-label={`切换 ${node.name} 的启用状态`}
+              />
+            </TableCell>
+            <TableCell className="sticky-col-right w-[180px]">
               <div className="flex items-center gap-1">
                 <Button
                   size="icon"
@@ -349,38 +401,26 @@ export default function AdminCategoriesPage() {
                 >
                   <ChevronRight className="h-4 w-4 rotate-90" />
                 </Button>
-              </div>
-            </TableCell>
-            <TableCell>
-              <Switch
-                checked={node.isActive}
-                onCheckedChange={(v) => void toggleActive(node, v)}
-                aria-label={`toggle ${node.name}  active state`}
-              />
-            </TableCell>
-            <TableCell>
-              <div className="flex items-center gap-1">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2"
-                  onClick={() => {
-                    setEditing(node);
-                    setFormOpen(true);
-                  }}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                  {t("Edit")}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2 text-destructive hover:text-destructive"
-                  onClick={() => setDeleting(node)}
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  {t("Delete")}
-                </Button>
+                <DataTableActions
+                  actions={[
+                    {
+                      label: t("Edit"),
+                      icon: Pencil,
+                      onClick: () => {
+                        setEditing(node);
+                        setFormOpen(true);
+                      },
+                      primary: true,
+                    },
+                    {
+                      label: t("Delete"),
+                      icon: Trash2,
+                      onClick: () => setDeleting(node),
+                      destructive: true,
+                      divider: true,
+                    },
+                  ]}
+                />
               </div>
             </TableCell>
           </TableRow>
@@ -402,23 +442,25 @@ export default function AdminCategoriesPage() {
             }}
           >
             <Plus className="h-4 w-4" />
-            New Category
+            {t("New Category")}
           </Button>
         }
       />
 
       <Card>
         <CardContent className="p-0">
-          <Table className="w-full">
+          <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("Name")}</TableHead>
-                <TableHead>slug</TableHead>
-                <TableHead className="w-20">{t("Products")}</TableHead>
-                <TableHead className="w-20">{t("Sort")}</TableHead>
-                <TableHead className="w-24">Reorder</TableHead>
-                <TableHead className="w-20">Active</TableHead>
-                <TableHead className="w-36 text-right">{t("Actions")}</TableHead>
+                <TableHead className="w-12">图标</TableHead>
+                <TableHead className="min-w-0">{t("Name")}</TableHead>
+                <TableHead className="w-[140px]">路径标识</TableHead>
+                <TableHead className="w-[140px]">{t("Parent Category")}</TableHead>
+                <TableHead className="w-20 text-right">{t("Sort")}</TableHead>
+                <TableHead className="w-24">{t("Status")}</TableHead>
+                <TableHead className="sticky-col-right w-[180px] text-right">
+                  {t("Actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -438,7 +480,7 @@ export default function AdminCategoriesPage() {
                     <EmptyState
                       icon={<FolderTree className="h-6 w-6" />}
                       title={t("No categories yet")}
-                      description='Click "New Category" to create your first product category'
+                      description='点击"新增分类"来创建你的第一个商品分类'
                     />
                   </TableCell>
                 </TableRow>
@@ -464,15 +506,15 @@ export default function AdminCategoriesPage() {
           <DialogHeader>
             <DialogTitle>{t(editing ? "Edit Category" : "New Category")}</DialogTitle>
             <DialogDescription>
-              {editing ? `Editing: ${editing.name}` : "Fields marked * are required"}
+              {editing ? `正在编辑：${editing.name}` : t("Fields marked * are required")}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="cat-name">Category name *</Label>
+              <Label htmlFor="cat-name">分类名称 *</Label>
               <Input
                 id="cat-name"
-                placeholder="e.g. Mobile"
+                placeholder="例如 手机"
                 {...form.register("name", {
                   onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
                     if (!slugTouched) {
@@ -488,11 +530,11 @@ export default function AdminCategoriesPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="cat-slug">
-                slug {editing ? "(usually unchanged when editing)" : "(auto-generated from name, editable)"}
+                路径标识 {editing ? "（编辑时通常不修改）" : "（按名称自动生成，可手动调整）"}
               </Label>
               <Input
                 id="cat-slug"
-                placeholder="e.g. mobile-phones"
+                placeholder="例如 mobile-phones"
                 {...form.register("slug", {
                   onChange: () => setSlugTouched(true),
                 })}
@@ -502,16 +544,16 @@ export default function AdminCategoriesPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-parent">Parent category</Label>
+              <Label htmlFor="cat-parent">{t("Parent Category")}</Label>
               <Select
                 value={form.watch("parentId") || "none"}
                 onValueChange={(v) => form.setValue("parentId", v === "none" ? "" : v)}
               >
                 <SelectTrigger id="cat-parent">
-                  <SelectValue placeholder="None (top level)" />
+                  <SelectValue placeholder={t("None (top-level)")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">None (top level)</SelectItem>
+                  <SelectItem value="none">{t("None (top-level)")}</SelectItem>
                   {parentOptions.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.depth > 0 ? `${"　".repeat(c.depth)}└ ` : ""}
@@ -526,7 +568,7 @@ export default function AdminCategoriesPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="cat-sort">Sort</Label>
+                <Label htmlFor="cat-sort">{t("Sort")}</Label>
                 <Input
                   id="cat-sort"
                   type="number"
@@ -541,7 +583,7 @@ export default function AdminCategoriesPage() {
               </div>
               <div className="flex items-end gap-2 pb-2">
                 <Label htmlFor="cat-active" className="shrink-0">
-                  Active
+                  启用
                 </Label>
                 <Switch
                   id="cat-active"
@@ -551,7 +593,7 @@ export default function AdminCategoriesPage() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-image">Category image (optional — upload or paste URL)</Label>
+              <Label htmlFor="cat-image">分类图片（可选，可上传或粘贴 URL）</Label>
               <ImageUploader
                 value={form.watch("image") ? [form.watch("image")!] : []}
                 onChange={(urls) =>
@@ -565,7 +607,7 @@ export default function AdminCategoriesPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-banner">Landing hero banner (full-width image at the top of this collection&apos;s page)</Label>
+              <Label htmlFor="cat-banner">大横幅（分类落地页顶部全宽图；前两个分类也用作首页横幅）</Label>
               <ImageUploader
                 value={form.watch("bannerImage") ? [form.watch("bannerImage")!] : []}
                 onChange={(urls) =>
@@ -579,7 +621,7 @@ export default function AdminCategoriesPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-desc">Description (optional)</Label>
+              <Label htmlFor="cat-desc">{t("Description")}（可选）</Label>
               <Textarea
                 id="cat-desc"
                 rows={3}
@@ -599,7 +641,7 @@ export default function AdminCategoriesPage() {
                 onClick={() => setFormOpen(false)}
                 disabled={formSaving}
               >
-                Cancel
+                取消
               </Button>
               <Button type="submit" disabled={formSaving}>
                 {formSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -617,10 +659,10 @@ export default function AdminCategoriesPage() {
         title={t("Delete category")}
         description={
           deleting
-            ? `Are you sure you want to delete category"${deleting.name}"? Its child categories will be promoted to top level. This action cannot be undone.`
+            ? `确定要删除分类"${deleting.name}"吗？其下子分类将提升为顶级分类。此操作无法撤销。`
             : ""
         }
-        confirmText="Delete"
+        confirmText={t("Delete")}
         destructive
         loading={deleteLoading}
         onConfirm={() => void handleDelete()}

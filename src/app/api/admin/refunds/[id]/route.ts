@@ -8,10 +8,13 @@ import { effectivePaymentMode } from "@/lib/env";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { logPayment } from "@/server/services/payment-log.service";
+import { createNotification } from "@/server/services/notification.service";
 import { formatMoney } from "@/lib/utils";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
+import { sanitizePlainText } from "@/lib/sanitize";
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 
@@ -24,7 +27,12 @@ const refundDecisionSchema = z.object({
 export const PUT = apiHandler(async (req, ctx) => {
   const actor = await requireAdmin();
   const id = Array.isArray(ctx.params.id) ? ctx.params.id[0]! : ctx.params.id;
-  const input = await readJson(req, refundDecisionSchema);
+  const raw = await readJson(req, refundDecisionSchema);
+  // adminNote 净化：去 HTML 标签
+  const input = {
+    ...raw,
+    adminNote: raw.adminNote ? (await sanitizePlainText(raw.adminNote)).trim().slice(0, 500) || null : null,
+  };
 
   const refund = await prisma.refund.findUnique({
     where: { id },
@@ -35,23 +43,33 @@ export const PUT = apiHandler(async (req, ctx) => {
   const orderUrl = `${env.SITE_URL}/orders/${refund.order.orderNumber}`;
 
   if (input.decision === "approve") {
-    // 幂等防重：仅待审核状态可批准（防止对已退款项二次打款）
-    if (refund.status !== "REQUESTED") {
-      throw badRequest("该退款申请已处理，请勿重复操作");
-    }
-
-    // 累计封顶：已退金额 + 本笔 ≤ 订单总额（部分退款可多次，但总和不得超额）
-    const prior = await prisma.refund.aggregate({
-      where: { orderId: refund.orderId, status: "REFUNDED" },
-      _sum: { amount: true },
+    // 原子认领：同一退款单并发审批只有一个成功；
+    // 同一订单的不同退款单经订单行锁串行化，累计封顶不会并发超退。
+    // 累计口径：REQUESTED + APPROVED + REFUNDED（与 /api/orders/[orderNumber]/refund 保持一致）
+    const claimedRefund = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM orders WHERE id = ${refund.orderId} FOR UPDATE`;
+      const prior = await tx.refund.aggregate({
+        where: {
+          orderId: refund.orderId,
+          status: { in: ["REQUESTED", "APPROVED", "REFUNDED"] },
+          id: { not: id },
+        },
+        _sum: { amount: true },
+      });
+      const soFar = Number(prior._sum.amount ?? 0);
+      if (soFar + Number(refund.amount) > Number(refund.order.total) + 1e-9) {
+        throw badRequest(
+          `累计退款超出订单金额：已占用/已退 ${soFar.toFixed(2)}，本笔 ${Number(refund.amount).toFixed(2)}，` +
+            `订单总额 ${Number(refund.order.total).toFixed(2)}`,
+        );
+      }
+      const claimed = await tx.refund.updateMany({
+        where: { id, status: "REQUESTED" },
+        data: { status: "REFUNDED" },
+      });
+      if (claimed.count === 0) throw badRequest("该退款申请已处理，请勿重复操作");
+      return soFar;
     });
-    const refundedSoFar = Number(prior._sum.amount ?? 0);
-    if (refundedSoFar + Number(refund.amount) > Number(refund.order.total) + 1e-9) {
-      throw badRequest(
-        `累计退款超出订单金额：已退 ${refundedSoFar.toFixed(2)}，本笔 ${Number(refund.amount).toFixed(2)}，` +
-          `订单总额 ${Number(refund.order.total).toFixed(2)}`,
-      );
-    }
 
     // Stripe 模式：发起线上退款（预留接口；mock 模式跳过）
     let gatewayRefundId: string | null = null;
@@ -61,13 +79,20 @@ export const PUT = apiHandler(async (req, ctx) => {
         gatewayRefundId = r.id;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "未知错误";
+        // 网关失败：回滚认领状态并记录原因，允许管理员重试（不留半途状态）
+        await prisma.refund
+          .update({
+            where: { id },
+            data: { status: "REQUESTED", adminNote: `网关退款失败：${msg}` },
+          })
+          .catch(() => undefined);
         throw badRequest(`退款失败：${msg}`);
       }
     }
 
     const updated = await prisma.refund.update({
       where: { id },
-      data: { status: "REFUNDED", adminNote: input.adminNote ?? null, gatewayRefundId },
+      data: { adminNote: input.adminNote ?? null, gatewayRefundId },
     });
 
     // 资金流水：退款完成
@@ -82,16 +107,18 @@ export const PUT = apiHandler(async (req, ctx) => {
 
     // 仅当累计退款覆盖全额时才将整单标记为 REFUNDED；
     // 部分退款保持原状态（订单可继续发货或再次申请退款）
-    const cumulative = refundedSoFar + Number(refund.amount);
+    const cumulative = claimedRefund + Number(refund.amount);
     try {
-      if (
-        cumulative >= Number(refund.order.total) - 1e-9 &&
-        refund.order.status !== "REFUNDED"
-      ) {
+      if (cumulative >= Number(refund.order.total) - 1e-9 && refund.order.status !== "REFUNDED") {
         await updateOrderStatus(refund.order, "REFUNDED", { id: actor.id, name: actor.name });
       }
-    } catch {
-      /* 状态机不允许时忽略：Refund 已 REFUNDED 即可 */
+    } catch (err) {
+      // 状态机不允许时忽略：Refund 已 REFUNDED 即可
+      // 但必须记录 warning，便于事后审计
+      logger.warn(
+        { err: (err as Error).message, refundId: refund.id, orderId: refund.orderId },
+        "[refund] 订单状态更新为 REFUNDED 失败（继续流程）",
+      );
     }
 
     await sendMail({
@@ -113,6 +140,28 @@ export const PUT = apiHandler(async (req, ctx) => {
       entityId: refund.id,
       meta: { orderNumber: refund.order.orderNumber, amount: Number(refund.amount) },
       req,
+    });
+    // 站内消息
+    void createNotification({
+      userId: refund.userId,
+      type: "refund",
+      title: "退款已批准",
+      titleEn: "Refund approved",
+      body: `订单 ${refund.order.orderNumber} 的退款 ${formatMoney(
+        Number(refund.amount),
+        refund.order.currency,
+      )} 已批准，请查收。`,
+      bodyEn: `Your refund of ${formatMoney(
+        Number(refund.amount),
+        refund.order.currency,
+      )} for order ${refund.order.orderNumber} has been approved.`,
+      link: `/orders/${refund.order.orderNumber}`,
+      meta: {
+        orderNumber: refund.order.orderNumber,
+        refundId: refund.id,
+        amount: Number(refund.amount),
+        status: "REFUNDED",
+      },
     });
     return json({ refund: serializeRefund(updated) });
   }
@@ -150,6 +199,26 @@ export const PUT = apiHandler(async (req, ctx) => {
     entityId: refund.id,
     meta: { orderNumber: refund.order.orderNumber },
     req,
+  });
+  // 站内消息
+  void createNotification({
+    userId: refund.userId,
+    type: "refund",
+    title: "退款申请被拒",
+    titleEn: "Refund rejected",
+    body: `订单 ${refund.order.orderNumber} 的退款申请被拒绝${
+      input.adminNote ? `（理由：${input.adminNote}）` : ""
+    }。如有疑问请联系客服。`,
+    bodyEn: `Your refund request for order ${refund.order.orderNumber} was rejected${
+      input.adminNote ? ` (reason: ${input.adminNote})` : ""
+    }. Please contact support if you have questions.`,
+    link: `/orders/${refund.order.orderNumber}`,
+    meta: {
+      orderNumber: refund.order.orderNumber,
+      refundId: refund.id,
+      amount: Number(refund.amount),
+      status: "REJECTED",
+    },
   });
   return json({ refund: serializeRefund(updated) });
 });

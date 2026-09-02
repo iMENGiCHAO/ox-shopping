@@ -33,7 +33,7 @@ export function couponDescription(
 }
 
 /** Coupon card (server-render friendly; copy button is a client child) — minimal square */
-export function CouponCard({
+export async function CouponCard({
   coupon,
   subtitle,
   className,
@@ -43,7 +43,7 @@ export function CouponCard({
   subtitle?: string;
   className?: string;
 }) {
-  const t = getT();
+  const t = await getT();
   const start = format(new Date(coupon.startsAt), "MMM d, yyyy");
   const end = format(new Date(coupon.endsAt), "MMM d, yyyy");
 

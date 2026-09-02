@@ -14,19 +14,19 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
-/** Generic confirm dialog (AlertDialog wrapper): second confirmation for delete / dangerous actions */
+/** 通用确认弹窗（AlertDialog 包装）：删除/危险动作的二次确认 */
 export interface ConfirmDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   description?: string;
-  /** Confirm button text, default "Confirm" */
+  /** 确认按钮文字，默认 "确认" */
   confirmText?: string;
-  /** Cancel button text, default "Cancel" */
+  /** 取消按钮文字，默认 "取消" */
   cancelText?: string;
-  /** Dangerous action (red confirm button) */
+  /** 危险动作（确认按钮变红） */
   destructive?: boolean;
-  /** Confirming (disable button, show loading) */
+  /** 确认中（禁用按钮、显示 loading） */
   loading?: boolean;
   onConfirm: () => void;
 }
@@ -36,8 +36,8 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
+  confirmText = "确认",
+  cancelText = "取消",
   destructive = false,
   loading = false,
   onConfirm,

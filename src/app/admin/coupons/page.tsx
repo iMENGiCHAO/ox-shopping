@@ -11,6 +11,7 @@ import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { DataTableActions } from "@/components/admin/data-table-actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +45,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminCoupon, AdminCouponType, AdminListResult } from "@/components/admin/types";
+import { CellText, CellPair, CellStack } from "@/components/admin/cell-text";
 
 import { useT } from "@/components/admin/lang-provider";
 /** ISO time → datetime-local input value (local timezone) */
@@ -55,9 +57,9 @@ function toLocalDatetimeInput(iso: string): string {
 }
 
 const COUPON_TYPE_LABELS: Record<AdminCouponType, string> = {
-  PERCENTAGE: "Percentage off",
-  FIXED: "Fixed amount",
-  FREE_SHIPPING: "Free shipping",
+  PERCENTAGE: "百分比折扣",
+  FIXED: "固定金额",
+  FREE_SHIPPING: "免邮",
 };
 
 const couponFormSchema = z
@@ -65,46 +67,46 @@ const couponFormSchema = z
     code: z
       .string()
       .trim()
-      .min(3, "Coupon code must be at least 3 characters")
+      .min(3, "兑换码至少 3 个字符")
       .max(32)
-      .regex(/^[A-Za-z0-9_-]+$/, "Code may only contain letters, digits, underscores and hyphens")
+      .regex(/^[A-Za-z0-9_-]+$/, "兑换码只能包含字母、数字、下划线与连字符")
       .transform((v) => v.toUpperCase()),
     type: z.enum(["PERCENTAGE", "FIXED", "FREE_SHIPPING"]),
-    value: z.string().min(1, "Please enter a discount value"),
-    minSpend: z.string().min(1, "Please enter a minimum spend"),
+    value: z.string().min(1, "请填写折扣值"),
+    minSpend: z.string().min(1, "请填写最低消费"),
     maxDiscount: z.string().optional().or(z.literal("")),
-    startsAt: z.string().min(1, "Please select a start time"),
-    endsAt: z.string().min(1, "Please select an end time"),
-    usageLimit: z.string().min(1, "Please enter a usage limit"),
+    startsAt: z.string().min(1, "请选择开始时间"),
+    endsAt: z.string().min(1, "请选择结束时间"),
+    usageLimit: z.string().min(1, "请填写使用上限"),
     isActive: z.boolean().default(true),
   })
   .refine(
     (d) =>
       !d.startsAt || !d.endsAt || new Date(d.endsAt).getTime() > new Date(d.startsAt).getTime(),
-    { message: "End time must be after start time", path: ["endsAt"] },
+    { message: "结束时间必须晚于开始时间", path: ["endsAt"] },
   )
   .refine((d) => Number.isFinite(Number(d.value)) && Number(d.value) >= 0, {
-    message: "Coupon value must be a number >= 0",
+    message: "折扣值必须为大于等于 0 的数字",
     path: ["value"],
   })
   .refine((d) => Number(d.value) <= 10000, {
-    message: "Coupon value cannot exceed 10000",
+    message: "折扣值不能超过 10000",
     path: ["value"],
   })
   .refine((d) => d.type !== "PERCENTAGE" || Number(d.value) <= 100, {
-    message: "Percentage cannot exceed 100",
+    message: "百分比折扣不能超过 100",
     path: ["value"],
   })
   .refine((d) => Number.isFinite(Number(d.minSpend)) && Number(d.minSpend) >= 0, {
-    message: "Minimum spend must be a number >= 0",
+    message: "最低消费必须为大于等于 0 的数字",
     path: ["minSpend"],
   })
   .refine(
     (d) => !d.maxDiscount || (Number.isFinite(Number(d.maxDiscount)) && Number(d.maxDiscount) >= 0),
-    { message: "Max discount must be a number >= 0", path: ["maxDiscount"] },
+    { message: "最大折扣必须为大于等于 0 的数字", path: ["maxDiscount"] },
   )
   .refine((d) => Number.isInteger(Number(d.usageLimit)) && Number(d.usageLimit) >= 0, {
-    message: "Usage limit must be a non-negative integer",
+    message: "使用上限必须为非负整数",
     path: ["usageLimit"],
   });
 
@@ -138,7 +140,7 @@ export default function AdminCouponsPage() {
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to load coupons");
+      toast.error(err instanceof Error ? err.message : "加载优惠券失败");
     } finally {
       setLoading(false);
     }
@@ -211,7 +213,7 @@ export default function AdminCouponsPage() {
       setEditing(null);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to save coupon");
+      toast.error(err instanceof Error ? err.message : "保存优惠券失败");
     } finally {
       setFormSaving(false);
     }
@@ -224,10 +226,10 @@ export default function AdminCouponsPage() {
         method: "PATCH",
         body: JSON.stringify({ isActive }),
       });
-      toast.success(isActive ? "Coupon activated" : "Coupon disabled");
+      toast.success(isActive ? "已启用优惠券" : "已停用优惠券");
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update coupon status");
+      toast.error(err instanceof Error ? err.message : "更新优惠券状态失败");
     } finally {
       setToggleId(null);
     }
@@ -242,17 +244,17 @@ export default function AdminCouponsPage() {
       setDeleting(null);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete coupon");
+      toast.error(err instanceof Error ? err.message : "删除优惠券失败");
     } finally {
       setDeleteLoading(false);
     }
   };
 
-  /** Type display text */
+  /** 类型展示文本 */
   const typeLabel = (c: AdminCoupon) => {
-    if (c.type === "PERCENTAGE") return `${Number(c.value)}%  off`;
-    if (c.type === "FIXED") return `Fixed  ${formatMoney(c.value)}`;
-    return "Free shipping";
+    if (c.type === "PERCENTAGE") return `${Number(c.value)}% 折扣`;
+    if (c.type === "FIXED") return `立减 ${formatMoney(c.value)}`;
+    return "免邮";
   };
 
   return (
@@ -268,23 +270,25 @@ export default function AdminCouponsPage() {
             }}
           >
             <Plus className="h-4 w-4" />
-            New Coupon
+            {t("New Coupon")}
           </Button>
         }
       />
 
       <Card>
         <CardContent className="p-0">
-          <Table className="w-full">
+          <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Min spend</TableHead>
-                <TableHead>Valid</TableHead>
-                <TableHead>Used / Limit</TableHead>
-                <TableHead>{t("Status")}</TableHead>
-                <TableHead className="w-36 text-right">{t("Actions")}</TableHead>
+                <TableHead className="w-[140px]">{t("Code")}</TableHead>
+                <TableHead className="min-w-0">{t("Discount Type")}</TableHead>
+                <TableHead className="w-24">最低消费</TableHead>
+                <TableHead className="w-[140px]">有效期</TableHead>
+                <TableHead className="w-24">{t("Used Count")} / {t("Usage Limit")}</TableHead>
+                <TableHead className="w-24">{t("Status")}</TableHead>
+                <TableHead className="sticky-col-right w-[110px] text-right">
+                  {t("Actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -304,62 +308,84 @@ export default function AdminCouponsPage() {
                     <EmptyState
                       icon={<Ticket className="h-6 w-6" />}
                       title={t("No coupons yet")}
-                      description='Click "New Coupon" to create your first coupon'
+                      description='点击"新增优惠券"来创建你的第一张优惠券'
                     />
                   </TableCell>
                 </TableRow>
               ) : (
                 rows.map((coupon) => (
                   <TableRow key={coupon.id}>
-                    <TableCell className="font-mono text-sm font-semibold">{coupon.code}</TableCell>
                     <TableCell>
-                      <div className="text-sm">{typeLabel(coupon)}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {coupon.type === "PERCENTAGE" && coupon.maxDiscount != null
-                          ? `Max off ${formatMoney(coupon.maxDiscount)}`
-                          : COUPON_TYPE_LABELS[coupon.type]}
-                      </div>
-                    </TableCell>
-                    <TableCell>Min spend {formatMoney(coupon.minSpend)}</TableCell>
-                    <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                      <div>{new Date(coupon.startsAt).toLocaleString("zh-CN")}</div>
-                      <div>to {new Date(coupon.endsAt).toLocaleString("zh-CN")}</div>
+                      <CellText
+                        value={coupon.code}
+                        className="font-mono text-sm font-semibold"
+                      />
                     </TableCell>
                     <TableCell>
-                      {coupon.usedCount} / {coupon.usageLimit === 0 ? "unlimited" : coupon.usageLimit}
+                      <CellPair
+                        primary={typeLabel(coupon)}
+                        secondary={
+                          coupon.type === "PERCENTAGE" && coupon.maxDiscount != null
+                            ? `最高减 ${formatMoney(coupon.maxDiscount)}`
+                            : COUPON_TYPE_LABELS[coupon.type]
+                        }
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <CellText value={`最低消费 ${formatMoney(coupon.minSpend)}`} />
+                    </TableCell>
+                    <TableCell>
+                      <CellStack className="text-xs tabular-nums text-muted-foreground">
+                        <span className="truncate">
+                          {new Date(coupon.startsAt).toLocaleString("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                        <span className="truncate">
+                          至 {new Date(coupon.endsAt).toLocaleString("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </CellStack>
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {coupon.usedCount} / {coupon.usageLimit === 0 ? "不限" : coupon.usageLimit}
                     </TableCell>
                     <TableCell>
                       <Switch
                         checked={coupon.isActive}
                         disabled={toggleId === coupon.id}
                         onCheckedChange={(v) => void toggleActive(coupon, v)}
-                        aria-label={`toggle ${coupon.code} Status`}
+                        aria-label={`切换 ${coupon.code} 的状态`}
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2"
-                          onClick={() => {
-                            setEditing(coupon);
-                            setFormOpen(true);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-8 px-2 text-destructive hover:text-destructive"
-                          onClick={() => setDeleting(coupon)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete
-                        </Button>
-                      </div>
+                    <TableCell className="sticky-col-right">
+                      <DataTableActions
+                        actions={[
+                          {
+                            label: t("Edit"),
+                            icon: Pencil,
+                            onClick: () => {
+                              setEditing(coupon);
+                              setFormOpen(true);
+                            },
+                            primary: true,
+                          },
+                          {
+                            label: t("Delete"),
+                            icon: Trash2,
+                            onClick: () => setDeleting(coupon),
+                            destructive: true,
+                            divider: true,
+                          },
+                        ]}
+                      />
                     </TableCell>
                   </TableRow>
                 ))
@@ -388,18 +414,18 @@ export default function AdminCouponsPage() {
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editing ? "Edit Coupon" : "New Coupon"}</DialogTitle>
+            <DialogTitle>{editing ? t("Edit Coupon") : t("New Coupon")}</DialogTitle>
             <DialogDescription>
-              {editing ? `Editing: ${editing.code}` : "Create a new promotional coupon"}
+              {editing ? `正在编辑：${editing.code}` : "创建新的促销优惠券"}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleFormSubmit} className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="cp-code">Code *</Label>
+                <Label htmlFor="cp-code">{t("Code")} *</Label>
                 <Input
                   id="cp-code"
-                  placeholder="e.g. SUMMER50 (auto uppercased)"
+                  placeholder="例如 SUMMER50（自动转大写）"
                   {...form.register("code")}
                 />
                 {form.formState.errors.code ? (
@@ -407,7 +433,7 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label>Type *</Label>
+                <Label>{t("Discount Type")} *</Label>
                 <Select
                   value={watchedType}
                   onValueChange={(v) => form.setValue("type", v as AdminCouponType)}
@@ -416,27 +442,27 @@ export default function AdminCouponsPage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="PERCENTAGE">Percentage off</SelectItem>
-                    <SelectItem value="FIXED">Fixed amount</SelectItem>
-                    <SelectItem value="FREE_SHIPPING">Free shipping</SelectItem>
+                    <SelectItem value="PERCENTAGE">百分比折扣</SelectItem>
+                    <SelectItem value="FIXED">固定金额</SelectItem>
+                    <SelectItem value="FREE_SHIPPING">免邮</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cp-value">
-                  Coupon value *
+                  {t("Discount Value")} *
                   {watchedType === "PERCENTAGE"
-                    ? "(%)"
+                    ? "（百分比）"
                     : watchedType === "FIXED"
-                      ? "(amount)"
-                      : "(not required for free shipping)"}
+                      ? "（金额）"
+                      : "（免邮券无需填写）"}
                 </Label>
                 <Input
                   id="cp-value"
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder={watchedType === "PERCENTAGE" ? "e.g. 90 = 10% off" : "0"}
+                  placeholder={watchedType === "PERCENTAGE" ? "例如 90 = 9 折" : "0"}
                   disabled={watchedType === "FREE_SHIPPING"}
                   {...form.register("value")}
                 />
@@ -445,13 +471,13 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cp-min">Min spend (minimum order amount) *</Label>
+                <Label htmlFor="cp-min">{t("Min Order Amount")} *</Label>
                 <Input
                   id="cp-min"
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder="0 = no minimum"
+                  placeholder="0 = 无门槛"
                   {...form.register("minSpend")}
                 />
                 {form.formState.errors.minSpend ? (
@@ -461,13 +487,13 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cp-max">Max discount (amount, optional)</Label>
+                <Label htmlFor="cp-max">最大折扣（金额，可选）</Label>
                 <Input
                   id="cp-max"
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder="leave empty for no cap"
+                  placeholder="留空则不设上限"
                   {...form.register("maxDiscount")}
                 />
                 {form.formState.errors.maxDiscount ? (
@@ -477,7 +503,7 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cp-limit">Usage limit (0 = unlimited) *</Label>
+                <Label htmlFor="cp-limit">{t("Usage Limit")}（0 = 不限）*</Label>
                 <Input
                   id="cp-limit"
                   type="number"
@@ -492,7 +518,7 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cp-start">Start time *</Label>
+                <Label htmlFor="cp-start">{t("Valid From")} *</Label>
                 <Input id="cp-start" type="datetime-local" {...form.register("startsAt")} />
                 {form.formState.errors.startsAt ? (
                   <p className="text-xs text-destructive">
@@ -501,7 +527,7 @@ export default function AdminCouponsPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cp-end">End time *</Label>
+                <Label htmlFor="cp-end">{t("Valid Until")} *</Label>
                 <Input id="cp-end" type="datetime-local" {...form.register("endsAt")} />
                 {form.formState.errors.endsAt ? (
                   <p className="text-xs text-destructive">{form.formState.errors.endsAt.message}</p>
@@ -515,7 +541,7 @@ export default function AdminCouponsPage() {
                 onCheckedChange={(v) => form.setValue("isActive", v)}
               />
               <Label htmlFor="cp-active" className="cursor-pointer">
-                Activate immediately after creation
+                创建后立即启用
               </Label>
             </div>
             <DialogFooter>
@@ -525,11 +551,11 @@ export default function AdminCouponsPage() {
                 onClick={() => setFormOpen(false)}
                 disabled={formSaving}
               >
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={formSaving}>
                 {formSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                {editing ? "Save changes" : "Create coupon"}
+                {editing ? t("Save changes") : "创建优惠券"}
               </Button>
             </DialogFooter>
           </form>
@@ -541,8 +567,8 @@ export default function AdminCouponsPage() {
         open={deleting !== null}
         onOpenChange={(v) => !deleteLoading && setDeleting(v ? deleting : null)}
         title={t("Delete coupon")}
-        description={deleting ? `Are you sure you want to delete coupon"${deleting.code}"? This action cannot be undone.` : ""}
-        confirmText="Delete"
+        description={deleting ? `确定要删除兑换码"${deleting.code}"吗？此操作无法撤销。` : ""}
+        confirmText={t("Delete")}
         destructive
         loading={deleteLoading}
         onConfirm={() => void handleDelete()}

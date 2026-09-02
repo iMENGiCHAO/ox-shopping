@@ -44,8 +44,7 @@ const COPY = {
       preview: (s: string) => `欢迎加入${s}，请验证您的邮箱`,
       title: "验证您的邮箱地址",
       greet: (n: string) => `您好，${n}：`,
-      body: (s: string) =>
-        `感谢注册 ${s}。请点击下方按钮完成邮箱验证(24 小时内有效)：`,
+      body: (s: string) => `感谢注册 ${s}。请点击下方按钮完成邮箱验证(24 小时内有效)：`,
       cta: "验证邮箱",
       fallback: "如果按钮无法点击，请复制以下链接到浏览器打开：",
       ignore: "如果这不是您本人的操作，请忽略此邮件。",
@@ -86,8 +85,7 @@ const COPY = {
       preview: (n: string) => `订单 ${n} 已确认`,
       title: "订单支付成功",
       greet: (n: string) => `您好，${n}：`,
-      body: (n: string) =>
-        `订单 <strong>${n}</strong> 已完成支付，我们将尽快为您发货。`,
+      body: (n: string) => `订单 <strong>${n}</strong> 已完成支付，我们将尽快为您发货。`,
       total: "实付金额",
       cta: "查看订单详情",
     },
@@ -106,8 +104,7 @@ const COPY = {
       preview: (n: string) => `订单 ${n} 已发货`,
       title: "您的包裹已发货",
       greet: (n: string) => `您好，${n}：`,
-      body: (n: string) =>
-        `订单 <strong>${n}</strong> 已发货，请注意查收。`,
+      body: (n: string) => `订单 <strong>${n}</strong> 已发货，请注意查收。`,
       carrier: "物流公司",
       tracking: "物流单号",
       cta: "查看订单",
@@ -128,8 +125,7 @@ const COPY = {
       preview: (n: string) => `订单 ${n} 退款进度更新`,
       title: "退款进度更新",
       greet: (n: string) => `您好，${n}：`,
-      body: (n: string) =>
-        `订单 <strong>${n}</strong> 的退款申请状态已更新为：`,
+      body: (n: string) => `订单 <strong>${n}</strong> 的退款申请状态已更新为：`,
       amount: "退款金额",
       note: "备注",
       cta: "查看订单",
@@ -185,10 +181,28 @@ const COPY = {
       hint: "You're receiving this because you signed up for a restock notification. Ignore this email if you no longer want updates.",
     },
   },
+  "price-drop": {
+    zh: {
+      preview: (p: string) => `「${p}」降价了，现在购买正当时`,
+      title: "您关注的商品降价了",
+      greet: (n: string) => `您好，${n}：`,
+      body: "您订阅降价提醒的商品已降价。机会难得，尽快入手：",
+      cta: "立即购买",
+      hint: "此提醒来自您曾登记的降价通知。如不想再收到此类邮件，可点击下方取消订阅。",
+    },
+    en: {
+      preview: (p: string) => `${p} just got cheaper`,
+      title: "Price drop on the item you wanted",
+      greet: (n: string) => `Hi ${n},`,
+      body: "Good news — an item you subscribed to is now cheaper. Limited time:",
+      cta: "Shop now",
+      hint: "You're receiving this because you signed up for a price-drop alert. Unsubscribe below if you no longer want these emails.",
+    },
+  },
 } as const;
 
-function pick<T extends Record<Lang, any>>(obj: T, lang: Lang): T[Lang] {
-  return obj[lang] ?? obj.zh;
+function pick<T extends Record<Lang, unknown>>(obj: T, lang: Lang): T[Lang] {
+  return (obj[lang] ?? obj.zh) as T[Lang];
 }
 
 function EmailShell({
@@ -440,10 +454,7 @@ export function DataDeletionEmail(props: BaseProps & { name: string }) {
     <EmailShell {...props} preview={c.preview} lang={lang}>
       <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
       <Text style={{ lineHeight: "24px" }}>{c.greet(props.name)}</Text>
-      <Text
-        style={{ lineHeight: "24px" }}
-        dangerouslySetInnerHTML={{ __html: c.body }}
-      />
+      <Text style={{ lineHeight: "24px" }} dangerouslySetInnerHTML={{ __html: c.body }} />
       <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>
         {c.note}{" "}
         <Link href={c.link(props.siteUrl)} style={{ color: "#4f46e5" }}>
@@ -536,6 +547,104 @@ export function RestockEmail(
       </Section>
 
       <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.hint}</Text>
+    </EmailShell>
+  );
+}
+
+/** 降价通知邮件（订阅降价提醒的商品价格下降时触发） */
+export function PriceDropEmail(
+  props: BaseProps & {
+    productName: string;
+    image?: string;
+    /** 原价（划线价） */
+    oldPrice: string;
+    /** 新价（突出） */
+    newPrice: string;
+    currency: string;
+    /** 降价百分比（整数 %） */
+    percent: number;
+    productUrl: string;
+    /** 取消订阅 URL（可选） */
+    unsubscribeUrl?: string;
+  },
+) {
+  const lang: Lang = props.lang ?? "zh";
+  const c = pick(COPY["price-drop"], lang);
+  return (
+    <EmailShell {...props} preview={c.preview(props.productName)} lang={lang}>
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+      {/* greet 接收 "客户" 即可，这里用通用问候 */}
+      <Text style={{ lineHeight: "24px" }}>{c.greet(lang === "zh" ? "顾客" : "Customer")}</Text>
+      <Text style={{ lineHeight: "24px" }}>{c.body}</Text>
+
+      <Section style={{ margin: "18px 0", border: "1px solid #e5e7eb" }}>
+        {props.image ? (
+          <Img
+            src={props.image}
+            alt={props.productName}
+            style={{
+              width: "100%",
+              height: "auto",
+              maxHeight: "320px",
+              objectFit: "cover",
+              display: "block",
+            }}
+          />
+        ) : null}
+        <div style={{ padding: "16px 18px 18px" }}>
+          <Text
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: "#111827",
+              lineHeight: "22px",
+              margin: "0 0 8px",
+            }}
+          >
+            {props.productName}
+          </Text>
+          <Text style={{ fontSize: 15, lineHeight: "22px", margin: "0 0 14px" }}>
+            <strong style={{ color: "#dc2626", fontSize: 22 }}>
+              {props.currency} {props.newPrice}
+            </strong>
+            <span
+              style={{
+                marginLeft: 8,
+                color: "#9ca3af",
+                textDecoration: "line-through",
+                fontSize: 14,
+              }}
+            >
+              {props.currency} {props.oldPrice}
+            </span>
+            <span
+              style={{
+                marginLeft: 8,
+                background: "#dc2626",
+                color: "#fff",
+                padding: "2px 8px",
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 600,
+              }}
+            >
+              -{props.percent}%
+            </span>
+          </Text>
+          <Button href={props.productUrl} style={primaryButton(lang)}>
+            {c.cta}
+          </Button>
+        </div>
+      </Section>
+
+      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.hint}</Text>
+      {props.unsubscribeUrl ? (
+        <Text style={{ fontSize: 12, color: "#9ca3af", margin: "12px 0 0" }}>
+          <a href={props.unsubscribeUrl} style={{ color: "#9ca3af" }}>
+            {lang === "zh" ? "取消订阅" : "Unsubscribe"}
+          </a>
+        </Text>
+      ) : null}
     </EmailShell>
   );
 }

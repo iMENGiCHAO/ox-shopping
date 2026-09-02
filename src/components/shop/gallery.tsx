@@ -14,9 +14,9 @@ export interface GalleryProps {
   badges?: ReactNode;
 }
 
-/* 放大镜自定义光标(shop.x.com 同款观感) */
+/* 放大镜自定义光标(shop.x.com 同款观感) — 黑线 + 白底 */
 const CURSOR_ZOOM_IN =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23FFFFFF' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
 
 /**
  * 官方两级放大实测（1440×900 视口）：
@@ -127,6 +127,12 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
     };
   }, []);
 
+  /** 缩放级别切换（声明在 close/step 之前，避免闭包 TDZ 语义问题） */
+  const changeStage = (next: 0 | 1 | 2) => {
+    zoomLevelRef.current = next;
+    setStage(next);
+  };
+
   /* ---------- 键盘 / 滚动锁 ---------- */
   const close = useCallback(() => {
     setOpen(false);
@@ -140,7 +146,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
       setActive((a) => (a + dir + list.length) % list.length);
       changeStage(0);
       offsetRef.current = { x: 0, y: 0 };
-    setOffset({ x: 0, y: 0 });
+      setOffset({ x: 0, y: 0 });
     },
     [list.length],
   );
@@ -172,11 +178,6 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
     setOffset({ x: 0, y: 0 });
   };
 
-  const changeStage = (next: 0 | 1 | 2) => {
-    zoomLevelRef.current = next;
-    setStage(next);
-  };
-
   /**
    * 官方点击语义：
    * 图片外空白处（任意级别）→ 关闭灯箱回到商品详情页；
@@ -191,7 +192,9 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
       img &&
       (() => {
         const r = img.getBoundingClientRect();
-        return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+        return (
+          e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
+        );
       })();
     if (!inside) return close();
     changeStage(((st): 0 | 1 | 2 => (st === 2 ? 0 : st === 0 ? 1 : 2))(zoomLevelRef.current));
@@ -250,12 +253,12 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
       if (live.x <= -SWIPE) {
         setActive((a) => (a + 1) % list.length);
         offsetRef.current = { x: 0, y: 0 };
-    setOffset({ x: 0, y: 0 });
+        setOffset({ x: 0, y: 0 });
         flyKeyRef.current = `${active + 1}`; // 跳过新图的飞入动画
       } else if (live.x >= SWIPE) {
         setActive((a) => (a - 1 + list.length) % list.length);
         offsetRef.current = { x: 0, y: 0 };
-    setOffset({ x: 0, y: 0 });
+        setOffset({ x: 0, y: 0 });
         flyKeyRef.current = `${active - 1}`;
       } else {
         setSlowSettle(true);
@@ -280,7 +283,10 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
   const settleEase = "cubic-bezier(0.16, 0.84, 0.44, 1)";
   const imgClass =
     stage === 0
-      ? cn("max-h-full max-w-full select-none object-contain", !dragging && "transition-transform duration-300 ease-out")
+      ? cn(
+          "max-h-full max-w-full select-none object-contain",
+          !dragging && "transition-transform duration-300 ease-out",
+        )
       : cn(
           "select-none",
           dragging ? "" : slowSettle ? "" : "duration-300 ease-out transition-[transform]",
@@ -304,7 +310,12 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
 
   return (
     <>
-      <div className={cn("flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:gap-4 lg:gap-[80px]", className)}>
+      <div
+        className={cn(
+          "flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:gap-4 lg:gap-[80px]",
+          className,
+        )}
+      >
         {list.length > 1 ? (
           <div
             data-testid="gallery-thumbs"
@@ -338,6 +349,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
               {badges}
             </div>
           ) : null}
+          {/* 收藏按钮已挪到 product-card（卡片右上角），详情页主图保留干净的放大镜交互，避免点击冲突 */}
           <button
             type="button"
             className="absolute inset-0 z-10"
@@ -356,10 +368,10 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
         </div>
       </div>
 
-      {/* PhotoSwipe 式灯箱 */}
+      {/* PhotoSwipe 式灯箱 — 白色背景 + 黑色细描边按钮（与 shop.x.com 同款） */}
       {open && current ? (
         <div
-          className="fixed inset-0 z-[70] bg-white animate-in fade-in duration-200"
+          className="fixed inset-0 z-[70] bg-white duration-200 animate-in fade-in"
           role="dialog"
           aria-modal="true"
           aria-label={t("Zoom in on image")}
@@ -391,7 +403,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
             />
           </div>
 
-          {/* 官方布局：‹ 关闭 › 按钮组置于图片下方中央 */}
+          {/* 官方布局：‹ 关闭 › 按钮组置于图片下方中央 — 白底黑边黑图标 */}
           <div className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 items-center gap-4 sm:bottom-8">
             {list.length > 1 ? (
               <button
@@ -401,7 +413,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
                   e.stopPropagation();
                   step(-1);
                 }}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-white transition-colors hover:border-white hover:bg-white/10"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-black/15 bg-white text-foreground transition-colors hover:border-black hover:bg-muted"
               >
                 <ChevronLeft className="h-5 w-5" strokeWidth={1.5} />
               </button>
@@ -413,7 +425,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
                 e.stopPropagation();
                 close();
               }}
-              className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-white transition-colors hover:border-white hover:bg-white/10"
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-black/15 bg-white text-foreground transition-colors hover:border-black hover:bg-muted"
             >
               <X className="h-5 w-5" strokeWidth={1.5} />
             </button>
@@ -425,7 +437,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
                   e.stopPropagation();
                   step(1);
                 }}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-white transition-colors hover:border-white hover:bg-white/10"
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-black/15 bg-white text-foreground transition-colors hover:border-black hover:bg-muted"
               >
                 <ChevronRight className="h-5 w-5" strokeWidth={1.5} />
               </button>

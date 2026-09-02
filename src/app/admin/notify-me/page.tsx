@@ -6,7 +6,17 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { DataTableActions } from "@/components/admin/data-table-actions";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { CellText } from "@/components/admin/cell-text";
 import { apiFetch } from "@/lib/fetch-client";
 
 interface NotifyRow {
@@ -17,6 +27,7 @@ interface NotifyRow {
   attributes?: Record<string, string> | null;
   status: string;
   createdAt: string;
+  lang?: string | null;
   /** 联表出的商品信息（可能已删除为 null） */
   product?: {
     id: string;
@@ -59,7 +70,7 @@ export default function AdminNotifyMePage() {
   }, [load]);
 
   const remove = async (id: string) => {
-    if (!window.confirm("删除该条到货通知？")) return;
+    if (!window.confirm("确定删除该条到货通知吗？")) return;
     setBusyId(id);
     try {
       await apiFetch(`/api/admin/notify-me/${id}`, { method: "DELETE" });
@@ -78,10 +89,13 @@ export default function AdminNotifyMePage() {
         description="售罄商品页面 Notify me 收集的订阅，可删除；可导出邮箱做补货营销"
       />
       {loading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-        </div>
+        <Card>
+          <CardContent className="space-y-2 p-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
       ) : rows.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-14 text-center">
@@ -90,58 +104,105 @@ export default function AdminNotifyMePage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-2">
-          {rows.map((r) => (
-            <Card key={r.id}>
-              <CardContent className="flex items-center gap-4 p-4">
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">{r.email}</p>
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {r.product ? (
-                      <a
-                        href={`/products/${r.product.slug}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-foreground/80 underline decoration-border underline-offset-2 hover:text-foreground"
+        <Card>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="min-w-0">邮箱</TableHead>
+                  <TableHead className="hidden min-w-0 md:table-cell">商品</TableHead>
+                  <TableHead className="hidden min-w-0 lg:table-cell">关注规格</TableHead>
+                  <TableHead className="w-20">语种</TableHead>
+                  <TableHead className="w-24">状态</TableHead>
+                  <TableHead className="hidden w-[120px] xl:table-cell">登记时间</TableHead>
+                  <TableHead className="sticky-col-right w-20 text-right">
+                    操作
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow key={r.id}>
+                    <TableCell>
+                      <CellText
+                        value={r.email}
+                        title={r.email}
+                        className="text-sm font-medium"
+                      />
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      {r.product ? (
+                        <a
+                          href={`/products/${r.product.slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block truncate text-foreground/80 underline decoration-border underline-offset-2 hover:text-foreground"
+                          title={r.product.nameEn ?? r.product.name}
+                        >
+                          {r.product.nameEn ?? r.product.name}
+                        </a>
+                      ) : r.productId ? (
+                        <span className="text-muted-foreground">
+                          {r.productId.slice(-8)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">全站</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <CellText
+                        value={variantText(r.attributes) || "—"}
+                        className="text-xs text-foreground/70"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          r.lang === "zh"
+                            ? "inline-flex h-5 items-center whitespace-nowrap rounded bg-primary/10 px-1.5 text-[10px] font-medium leading-none text-primary"
+                            : "inline-flex h-5 items-center whitespace-nowrap rounded bg-muted px-1.5 text-[10px] font-medium leading-none text-muted-foreground"
+                        }
                       >
-                        {r.product.nameEn ?? r.product.name}
-                      </a>
-                    ) : r.productId ? (
-                      `商品 ${r.productId.slice(-8)}`
-                    ) : (
-                      "全店"
-                    )}
-                    {" · "}
-                    {new Date(r.createdAt).toLocaleString("zh-CN")}
-                  </p>
-                  {variantText(r.attributes) ? (
-                    <p className="mt-1 truncate text-xs text-foreground/70">
-                      关注规格：{variantText(r.attributes)}
-                    </p>
-                  ) : null}
-                </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wider ${
-                    r.status === "notified"
-                      ? "border border-border text-muted-foreground"
-                      : "bg-primary text-primary-foreground"
-                  }`}
-                >
-                  {r.status === "notified" ? "已通知" : "待通知"}
-                </span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 w-8 px-0 text-destructive hover:text-destructive"
-                  disabled={busyId === r.id}
-                  onClick={() => void remove(r.id)}
-                >
-                  {busyId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                        {r.lang === "zh" ? "中文" : "EN"}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span
+                        className={
+                          r.status === "notified"
+                            ? "inline-flex h-5 items-center whitespace-nowrap rounded-full border border-border bg-secondary px-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground"
+                            : "inline-flex h-5 items-center whitespace-nowrap rounded-full bg-warning/15 px-2 text-[10px] font-medium uppercase tracking-wider text-warning"
+                        }
+                      >
+                        {r.status === "notified" ? "已通知" : "待通知"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="hidden tabular-nums text-xs text-muted-foreground xl:table-cell">
+                      {new Date(r.createdAt).toLocaleString("zh-CN", {
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </TableCell>
+                    <TableCell className="sticky-col-right">
+                      <DataTableActions
+                        actions={[
+                          {
+                            label: "删除",
+                            icon: Trash2,
+                            onClick: () => void remove(r.id),
+                            destructive: true,
+                          },
+                        ]}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

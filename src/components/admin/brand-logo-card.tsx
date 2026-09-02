@@ -46,26 +46,26 @@ export function BrandLogoCard({ initialUrl }: { initialUrl: string }) {
           max={1}
         />
         <Input
-          placeholder="https://... /images/brand/logo.png"
+          placeholder="https://... 或 /images/brand/logo.png"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
         />
       </div>
       {/* 预览:亮底(实际用于白托底)与暗底两种效果 */}
-      <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border p-3">
+      <div className="flex flex-wrap items-center gap-4 rounded-md border border-border p-3">
         <p className="w-full text-xs text-muted-foreground">{t("Preview")}</p>
-        <div className="flex items-center rounded-lg border border-border bg-background px-3 py-2">
+        <div className="flex items-center rounded-md border border-border bg-background px-3 py-2">
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="logo light" className="h-[30px] w-auto" />
+            <img src={url} alt="logo 亮色背景预览" className="h-[40px] w-auto max-w-[200px] object-contain" />
           ) : (
             <span className="text-xs text-muted-foreground">{t("(default X logo)")}</span>
           )}
         </div>
-        <div className="flex items-center rounded-lg bg-white px-3 py-2">
+        <div className="flex items-center rounded-md bg-ink px-3 py-2">
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="logo dark-bg" className="h-[30px] w-auto" />
+            <img src={url} alt="logo 暗色背景预览" className="h-[40px] w-auto max-w-[200px] object-contain" />
           ) : (
             <span className="text-xs text-muted-foreground">{t("(default X logo)")}</span>
           )}

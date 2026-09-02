@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
+import { headers } from "next/headers";
+import { getLang } from "@/lib/shop-i18n-server";
 import "./globals.css";
 
 /*
@@ -36,9 +38,15 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // <html lang> 跟随 getLang()：默认 en，选 CNY 时自动 zh
+  // 让浏览器 TTS / 翻译扩展 / 屏幕阅读器拿到正确语种
+  const lang = await getLang();
+  // 后台路由挂 admin-theme（作用域化设计令牌，SSR 阶段即生效，Radix 弹层经 body 继承）
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const isAdmin = pathname === "/admin" || pathname.startsWith("/admin/");
   return (
-    <html lang="en">
+    <html lang={lang} className={isAdmin ? "admin-theme" : undefined}>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
         {children}
         <Toaster position="top-center" toastOptions={{ unstyled: false }} />

@@ -2,7 +2,7 @@ import { apiHandler, json } from "@/lib/api";
 import { rateLimited, unauthorized } from "@/lib/errors";
 import { rotateSession, setAuthCookies } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/rate-limit";
-import { getClientIp } from "@/lib/utils";
+import { getClientIp } from "@/lib/server/utils-server";
 import { REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 
 export const runtime = "nodejs";

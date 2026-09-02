@@ -47,7 +47,7 @@ export class CookieJar {
 }
 
 type Handler = (
-  req: Request,
+  req: NextRequest,
   ctx: { params: Record<string, string | string[]> },
 ) => Promise<Response>;
 

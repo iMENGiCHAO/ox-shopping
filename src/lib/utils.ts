@@ -1,11 +1,18 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { DEFAULT_CURRENCY } from "@/lib/constants";
+import { getCurrencyDef } from "@/components/shop/currency";
 
 /** shadcn/ui 标准工具：合并 Tailwind 类名 */
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+/**
+ * 重要：本文件不携带 `import "server-only"`，会被 client bundle 拉入。
+ * 因此禁止在此 re-export 任何 server-only 工具（如 getClientIp），
+ * 业务代码应直接 `import { getClientIp } from "@/lib/server/utils-server"`。
+ */
 
 /** 金额格式化(Decimal/数字 → "¥1,299.00" / "$99.00") */
 export function formatMoney(
@@ -15,12 +22,19 @@ export function formatMoney(
   if (amount === null || amount === undefined) return "-";
   const n = typeof amount === "string" ? Number(amount) : amount;
   if (Number.isNaN(n)) return "-";
-  return new Intl.NumberFormat(currency === "CNY" ? "zh-CN" : "en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(n);
+  // 走 CURRENCIES 表里的 locale 拿正确千分位/小数点
+  // （避免 JPY/EUR 等被错误按 en-US 渲染）
+  const def = getCurrencyDef(currency);
+  try {
+    return new Intl.NumberFormat(def.locale, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n);
+  } catch {
+    return `${def.symbol}${n.toFixed(2)}`;
+  }
 }
 
 /** 元 → 分(Stripe 以最小货币单位计价，避免浮点误差) */
@@ -68,14 +82,10 @@ export function parsePagination(
   return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };
 }
 
-/** 客户端 IP(优先 X-Forwarded-For，其次 X-Real-IP) */
-export function getClientIp(req: Request): string {
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0]!.trim();
-  const realIp = req.headers.get("x-real-ip");
-  if (realIp) return realIp.trim();
-  return "unknown";
-}
+/**
+ * 客户端 IP 已迁移至 @/lib/server/utils-server（server-only）。
+ * 旧调用方通过 re-export 兼容，业务代码应直接 import 自 server 模块。
+ */
 
 /** 安全文件名：UUID + 原扩展名(仅保留合法图片扩展名) */
 export function randomFilename(originalName: string): string {

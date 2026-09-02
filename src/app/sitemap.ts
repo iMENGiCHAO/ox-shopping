@@ -7,14 +7,12 @@ const BASE_URL = (process.env.SITE_URL || "http://localhost:3000").replace(/\/$/
 
 /** Commercial SEO: static pages + categories + products */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const statics: MetadataRoute.Sitemap = ["", "/products", "/auth/login", "/auth/register"].map(
-    (path) => ({
-      url: `${BASE_URL}${path}`,
-      lastModified: new Date(),
-      changeFrequency: path === "" ? ("daily" as const) : ("weekly" as const),
-      priority: path === "" ? 1 : 0.6,
-    }),
-  );
+  const statics: MetadataRoute.Sitemap = ["", "/products"].map((path) => ({
+    url: `${BASE_URL}${path}`,
+    lastModified: new Date(),
+    changeFrequency: path === "" ? ("daily" as const) : ("weekly" as const),
+    priority: path === "" ? 1 : 0.6,
+  }));
 
   try {
     const [products, categories] = await Promise.all([

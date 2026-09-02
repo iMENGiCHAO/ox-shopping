@@ -6,8 +6,8 @@ import { getLang, getT } from "@/lib/shop-i18n-server";
 import { POLICY_TITLES } from "@/lib/policy-defaults";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = getT();
-  const lang = getLang();
+  const t = await getT();
+  const lang = await getLang();
   return {
     title: lang === "zh" ? POLICY_TITLES.refund.zh : POLICY_TITLES.refund.en,
     description: t("Refund Policy: 7-day no-reason returns, refund conditions, and process"),
@@ -16,8 +16,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function RefundPolicyPage() {
   const settings = await getSiteSettings();
-  const t = getT();
-  const lang = getLang();
+  const t = await getT();
+  const lang = await getLang();
   return (
     <PolicyPage title={t("Refund Policy")} updatedAt={t("As last published")}>
       {renderPolicyMarkdown(getPolicyText(settings.policies, "refund", lang))}

@@ -10,7 +10,7 @@ export const DEFAULT_STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Cancelled",
   REFUNDED: "Refunded",
   DRAFT: "Draft",
-  ACTIVE: "Active—",
+  ACTIVE: "Active",
   ARCHIVED: "Archived",
 };
 

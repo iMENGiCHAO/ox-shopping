@@ -1,8 +1,8 @@
-# 星辰商城（Ecommerce）
+# Ox Shopping（Ecommerce）
 
 生产级、可商用、开箱即用的全栈电商网站。技术栈：
 
-- **框架**：Next.js 14（App Router）+ TypeScript（严格模式）+ React 18
+- **框架**：Next.js 16（App Router，Turbopack）+ TypeScript（严格模式）+ React 19
 - **样式**：Tailwind CSS + shadcn/ui（Radix UI）
 - **数据库**：PostgreSQL 16 + Prisma ORM
 - **缓存/限流**：Redis（ioredis，可通过环境变量关闭，自动降级内存实现）
@@ -20,6 +20,11 @@
   常规字重排版；多币种显示（9 种币种 + 实时汇率）、购物车侧滑抽屉、搜索弹层、
   商品卡 hover 双图切换/快速加购/色卡、详情图点击放大，详见
   [docs/DESIGN.md](docs/DESIGN.md)
+- **后台管理**：独立设计令牌（`.admin-theme` 作用域）——现代 SaaS 风格（8px 圆角 +
+  柔和阴影 + 浅灰分层，前台零影响）；统一数据表规范（sticky 操作列 / 状态徽章不换行 /
+  长文本截断）；**双向信息通知闭环**：前端动作（新订单/付款/退款/新用户/补货/降价）
+  自动通知后台「消息中心」，后台处理（发货/退款/取消）自动邮件+站内通知客户；
+  分类编辑内置落地页横幅（首页横幅由前两个分类驱动）；侧栏可收起/展开
 - **会话工作记忆 / 官方实测规格 / 已下线功能 / 坑位**：见
   [docs/SESSION_SUMMARY.md](docs/SESSION_SUMMARY.md)（下次接手优化前必读）
 
@@ -62,17 +67,27 @@ ecommerce/
 
 前置：安装 Docker + Docker Compose（本仓库在 macOS / Linux 上验证）。
 
+本地演示（模拟支付 + MinIO + 种子数据，无需任何环境变量）：
+
 ```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+```
+
+生产部署（严格模式：密钥必须来自 `.env`，缺失即拒绝启动）：
+
+```bash
+cp .env.example .env   # 填写 SITE_URL / POSTGRES_PASSWORD / JWT_* 等必填项
 docker compose up -d --build
 ```
 
-首次启动会自动：创建 Postgres/Redis/MinIO 容器 → 等待数据库就绪 → 执行 Prisma 迁移 → 写入种子数据 → 启动应用。
+首次启动会自动：创建 Postgres/Redis/MinIO 容器 → 等待数据库就绪 → 执行 Prisma 迁移 → （本地演示）写入种子数据 → 启动应用。
+生产容器默认**不执行种子**（`SEED_ON_START=false`），运营数据不会被重置。
 
 | 服务 | 地址 |
 | --- | --- |
 | 商城前台 | http://localhost:3000 |
 | 管理后台 | http://localhost:3000/admin |
-| MinIO 控制台 | http://localhost:9001（minioadmin / minioadmin） |
+| MinIO 控制台（仅本地演示） | http://localhost:9001（minioadmin / minioadmin） |
 
 **种子账号**（密码均为对应 `@123456` 形式）：
 
@@ -276,3 +291,25 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 ## 许可证
 
 代码可自由商用。发票 PDF 使用的 Noto Sans CJK 字体遵循 [SIL Open Font License 1.1](https://scripts.sil.org/OFL)，保留该字体即符合许可要求。
+
+---
+
+## 商业化交付硬化（Engineering Hardening）
+
+本项目已经过系统性硬化，覆盖：CSRF / admin 守卫 / 退款事务 / 状态机 / 限流 / sanitize / 多币种 / i18n / 品牌打通 / 死代码清理 / 死循环 bug 修复。
+
+完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。下面是按"严重度"分层的快速索引：
+
+### 一句话总结
+- 安全：CSRF double-submit + /admin 守卫 + Stripe 退款 + 行锁 + sanitize 全链路 + Redis Lua 原子限流
+- 资金：退款事务全状态计入 + 状态机硬化 + 整单退款走 `refundEntireOrder`（Stripe + 库存回补 + 邮件 + audit）
+- 体验：mock-pay 真实状态校验 / favorites 乐观更新 / 灯箱黑底 / 多币种 locale 修正 / 品牌资源统一
+
+### 部署前必须检查
+- `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` ≥ 32 位随机串（`openssl rand -base64 48`）
+- `CURRENCY` 在白名单内（`USD EUR GBP JPY HKD CNY AUD CAD SGD`）
+- `REQUIRE_STRONG_SECRETS=true`（生产默认）
+- `INVOICE_FONT_PATH`（可选，未配置时用 `public/fonts/NotoSansCJKsc-Regular.otf`）
+- 邮件 `MAIL_FROM` 用自家域名（`MAIL_FROM="Ox Shopping <no-reply@yourdomain.com>"`）
+- Stripe `STRIPE_WEBHOOK_SECRET` 必须在 Stripe Dashboard 创建 webhook 并复制签名密钥
+

@@ -32,22 +32,20 @@ function StatCard({
   sub?: string;
 }) {
   return (
-    <Card className="shadow-card transition-shadow hover:shadow-soft">
-      <CardContent className="p-6">
+    <Card className="shadow-card transition-shadow hover:shadow-card-hover">
+      <CardContent className="p-5">
         <div className="flex items-start justify-between">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
               {label}
             </p>
-            <p className="mt-2 truncate text-[28px] font-bold leading-tight tracking-tight">
+            <p className="mt-2 truncate text-[26px] font-semibold leading-tight tracking-tight text-foreground">
               {value}
             </p>
-            {sub ? (
-              <p className="mt-1 truncate text-[12px] text-muted-foreground">{sub}</p>
-            ) : null}
+            {sub ? <p className="mt-1.5 truncate text-[12px] text-muted-foreground">{sub}</p> : null}
           </div>
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-foreground/[0.04] text-foreground/60">
-            <Icon className="h-5 w-5" />
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-foreground/70">
+            <Icon className="h-5 w-5" strokeWidth={1.75} />
           </span>
         </div>
       </CardContent>
@@ -57,7 +55,7 @@ function StatCard({
 
 /** Dashboard (server-rendered): stat cards + sales trend + top products + recent orders */
 export default async function AdminDashboardPage() {
-  const t = getT();
+  const t = await getT();
   const stats = await getAdminStats();
 
   const trend = stats.trend.map((p) => ({ date: p.date, orders: p.orders, revenue: p.revenue }));
@@ -76,7 +74,7 @@ export default async function AdminDashboardPage() {
         />
         <StatCard
           icon={ShoppingCart}
-          label={t("Total Revenue")}
+          label={t("All-time Revenue")}
           value={formatMoney(stats.revenue)}
           sub={`${stats.paidOrderCount} ${t("Orders")}`}
         />
@@ -118,10 +116,10 @@ export default async function AdminDashboardPage() {
               <div key={p.id} className="flex items-center gap-3">
                 <span
                   className={
-                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[12px] font-bold " +
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[12px] font-semibold " +
                     (index < 3
-                      ? "bg-accent/12 text-accent"
-                      : "bg-muted text-muted-foreground")
+                      ? "bg-secondary text-foreground"
+                      : "bg-secondary/60 text-muted-foreground")
                   }
                 >
                   {index + 1}
@@ -150,7 +148,9 @@ export default async function AdminDashboardPage() {
       {/* Recent orders */}
       <Card className="shadow-card">
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-[15px] font-semibold tracking-tight">{t("Recent Orders")}</CardTitle>
+          <CardTitle className="text-[15px] font-semibold tracking-tight">
+            {t("Recent Orders")}
+          </CardTitle>
           <Button asChild size="sm" variant="outline">
             <Link href="/admin/orders">
               {t("View all")}
@@ -159,51 +159,53 @@ export default async function AdminDashboardPage() {
           </Button>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto"><Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("Order #")}</TableHead>
-                <TableHead>{t("Customer")}</TableHead>
-                <TableHead>{t("Status")}</TableHead>
-                <TableHead>{t("Total")}</TableHead>
-                <TableHead>{t("Date")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {stats.recentOrders.map((order) => (
-                <TableRow key={order.id}>
-                  <TableCell>
-                    <Link
-                      href="/admin/orders"
-                      className="font-medium text-foreground hover:underline"
-                    >
-                      {order.orderNumber}
-                    </Link>
-                  </TableCell>
-                  <TableCell>
-                    <div className="truncate text-[13px] font-medium">{order.user.name}</div>
-                    <div className="truncate text-[11px] text-muted-foreground">
-                      {order.user.email}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <StatusBadge status={order.status} labelMap={{ ...ORDER_STATUS_LABELS }} />
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {formatMoney(Number(order.total))}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-[13px] text-muted-foreground">
-                    {order.createdAt.toLocaleString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("Order #")}</TableHead>
+                  <TableHead>{t("Customer")}</TableHead>
+                  <TableHead>{t("Status")}</TableHead>
+                  <TableHead>{t("Total")}</TableHead>
+                  <TableHead>{t("Date")}</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table></div>
+              </TableHeader>
+              <TableBody>
+                {stats.recentOrders.map((order) => (
+                  <TableRow key={order.id}>
+                    <TableCell>
+                      <Link
+                        href="/admin/orders"
+                        className="font-medium text-foreground hover:underline"
+                      >
+                        {order.orderNumber}
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <div className="truncate text-[13px] font-medium">{order.user.name}</div>
+                      <div className="truncate text-[11px] text-muted-foreground">
+                        {order.user.email}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={order.status} labelMap={{ ...ORDER_STATUS_LABELS }} />
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {formatMoney(Number(order.total))}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap text-[13px] text-muted-foreground">
+                      {order.createdAt.toLocaleString("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
           {stats.recentOrders.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">{t("No data yet")}</p>
           ) : null}

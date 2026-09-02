@@ -52,11 +52,11 @@ export function RefundReviewDialog({
         method: "PUT",
         body: JSON.stringify({ decision, adminNote: adminNote.trim() || null }),
       });
-      toast.success(decision === "approve" ? "Refund approved" : "Refund rejected");
+      toast.success(decision === "approve" ? "已同意退款" : "已驳回退款");
       onOpenChange(false);
       onReviewed?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Review failed");
+      toast.error(err instanceof Error ? err.message : "审核失败");
     } finally {
       setLoading(null);
     }
@@ -66,38 +66,38 @@ export function RefundReviewDialog({
     <Dialog open={open} onOpenChange={(v) => !loading && onOpenChange(v)}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Refund review</DialogTitle>
-          <DialogDescription>Please review the refund details before making a decision.</DialogDescription>
+          <DialogTitle>退款审核</DialogTitle>
+          <DialogDescription>请先查看退款详情再做出决定。</DialogDescription>
         </DialogHeader>
         {refund ? (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border bg-muted/30 p-4 text-sm">
-              <div className="text-muted-foreground">Order #</div>
+              <div className="text-muted-foreground">订单号</div>
               <div>{refund.order?.orderNumber ?? "-"}</div>
-              <div className="text-muted-foreground">Requested by</div>
+              <div className="text-muted-foreground">申请人</div>
               <div>
                 {refund.user?.name ?? "-"}({refund.user?.email ?? "-"})
               </div>
-              <div className="text-muted-foreground">Refund amount</div>
+              <div className="text-muted-foreground">退款金额</div>
               <div className="font-semibold text-destructive">{formatMoney(refund.amount)}</div>
-              <div className="text-muted-foreground">Current status</div>
+              <div className="text-muted-foreground">当前状态</div>
               <div>
                 <StatusBadge status={refund.status} labelMap={{ ...REFUND_STATUS_LABELS }} />
               </div>
-              <div className="text-muted-foreground">Requested</div>
+              <div className="text-muted-foreground">申请时间</div>
               <div>{new Date(refund.createdAt).toLocaleString("zh-CN")}</div>
             </div>
             <div className="space-y-1">
-              <Label className="text-muted-foreground">Refund reason</Label>
+              <Label className="text-muted-foreground">退款原因</Label>
               <p className="rounded-md border bg-muted/30 p-3 text-sm">{refund.reason}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="refund-note">Review note (optional)</Label>
+              <Label htmlFor="refund-note">审核备注（可选）</Label>
               <Textarea
                 id="refund-note"
                 rows={3}
                 maxLength={500}
-                placeholder="Write a note (shown to the customer)"
+                placeholder="填写备注（会展示给顾客）"
                 value={adminNote}
                 onChange={(e) => setAdminNote(e.target.value)}
               />
@@ -106,7 +106,7 @@ export function RefundReviewDialog({
         ) : null}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading !== null}>
-            Cancel
+            取消
           </Button>
           <Button
             variant="destructive"
@@ -118,7 +118,7 @@ export function RefundReviewDialog({
             ) : (
               <XCircle className="h-4 w-4" />
             )}
-            Reject refund
+            拒绝退款
           </Button>
           <Button disabled={loading !== null} onClick={() => void review("approve")}>
             {loading === "approve" ? (
@@ -126,7 +126,7 @@ export function RefundReviewDialog({
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            Approve refund
+            批准退款
           </Button>
         </DialogFooter>
       </DialogContent>

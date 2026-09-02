@@ -9,6 +9,7 @@ import {
   type ProductCardData,
 } from "@/components/shop/types";
 import { ProductShareMenu } from "@/components/shop/product-share-menu";
+import { FavoriteButton } from "@/components/shop/favorite-button";
 import { getT } from "@/lib/shop-i18n-server";
 import { getLang as getServerLang } from "@/lib/shop-i18n-server";
 import { pickName } from "@/lib/shop-i18n";
@@ -62,15 +63,18 @@ export interface ProductCardProps {
  * hover swaps to the second image and slides in the quick-add circle.
  */
 export async function ProductCard({ product, priority, className }: ProductCardProps) {
-  const t = getT();
-  const lang = getServerLang();
+  const t = await getT();
+  const lang = await getServerLang();
   const productName = pickName(product.name, product.nameEn, lang);
-  const images = Array.isArray(product.images) ? product.images.filter((s): s is string => !!s) : [];
+  const images = Array.isArray(product.images)
+    ? product.images.filter((s): s is string => !!s)
+    : [];
   const image = firstImage(product.images);
   const secondary = images[1];
   const parsedAttrs = parseAttributes(product.attributes);
-  const colorGroup =
-    parsedAttrs.find((a) => a.name === "Color" || (a.name === "Color" && a.selectable === true));
+  const colorGroup = parsedAttrs.find(
+    (a) => a.name === "Color" || (a.name === "Color" && a.selectable === true),
+  );
   const colorValues = colorGroup?.values.slice(0, 5) ?? [];
   const price = toNumberPrice(product.price);
   const outOfStock = product.stock <= 0;
@@ -105,13 +109,15 @@ export async function ProductCard({ product, priority, className }: ProductCardP
         />
         {/* 官方 badge-list--vertical：左上 8px 内缩、纵向堆叠、11px 大写 #EFEFEF 底 */}
         <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
-          {outOfStock && product.isPresale ? (
-            <Badge label={t("Pre-order")} />
-          ) : null}
+          {outOfStock && product.isPresale ? <Badge label={t("Pre-order")} /> : null}
           {outOfStock && !product.isPresale ? <Badge label={t("Sold out")} /> : null}
           {!outOfStock && product.isNew ? <Badge label={t("New")} /> : null}
           {!outOfStock && product.isHot ? <Badge label={t("Hot")} /> : null}
           {!outOfStock && compareNum > price ? <Badge label={t("Sale")} /> : null}
+        </div>
+        {/* 收藏心形：右上角，桌面悬停浮现 / 移动端常显 */}
+        <div className="absolute right-2 top-2 z-10 opacity-100 transition-opacity duration-200 sm:opacity-0 sm:group-hover:opacity-100">
+          <FavoriteButton productId={product.id} />
         </div>
         {!outOfStock || product.isPresale ? (
           <div className="absolute bottom-3 right-3 translate-y-2 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
@@ -135,11 +141,15 @@ export async function ProductCard({ product, priority, className }: ProductCardP
         <div className="flex items-baseline justify-center gap-2">
           {product.compareAtPrice != null && toNumberPrice(product.compareAtPrice) > price ? (
             <>
-              <span className="text-[15px] font-normal tracking-tight text-foreground">{priceText}</span>
+              <span className="text-[15px] font-normal tracking-tight text-foreground">
+                {priceText}
+              </span>
               <span className="text-[13px] text-foreground/50 line-through">{compareText}</span>
             </>
           ) : (
-            <span className="text-[15px] font-normal tracking-tight text-foreground">{priceText}</span>
+            <span className="text-[15px] font-normal tracking-tight text-foreground">
+              {priceText}
+            </span>
           )}
         </div>
         {colorValues.length > 0 ? (

@@ -28,7 +28,13 @@ const numOr = (v: string | undefined, d: number): number => {
   return Number.isFinite(n) ? n : d;
 };
 
-export const DEFAULT_CURRENCY = process.env.CURRENCY || "USD";
+/**
+ * 客户端可见的默认币种：Next 不会把 .env 注入到 client bundle，
+ * 真实 `env.CURRENCY` 仅在 server 侧可读。client 端固定按 "USD" 兜底，
+ * 真正的展示币种由 currency-provider 初始化时调 /api/currency/rates 决定。
+ * 保持与 CURRENCIES 表中的基准币种一致。
+ */
+export const DEFAULT_CURRENCY = "USD";
 export const SHIPPING_FEE = numOr(process.env.SHIPPING_FEE, 10);
 export const FREE_SHIPPING_THRESHOLD = numOr(process.env.FREE_SHIPPING_THRESHOLD, 99);
 export const TAX_RATE = numOr(process.env.TAX_RATE, 0);

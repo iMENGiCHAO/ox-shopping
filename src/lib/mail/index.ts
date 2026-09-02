@@ -10,12 +10,12 @@ import {
   DataDeletionEmail,
   OrderConfirmedEmail,
   OrderShippedEmail,
+  PriceDropEmail,
   RefundUpdateEmail,
   ResetPasswordEmail,
   RestockEmail,
   VerifyEmailEmail,
 } from "@/emails/templates";
-
 
 /**
  * 邮件服务：resend | smtp | console(未配置时降级为控制台输出 + 本地 .mail-out 目录)
@@ -26,6 +26,26 @@ import {
  */
 
 export type MailLang = "zh" | "en";
+
+/**
+ * 邮件发送时使用的站名解析。优先读 SiteSetting 多语字段，缺失回退到 env.SITE_NAME。
+ * 为避免在邮件模板中硬编码品牌名，业务方应通过 SiteSetting 设置 siteName.zh / siteName.en。
+ */
+async function loadSiteName(): Promise<{ zh?: string; en?: string }> {
+  try {
+    const { prisma } = await import("@/lib/prisma");
+    const row = await prisma.siteSetting
+      .findUnique({ where: { key: "siteName" } })
+      .catch(() => null);
+    if (row && typeof row.value === "object" && row.value !== null) {
+      const v = row.value as { zh?: string; en?: string };
+      return { zh: v.zh, en: v.en };
+    }
+  } catch {
+    /* DB 不可用时走兜底 */
+  }
+  return { zh: undefined, en: undefined };
+}
 
 export interface MailData {
   "verify-email": { name: string; link: string; lang?: MailLang };
@@ -56,7 +76,7 @@ export interface MailData {
     lang?: MailLang;
   };
   "data-deletion": { name: string; lang?: MailLang };
-  "restock": {
+  restock: {
     name: string;
     productName: string;
     /** 客户登记时选择的规格文本，如 "Color: Black / Size: M" */
@@ -69,6 +89,17 @@ export interface MailData {
     productUrl: string;
     lang?: MailLang;
   };
+  "price-drop": {
+    productName: string;
+    image?: string;
+    oldPrice: string;
+    newPrice: string;
+    currency: string;
+    percent: number;
+    productUrl: string;
+    unsubscribeUrl?: string;
+    lang?: MailLang;
+  };
 }
 
 export type MailTemplate = keyof MailData;
@@ -77,15 +108,21 @@ interface TemplateMeta {
   subject: (lang: MailLang) => string;
   // Each template renders with its own props (BaseProps + template-specific fields).
   // Using a generic renderer avoids having to enumerate every template's props here.
-  render: (data: Record<string, unknown>) => string;
+  // @react-email/render v1：render() 为异步
+  render: (data: Record<string, unknown>) => Promise<string>;
 }
 
-const siteNameFor = (_lang: MailLang) => "Ox Shopping";
+const siteNameFor = (lang: MailLang, names: { zh?: string; en?: string }) => {
+  const fromSetting = lang === "zh" ? names.zh : names.en;
+  return fromSetting || "Ox Shopping";
+};
 
 const templates: Record<MailTemplate, TemplateMeta> = {
   "verify-email": {
     subject: (lang) =>
-      lang === "zh" ? "【Ox Shopping】请验证您的邮箱地址" : "[Ox Shopping] Verify your email address",
+      lang === "zh"
+        ? "【Ox Shopping】请验证您的邮箱地址"
+        : "[Ox Shopping] Verify your email address",
     render: (data) => render(VerifyEmailEmail(data as never)),
   },
   "reset-password": {
@@ -115,12 +152,19 @@ const templates: Record<MailTemplate, TemplateMeta> = {
         : "[Ox Shopping] Data deletion request received",
     render: (data) => render(DataDeletionEmail(data as never)),
   },
-  "restock": {
+  restock: {
     subject: (lang) =>
       lang === "zh"
         ? "【Ox Shopping】您关注的商品已补货"
         : "[Ox Shopping] Back in stock — the item you wanted",
     render: (data) => render(RestockEmail(data as never)),
+  },
+  "price-drop": {
+    subject: (lang) =>
+      lang === "zh"
+        ? "【Ox Shopping】您关注的商品已降价"
+        : "[Ox Shopping] Price drop on an item you wanted",
+    render: (data) => render(PriceDropEmail(data as never)),
   },
 };
 
@@ -181,13 +225,15 @@ async function sendViaConsole(to: string, subject: string, html: string, templat
 /** 发送邮件。发送失败只记录日志，不阻断业务流程。 */
 export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>): Promise<void> {
   const meta = templates[input.template];
-  // 前台面向欧美客户：未显式指定语言时默认英文
-const lang: MailLang = (input.data as { lang?: MailLang }).lang ?? "en";
+  // 语言策略：调用方显式指定 > 默认 zh（与项目主语言一致；忘记密码等未登录场景友好）
+  const lang: MailLang = (input.data as { lang?: MailLang }).lang ?? "zh";
+  // 从 SiteSetting 拉取品牌名（多语），缺失兜底 "Ox Shopping"
+  const names = await loadSiteName();
   // Inject brand name + url into every payload — these are derived from env /
   // language so individual callers don't have to remember to set them.
-  const base = { siteUrl: env.SITE_URL, siteName: siteNameFor(lang) };
+  const base = { siteUrl: env.SITE_URL, siteName: siteNameFor(lang, names) };
   const data = { ...base, ...(input.data as object) };
-  const html = meta.render(data);
+  const html = await meta.render(data);
   const subject = meta.subject(lang);
   try {
     if (env.MAIL_PROVIDER === "resend" && env.RESEND_API_KEY) {

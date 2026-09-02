@@ -59,17 +59,17 @@ export function SalesTrendChart({ data, className }: SalesTrendChartProps) {
           <YAxis yAxisId="orders" orientation="right" hide />
           <Tooltip
             formatter={(value, name) => {
-              if (name === "Revenue") return [formatMoney(Number(value)), name];
+              if (name === "营收") return [formatMoney(Number(value)), name];
               return [value, name];
             }}
-            labelFormatter={(label) => `Date: ${String(label)}`}
+            labelFormatter={(label) => `日期：${String(label)}`}
             contentStyle={{ borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13 }}
           />
           <Area
             yAxisId="revenue"
             type="monotone"
             dataKey="revenue"
-            name="Revenue"
+            name="营收"
             stroke="#3b82f6"
             strokeWidth={2}
             fill="url(#revenueFill)"
@@ -78,7 +78,7 @@ export function SalesTrendChart({ data, className }: SalesTrendChartProps) {
             yAxisId="orders"
             type="monotone"
             dataKey="orders"
-            name="Orders"
+            name="订单数"
             stroke="#10b981"
             strokeWidth={2}
             fill="url(#ordersFill)"

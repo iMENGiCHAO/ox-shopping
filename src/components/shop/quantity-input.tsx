@@ -27,7 +27,12 @@ export function QuantityInput({
   const clamp = (n: number) => Math.min(Math.max(n, min), max);
 
   return (
-    <div className={cn("inline-flex items-center rounded-lg border border-input bg-card overflow-hidden", className)}>
+    <div
+      className={cn(
+        "qty-control inline-flex items-center overflow-hidden border border-input bg-card",
+        className,
+      )}
+    >
       <Button
         type="button"
         variant="ghost"

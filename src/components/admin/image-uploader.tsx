@@ -35,7 +35,7 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
     if (!files || files.length === 0) return;
     const remaining = max - value.length;
     if (remaining <= 0) {
-      toast.warning(`You can upload at most ${max} images`);
+      toast.warning(`最多只能上传 ${max} 张图片`);
       return;
     }
     const list = Array.from(files).slice(0, remaining);
@@ -48,10 +48,10 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
       }
       if (newUrls.length > 0) {
         onChange([...value, ...newUrls]);
-        toast.success(`Successfully uploaded ${newUrls.length} images`);
+        toast.success(`已成功上传 ${newUrls.length} 张图片`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Image upload failed");
+      toast.error(err instanceof Error ? err.message : "图片上传失败");
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -65,14 +65,14 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
         method: "POST",
         body: JSON.stringify({ filename: file.name, mime: file.type || "image/jpeg" }),
       });
-      if (!res.url) throw new Error("Presign response missing url");
+      if (!res.url) throw new Error("Presign 响应缺少 url");
       // Presigned URLs are sensitive to extra headers — use raw fetch
       const putRes = await fetch(res.url, {
         method: "PUT",
         headers: { "Content-Type": file.type || "application/octet-stream" },
         body: file,
       });
-      if (!putRes.ok) throw new Error("Failed to upload file to storage");
+      if (!putRes.ok) throw new Error("上传文件到存储失败");
       return res.publicUrl?.startsWith("http") ? res.publicUrl : res.url;
     } catch (err) {
       const status =
@@ -88,7 +88,7 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
       body: form,
     });
     const url = res.url ?? res.publicUrl;
-    if (!url) throw new Error("Upload API returned no image URL");
+    if (!url) throw new Error("上传接口未返回图片 URL");
     return url;
   };
 
@@ -103,7 +103,7 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
           <div key={`${url}-${index}`} className="group relative">
             <ImageWithFallback
               src={url}
-              alt={`Image ${index + 1}`}
+              alt={`图片 ${index + 1}`}
               width={80}
               height={80}
               className="h-20 w-20 rounded-md border object-cover"
@@ -130,7 +130,7 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
             ) : (
               <ImagePlus className="h-5 w-5" />
             )}
-            <span className="text-xs">Upload images</span>
+            <span className="text-xs">上传图片</span>
           </button>
         ) : null}
       </div>
@@ -144,16 +144,16 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
       />
       {uploading ? (
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Loader2 className="h-3 w-3 animate-spin" /> Uploading, please wait…
+          <Loader2 className="h-3 w-3 animate-spin" /> 上传中，请稍候…
         </p>
       ) : null}
       {value.length > 0 ? (
         <p className="text-xs text-muted-foreground">
-          Uploaded {value.length} / {max} images，click the thumbnail corner to delete
+          已上传 {value.length} / {max} 张，鼠标移到缩略图右上角可删除
         </p>
       ) : (
         <p className="text-xs text-muted-foreground">
-          Supports jpg / png / webp / gif / avif, max {max} images
+          支持 jpg / png / webp / gif / avif 格式，单次最多 {max} 张
         </p>
       )}
     </div>

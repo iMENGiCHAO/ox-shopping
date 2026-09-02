@@ -8,7 +8,7 @@ import { logger } from "@/lib/logger";
  * 所有商品列表查询缓存 key 统一前缀，便于管理端变更后批量失效。
  */
 
-const PRODUCTS_CACHE_PREFIX = "{m.group(1)}v2";
+const PRODUCTS_CACHE_PREFIX = "products:v2:";
 
 const memoryStore = new Map<string, { value: unknown; expiresAt: number }>();
 

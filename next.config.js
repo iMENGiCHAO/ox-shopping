@@ -21,9 +21,13 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), payment=(self)",
   },
-  // CSP 由 src/middleware.ts 按请求签发：
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains",
+  },
+  // CSP 由 src/proxy.ts 按请求签发（Next 16 将 middleware 重命名为 proxy）：
   //   生产 → per-request nonce + strict-dynamic（收窄内联脚本）
-  //   开发 → 宽松策略（HMR 需要 eval/inline），见 middleware 内联定义
+  //   开发 → 宽松策略（HMR 需要 eval/inline），见 proxy 内联定义
 ];
 
 const nextConfig = {
@@ -32,17 +36,8 @@ const nextConfig = {
   output: "standalone",
   poweredByHeader: false,
   // @sentry/node、pdfkit 依赖运行时文件系统资源（require-in-the-middle / afm 字体数据），
-  // 必须保持外部化（webpack 打包后 __dirname 指向错误）
-  experimental: {
-    serverComponentsExternalPackages: ["@sentry/node", "pdfkit"],
-  },
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      // 路由处理器（Route Handlers）不走 RSC 编译管线，需显式外部化
-      config.externals = [...(config.externals ?? []), "@sentry/node", "pdfkit"];
-    }
-    return config;
-  },
+  // 必须保持外部化（Turbopack 打包后 __dirname 指向错误）
+  serverExternalPackages: ["@sentry/node", "pdfkit"],
   images: {
     // 本地原创 SVG 占位素材经 next/image 优化管道需要显式放行（均为我们自产的静态文件）
     dangerouslyAllowSVG: true,
@@ -63,10 +58,6 @@ const nextConfig = {
         headers: securityHeaders,
       },
     ];
-  },
-  eslint: {
-    // CI 中单独执行 lint，避免 build 被无关警告阻塞
-    ignoreDuringBuilds: false,
   },
 };
 

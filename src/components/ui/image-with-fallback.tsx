@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type SyntheticEvent } from "react";
 import Image, { type ImageProps } from "next/image";
 
 /** 内置灰色占位图(SVG data URI)：灰色方块 + 图片图标 + "暂无图片" 文字 */
@@ -41,7 +41,7 @@ export function ImageWithFallback({ src, alt, onError, ...props }: ImageWithFall
     <Image
       src={resolvedSrc}
       alt={alt}
-      onError={(e) => {
+      onError={(e: SyntheticEvent<HTMLImageElement, Event>) => {
         onError?.(e);
         setFailed(true);
       }}

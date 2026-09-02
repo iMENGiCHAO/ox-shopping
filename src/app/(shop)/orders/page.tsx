@@ -31,13 +31,16 @@ const STATUS_TABS = [
 ] as const;
 
 interface OrdersPageProps {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function OrdersPage({ searchParams }: OrdersPageProps) {
+export default async function OrdersPage(props: OrdersPageProps) {
+  const searchParams = await props.searchParams;
   const user = await getSessionUser();
   if (!user) redirect("/auth/login?next=/orders");
-  const t = getT();
+  // redirect() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
+  if (!user) throw new Error("unreachable");
+  const t = await getT();
 
   const sp = searchParams;
   const statusKey = typeof sp.status === "string" ? sp.status : "";
@@ -91,7 +94,20 @@ export default async function OrdersPage({ searchParams }: OrdersPageProps) {
                   : "bg-card text-muted-foreground hover:bg-secondary",
               )}
             >
-              {key === "ALL" ? t("All") : t(ORDER_STATUS_LABELS[key as OrderStatus])}
+              {key === "ALL"
+                ? t("All")
+                : // 用 enum key（i18n 表已有翻译）而非 ORDER_STATUS_LABELS（后台中文版）
+                  t(
+                    {
+                      PENDING_PAYMENT: "Payment pending",
+                      PAID: "Paid",
+                      PROCESSING: "Processing",
+                      SHIPPED: "Shipped",
+                      DELIVERED: "Delivered",
+                      CANCELLED: "Cancelled",
+                      REFUNDED: "Refunded",
+                    }[key as OrderStatus],
+                  )}
             </a>
           );
         })}

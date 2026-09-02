@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 import { signAccessToken } from "@/lib/auth/jwt";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/constants";
 
@@ -20,7 +20,7 @@ function makeReq(
 
 describe("CSRF 防护", () => {
   it("变更请求缺少 CSRF 头 → 403", async () => {
-    const res = await middleware(
+    const res = await proxy(
       makeReq("/api/cart", {
         method: "POST",
         cookie: "csrf_token=abcdefabcdefabcdefabcdefabcdefabcdef",
@@ -30,7 +30,7 @@ describe("CSRF 防护", () => {
   });
 
   it("CSRF 头与 Cookie 不一致 → 403", async () => {
-    const res = await middleware(
+    const res = await proxy(
       makeReq("/api/cart", {
         method: "POST",
         cookie: "csrf_token=abcdefabcdefabcdefabcdefabcdefabcdef",
@@ -42,7 +42,7 @@ describe("CSRF 防护", () => {
 
   it("CSRF 头与 Cookie 一致 → 放行", async () => {
     const token = "abcdefabcdefabcdefabcdefabcdefabcdef";
-    const res = await middleware(
+    const res = await proxy(
       makeReq("/api/cart", {
         method: "POST",
         cookie: `csrf_token=${token}`,
@@ -53,12 +53,12 @@ describe("CSRF 防护", () => {
   });
 
   it("Webhook 路由豁免 CSRF", async () => {
-    const res = await middleware(makeReq("/api/webhooks/stripe", { method: "POST" }));
+    const res = await proxy(makeReq("/api/webhooks/stripe", { method: "POST" }));
     expect(res.status).toBe(200);
   });
 
   it("GET 请求下发 CSRF Cookie", async () => {
-    const res = await middleware(makeReq("/api/products"));
+    const res = await proxy(makeReq("/api/products"));
     expect(res.status).toBe(200);
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toContain("csrf_token=");
@@ -67,7 +67,7 @@ describe("CSRF 防护", () => {
 
 describe("/admin 路由守卫", () => {
   it("未登录访问 /admin → 重定向登录页", async () => {
-    const res = await middleware(makeReq("/admin/products"));
+    const res = await proxy(makeReq("/admin/products"));
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/admin/login");
   });
@@ -79,7 +79,7 @@ describe("/admin 路由守卫", () => {
       name: "用户",
       role: "CUSTOMER",
     });
-    const res = await middleware(makeReq("/admin", { cookie: `${ACCESS_TOKEN_COOKIE}=${token}` }));
+    const res = await proxy(makeReq("/admin", { cookie: `${ACCESS_TOKEN_COOKIE}=${token}` }));
     expect(res.status).toBe(307);
   });
 
@@ -90,19 +90,19 @@ describe("/admin 路由守卫", () => {
       name: "管理员",
       role: "ADMIN",
     });
-    const res = await middleware(makeReq("/admin", { cookie: `${ACCESS_TOKEN_COOKIE}=${token}` }));
+    const res = await proxy(makeReq("/admin", { cookie: `${ACCESS_TOKEN_COOKIE}=${token}` }));
     expect(res.status).toBe(200);
   });
 
   it("/admin/login 无需登录", async () => {
-    const res = await middleware(makeReq("/admin/login"));
+    const res = await proxy(makeReq("/admin/login"));
     expect(res.status).toBe(200);
   });
 });
 
 describe("请求 ID 注入", () => {
   it("响应头包含 x-request-id", async () => {
-    const res = await middleware(makeReq("/api/products"));
+    const res = await proxy(makeReq("/api/products"));
     expect(res.headers.get("x-request-id")).toBeTruthy();
   });
 });

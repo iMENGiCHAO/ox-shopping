@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, use } from "react";
 import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,12 @@ import { toast } from "sonner";
 import { useT } from "@/components/shop/lang-provider";
 
 interface MockPayPageProps {
-  params: { orderNumber: string };
+  params: Promise<{ orderNumber: string }>;
 }
 
 /** Mock payment page (client): simulate success / cancel order */
-export default function MockPayPage({ params }: MockPayPageProps) {
+export default function MockPayPage(props: MockPayPageProps) {
+  const params = use(props.params);
   const orderNumber = Array.isArray(params.orderNumber)
     ? params.orderNumber[0]
     : params.orderNumber;
@@ -43,7 +44,9 @@ export default function MockPayPage({ params }: MockPayPageProps) {
         `/checkout/result?orderNumber=${encodeURIComponent(orderNumber)}&status=cancelled`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("Failed to cancel, please try again later"));
+      toast.error(
+        err instanceof Error ? err.message : t("Failed to cancel, please try again later"),
+      );
       setPending(null);
     }
   };
@@ -59,7 +62,9 @@ export default function MockPayPage({ params }: MockPayPageProps) {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            {t("No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking [Mock payment successful] will mark the order as paid.")}
+            {t(
+              "No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking [Mock payment successful] will mark the order as paid.",
+            )}
           </p>
           <div className="rounded-md bg-muted p-3 text-sm">
             <p className="text-muted-foreground">{t("Order pending payment")}</p>

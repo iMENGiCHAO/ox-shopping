@@ -48,19 +48,19 @@ export function CurrencySelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 text-sm opacity-65 transition-opacity hover:opacity-100"
+        className="flex items-center gap-2.5 text-xs opacity-65 transition-opacity hover:opacity-100"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
         {withFlag ? <span className="text-base leading-none">{def.flag}</span> : null}
         {showCountry ? `${def.country} (${code} ${def.symbol})` : `${code} ${def.symbol}`}
-        <ChevronDown className="h-3.5 w-3.5" />
+        <ChevronDown className="h-2.5 w-2.5" />
       </button>
       {open ? (
         <ul
           role="listbox"
           className={cn(
-            "absolute z-50 max-h-80 w-56 overflow-auto border border-border bg-card text-foreground shadow-lg",
+            "currency-sheet absolute z-50 max-h-80 w-56 overflow-auto border border-border bg-card text-foreground shadow-lg",
             direction === "up" ? "bottom-full mb-2" : "top-full mt-2",
             align === "right" && "right-0",
             align === "left" && "left-0",

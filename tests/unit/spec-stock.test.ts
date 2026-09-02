@@ -91,6 +91,15 @@ describe("applySpecRestock(取消回补)", () => {
     const next = applySpecRestock({ Color: { Black: 1 } }, { "BadKey": 5, "Color/Black": 1 });
     expect(next!.Color!.Black).toBe(2);
   });
+
+  it("NaN 防护：DB 脏数据 / 旧版本漏入 NaN 不会污染整张表", () => {
+    // 模拟上游 schema 漂移：specStock 里有 NaN 值
+    const dirtySpec = { Color: { Black: NaN as unknown as number } };
+    const next = applySpecRestock(dirtySpec, { "Color/Black": 3 });
+    // 旧实现：NaN + 3 = NaN；新实现：0 + 3 = 3
+    expect(Number.isNaN(next!.Color!.Black)).toBe(false);
+    expect(next!.Color!.Black).toBe(3);
+  });
 });
 
 

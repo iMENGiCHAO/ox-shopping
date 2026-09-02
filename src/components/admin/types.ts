@@ -63,6 +63,9 @@ export interface AdminProduct {
   costPrice: string | number | null;
   stock: number;
   isPresale?: boolean;
+  /** 预售提示文案（多语言），覆盖 SiteSetting 默认值。 */
+  presaleNoteZh?: string | null;
+  presaleNoteEn?: string | null;
   isNew?: boolean;
   isHot?: boolean;
   sizeChart?: { headers: string[]; rows: string[][] } | null;

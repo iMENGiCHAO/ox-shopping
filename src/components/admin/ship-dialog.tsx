@@ -83,7 +83,7 @@ export function ShipDialog({
       onOpenChange(false);
       onSaved?.(values);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : isEdit ? "Failed to save shipping info" : "Failed to ship");
+      toast.error(err instanceof Error ? err.message : isEdit ? "保存物流信息失败" : "发货失败");
     } finally {
       setLoading(false);
     }
@@ -93,19 +93,19 @@ export function ShipDialog({
     <Dialog open={open} onOpenChange={(v) => !loading && onOpenChange(v)}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit shipping info" : "Ship order"}</DialogTitle>
+          <DialogTitle>{isEdit ? "修改物流信息" : t("Ship Order")}</DialogTitle>
           <DialogDescription>
             {isEdit
-              ? "Fill or correct the carrier and tracking number for this order."
-              : 'After entering shipping info, the order will be marked as "Shipped".'}
+              ? "填写或更正该订单的承运商与物流单号。"
+              : "填入物流信息后，订单将标记为「已发货」。"}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" aria-label="发货录入">
           <div className="space-y-2">
-            <Label htmlFor="ship-company">Carrier *</Label>
+            <Label htmlFor="ship-company">{t("Carrier")} *</Label>
             <Input
               id="ship-company"
-              placeholder="e.g. SF Express / YTO Express / ZTO Express"
+              placeholder="例如 顺丰 / 圆通 / 中通"
               {...form.register("trackingCompany")}
             />
             {form.formState.errors.trackingCompany ? (
@@ -115,7 +115,7 @@ export function ShipDialog({
             ) : null}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="ship-number">Tracking # *</Label>
+            <Label htmlFor="ship-number">{t("Tracking Number")} *</Label>
             <Input
               id="ship-number"
               placeholder={t("Enter the tracking number")}
@@ -134,11 +134,11 @@ export function ShipDialog({
               onClick={() => onOpenChange(false)}
               disabled={loading}
             >
-              Cancel
+              取消
             </Button>
             <Button type="submit" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Truck className="h-4 w-4" />}
-              {isEdit ? "Save shipping info" : "Confirm ship"}
+              {isEdit ? "保存物流信息" : "确认发货"}
             </Button>
           </DialogFooter>
         </form>

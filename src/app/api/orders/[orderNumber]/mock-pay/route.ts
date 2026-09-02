@@ -1,5 +1,5 @@
 import { apiHandler, json } from "@/lib/api";
-import { forbidden, rateLimited } from "@/lib/errors";
+import { badRequest, forbidden, rateLimited } from "@/lib/errors";
 import { requireUser } from "@/lib/auth/session";
 import { assertOrderOwner, getOrderByNumber, markOrderPaid } from "@/server/services/order.service";
 import { serializeOrder } from "@/server/serializers";
@@ -19,9 +19,17 @@ export const POST = apiHandler(async (req, ctx) => {
 
   if (effectivePaymentMode !== "mock") throw forbidden("模拟支付未启用");
 
+  // 提前校验：已支付/已取消/已退款的订单直接返回明确结果（避免静默成功）
+  if (order.status === "PAID" || order.status === "PROCESSING" || order.status === "SHIPPED" || order.status === "DELIVERED") {
+    return json({ order: serializeOrder(order), alreadyPaid: true });
+  }
+  if (order.status === "CANCELLED" || order.status === "REFUNDED") {
+    throw badRequest(`订单当前状态「${order.status}」无法支付`);
+  }
+
   const rl = await rateLimit({ key: `mock-pay:${orderNumber}`, limit: 10, windowSeconds: 60 });
   if (!rl.ok) throw rateLimited();
 
   const updated = await markOrderPaid(orderNumber, `mock_${orderNumber}`);
-  return json({ order: serializeOrder(updated) });
+  return json({ order: serializeOrder(updated), alreadyPaid: updated.status !== "PENDING_PAYMENT" });
 });

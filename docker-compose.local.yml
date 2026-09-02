@@ -1,0 +1,71 @@
+# ============================================================
+# 本地一键演示覆盖文件（严禁用于生产）：
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+# 覆盖项：明文弱密钥、模拟支付、MinIO 对象存储、启动种子、跳过生产密钥强度检查。
+# ============================================================
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ecommerce
+
+  minio:
+    image: minio/minio:latest
+    container_name: ecommerce-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: ecommerce-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      mc mb --ignore-existing local/ecommerce &&
+      mc anonymous set download local/ecommerce &&
+      echo 'MinIO bucket ecommerce ready'"
+
+  app:
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      SITE_URL: http://localhost:3000
+      DATABASE_URL: postgresql://ecommerce:ecommerce@postgres:5432/ecommerce?schema=public
+      JWT_ACCESS_SECRET: docker-compose-access-secret-change-in-prod
+      JWT_REFRESH_SECRET: docker-compose-refresh-secret-change-in-prod
+      # 仅限本地演示：跳过生产密钥强度检查
+      REQUIRE_STRONG_SECRETS: "false"
+      PAYMENT_MODE: mock
+      STRIPE_SECRET_KEY: ""
+      STRIPE_WEBHOOK_SECRET: ""
+      CURRENCY: CNY
+      MAIL_PROVIDER: console
+      MAIL_FROM: "Ox Shopping <no-reply@example.com>"
+      STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: ecommerce
+      S3_ACCESS_KEY_ID: minioadmin
+      S3_SECRET_ACCESS_KEY: minioadmin
+      S3_PUBLIC_URL: http://localhost:9000/ecommerce
+      S3_FORCE_PATH_STYLE: "true"
+      SEED_ON_START: "true"
+
+volumes:
+  miniodata:

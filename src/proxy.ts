@@ -4,13 +4,25 @@ import { ACCESS_TOKEN_COOKIE, REQUEST_ID_HEADER } from "@/lib/constants";
 import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/auth/csrf";
 
 /**
- * Edge 中间件(保持轻量，不依赖 Node 运行时)：
+ * Next 16 Proxy（原 Middleware，已在 16.0 弃用 middleware 并改名为 proxy）：
  * 1. 请求 ID 注入(日志追踪)
- * 2. CSRF double-submit 校验(变更请求)
- * 3. /admin 页面路由守卫(JWT 校验 + 角色)
+ * 2. CSP 响应头（生产 per-request nonce + strict-dynamic；开发宽松以放行 HMR）
+ * 3. CSRF double-submit 校验(变更请求)
+ * 4. /admin 页面路由守卫(JWT 校验 + 角色)
+ *
+ * 运行：Next 16 默认 Node.js runtime（jose 验证 / crypto.randomUUID 都需要 Node）。
+ *   - 出口 `export function proxy(...)` 是 Next 16 的约定名
+ *   - 旧 `middleware.ts` 已被弃用，详见 node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md
  */
 
-const CSRF_EXEMPT_PREFIXES = ["/api/webhooks/", "/api/auth/csrf", "/api/uploads/", "/api/healthz"];
+const CSRF_EXEMPT_PREFIXES = [
+  "/api/webhooks/",
+  "/api/auth/csrf",
+  "/api/uploads/",
+  "/api/healthz",
+  // 游客可调：售罄商品到货通知订阅（已用 rate-limit(5/h) + 同 email+product 去重防御滥用）
+  "/api/notify-me",
+];
 const PUBLIC_PATHS = ["/healthz", "/favicon.ico", "/_next", "/uploads", "/fonts"];
 
 function isCsrfExempt(pathname: string): boolean {
@@ -21,7 +33,7 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // ---------- 请求 ID ----------
