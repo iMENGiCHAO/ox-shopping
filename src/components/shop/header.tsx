@@ -35,25 +35,13 @@ export async function Header() {
         {/* Left logo — 后台自定义品牌LOGO(白色托底保证深色图案可见),否则官方白色X。
             桌面固定左缘 48px；移动端居中（官方实测 375 视口左缘 153px）。 */}
         <Link href="/" aria-label={siteName} className="header-logo">
-          {/* 自定义品牌 LOGO：白色托底容器，任何颜色图案在深色顶栏都清晰可见(shop.x 风格)。
-              未自定义时用默认白字 LOGO，不需要额外托底。
-              尺寸：固定高度等比例缩放(w-auto)，object-contain 防变形，max-w 防超宽图挤压工具区 */}
-          {settings.siteLogoUrl ? (
-            <div className="flex h-[44px] max-w-[200px] items-center justify-center overflow-hidden rounded-md bg-white px-2.5 py-1">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={settings.siteLogoUrl}
-                alt={siteName}
-                className="max-h-full max-w-full object-contain"
-              />
-            </div>
-          ) : (
-            <img
-              src="/images/brand/logo-header.png"
-              alt={siteName}
-              className="h-[44px] w-auto max-w-[200px] object-contain object-left"
-            />
-          )}
+          {/* 自定义品牌 LOGO：最大高度 44px 等比例缩放(object-contain 防变形)。
+              深色顶栏建议用白色/浅色图案确保清晰可见；未自定义时用默认白字 X LOGO。 */}
+          <img
+            src={settings.siteLogoUrl || "/images/brand/logo-header.png"}
+            alt={siteName}
+            className="h-[44px] w-auto max-w-[200px] object-contain object-left"
+          />
         </Link>
 
         {/* Right utilities — 移动端仅 搜索+购物车（官方）；桌面端 币种+搜索+账号(带消息角标)+购物车 */}
