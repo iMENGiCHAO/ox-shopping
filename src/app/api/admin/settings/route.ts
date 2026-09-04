@@ -3,6 +3,7 @@ import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { siteSettingsSchema } from "@/lib/validations/admin";
+import { isLogoArtworkDark } from "@/lib/logo-contrast";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -28,6 +29,22 @@ export const PUT = apiHandler(async (req) => {
       update: { value: jsonValue },
       create: { key, value: jsonValue },
     });
+  }
+
+  // LOGO 更新时同步测定图案明度：黑色顶栏上深色图案需自动反白。
+  // 测定失败（返回 null）时删除标记，视为"不反白"的保守默认。
+  if ("siteLogoUrl" in input) {
+    const url = typeof input.siteLogoUrl === "string" ? input.siteLogoUrl : null;
+    const dark = url ? await isLogoArtworkDark(url) : false;
+    if (dark === null) {
+      await prisma.siteSetting.deleteMany({ where: { key: "siteLogoDarkArtwork" } });
+    } else {
+      await prisma.siteSetting.upsert({
+        where: { key: "siteLogoDarkArtwork" },
+        update: { value: dark },
+        create: { key: "siteLogoDarkArtwork", value: dark },
+      });
+    }
   }
 
   await audit({

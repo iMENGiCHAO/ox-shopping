@@ -47,6 +47,8 @@ export function OrderDetailDrawer({
   const [current, setCurrent] = React.useState<AdminOrder | null>(order);
   const [statusLoading, setStatusLoading] = React.useState(false);
   const [shipOpen, setShipOpen] = React.useState(false);
+  // "ship" = 执行发货（状态推进为已发货）；"edit" = 仅补填/修改物流信息，不改变状态
+  const [shipMode, setShipMode] = React.useState<"ship" | "edit">("ship");
 
   React.useEffect(() => {
     if (open) setCurrent(order);
@@ -76,7 +78,14 @@ export function OrderDetailDrawer({
   const canShip = Boolean(
     current && (current.status === "PAID" || current.status === "PROCESSING"),
   );
-  const canEditTracking = Boolean(current && current.status === "SHIPPED");
+  // 已支付/处理中/已发货/已送达均可补填或修改物流信息（与后端 PUT /tracking 的允许状态一致）
+  const canEditTracking = Boolean(
+    current &&
+      (current.status === "PAID" ||
+        current.status === "PROCESSING" ||
+        current.status === "SHIPPED" ||
+        current.status === "DELIVERED"),
+  );
 
   return (
     <AdminDrawer open={open} onOpenChange={(v) => !statusLoading && onOpenChange(v)}>
@@ -235,15 +244,28 @@ export function OrderDetailDrawer({
             </Select>
           </div>
           {canShip ? (
-            <Button size="sm" onClick={() => setShipOpen(true)}>
+            <Button
+              size="sm"
+              onClick={() => {
+                setShipMode("ship");
+                setShipOpen(true);
+              }}
+            >
               <Truck className="h-4 w-4" />
               发货
             </Button>
           ) : null}
           {canEditTracking ? (
-            <Button size="sm" variant="outline" onClick={() => setShipOpen(true)}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setShipMode("edit");
+                setShipOpen(true);
+              }}
+            >
               <Truck className="h-4 w-4" />
-              修改物流
+              {current?.trackingNumber ? "修改物流" : "补填物流"}
             </Button>
           ) : null}
         </div>
@@ -253,7 +275,7 @@ export function OrderDetailDrawer({
         open={shipOpen}
         onOpenChange={setShipOpen}
         orderId={current?.id ?? null}
-        mode={canEditTracking ? "edit" : "ship"}
+        mode={shipMode}
         initial={{
           trackingCompany: current?.trackingCompany,
           trackingNumber: current?.trackingNumber,
@@ -262,7 +284,7 @@ export function OrderDetailDrawer({
           if (current) {
             setCurrent({
               ...current,
-              status: canEditTracking ? current.status : "SHIPPED",
+              status: shipMode === "ship" ? "SHIPPED" : current.status,
               ...(tracking ? { trackingCompany: tracking.trackingCompany, trackingNumber: tracking.trackingNumber } : {}),
             });
           }

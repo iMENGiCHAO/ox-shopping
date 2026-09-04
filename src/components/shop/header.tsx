@@ -32,15 +32,19 @@ export async function Header() {
         </div>
       ) : null}
       <div className="header-bar">
-        {/* Left logo — 后台自定义品牌LOGO(白色托底保证深色图案可见),否则官方白色X。
+        {/* Left logo — 后台自定义品牌LOGO,否则官方白色X。
             桌面固定左缘 48px；移动端居中（官方实测 375 视口左缘 153px）。 */}
         <Link href="/" aria-label={siteName} className="header-logo">
           {/* 自定义品牌 LOGO：最大高度 44px 等比例缩放(object-contain 防变形)。
-              深色顶栏建议用白色/浅色图案确保清晰可见；未自定义时用默认白字 X LOGO。 */}
+              顶栏为纯黑色：上传的 LOGO 若为透明底+黑色图案会"黑图压黑底"不可见，
+              服务端已测定图案明度并写入 siteLogoDarkArtwork，偏暗时此处 invert 反白。
+              图片本身保持商家上传原样，不改文件。 */}
           <img
             src={settings.siteLogoUrl || "/images/brand/logo-header.png"}
             alt={siteName}
-            className="h-[44px] w-auto max-w-[200px] object-contain object-left"
+            className={`h-[44px] w-auto max-w-[200px] object-contain object-left${
+              settings.siteLogoUrl && settings.siteLogoDarkArtwork ? " invert" : ""
+            }`}
           />
         </Link>
 

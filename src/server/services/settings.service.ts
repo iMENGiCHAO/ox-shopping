@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { POLICY_DEFAULTS, PolicyKey, getPolicyContent } from "@/lib/policy-defaults";
 import { Lang } from "@/lib/shop-i18n";
 import { logger } from "@/lib/logger";
+import { isLogoArtworkDark } from "@/lib/logo-contrast";
 
 /**
  * 站点设置：读取 SiteSetting(由管理端 /api/admin/settings 维护)。
@@ -22,6 +23,8 @@ export interface SiteSettings {
   announcementEnabled: boolean;
   /** 品牌LOGO(后台可上传更换);空=使用内置默认 */
   siteLogoUrl: string | null;
+  /** LOGO 图案偏暗（黑色图案+透明底），黑色顶栏需反白显示；由 lib/logo-contrast 自动测定 */
+  siteLogoDarkArtwork: boolean;
   announcement: string;
   /**
    * 预售商品缺省提示文案（多语言）。
@@ -113,6 +116,27 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     DEFAULT_DESCRIPTION_EN,
   );
 
+  // ── LOGO 明度（黑色顶栏自动反白）──
+  // 正常情况下由管理端保存 LOGO 时写入；对"先上传后才有本机制"的历史数据，
+  // 这里首次读取时补测一次并落库，之后走DB直读，不在热路径上重复跑 sharp。
+  const siteLogoUrl =
+    typeof map.siteLogoUrl === "string" && map.siteLogoUrl ? map.siteLogoUrl : null;
+  let siteLogoDarkArtwork = map.siteLogoDarkArtwork === true;
+  if (siteLogoUrl && typeof map.siteLogoDarkArtwork !== "boolean") {
+    const dark = await isLogoArtworkDark(siteLogoUrl);
+    if (dark !== null) {
+      siteLogoDarkArtwork = dark;
+      // 尽力而为落库，失败不影响本次响应
+      prisma.siteSetting
+        .upsert({
+          where: { key: "siteLogoDarkArtwork" },
+          update: { value: dark },
+          create: { key: "siteLogoDarkArtwork", value: dark },
+        })
+        .catch((err) => logger.warn({ err }, "[settings] LOGO 明度标记落库失败"));
+    }
+  }
+
   return {
     siteName,
     siteDescription,
@@ -125,7 +149,8 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     icp: typeof map.icp === "string" ? map.icp : "",
     seoKeywords: typeof map.seoKeywords === "string" ? map.seoKeywords : "",
     announcementEnabled: map.announcementEnabled === true,
-    siteLogoUrl: typeof map.siteLogoUrl === "string" && map.siteLogoUrl ? map.siteLogoUrl : null,
+    siteLogoUrl,
+    siteLogoDarkArtwork,
     announcement: typeof map.announcement === "string" ? map.announcement : "",
     presaleNote: readI18n(map.presaleNote, DEFAULT_PRESALE_NOTE_ZH, DEFAULT_PRESALE_NOTE_EN),
     policies: {

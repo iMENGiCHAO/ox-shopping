@@ -73,6 +73,7 @@ export default function AdminSettingsPage() {
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [siteLogoUrl, setSiteLogoUrl] = React.useState("");
+  const [siteLogoDarkArtwork, setSiteLogoDarkArtwork] = React.useState(false);
 
   const form = useForm<SettingsFormValues>({
     resolver: zodResolver(settingsFormSchema),
@@ -87,6 +88,7 @@ export default function AdminSettingsPage() {
       );
       const settings = res?.settings && typeof res.settings === "object" ? res.settings : null;
       setSiteLogoUrl(typeof settings?.siteLogoUrl === "string" ? settings.siteLogoUrl : "");
+      setSiteLogoDarkArtwork(settings?.siteLogoDarkArtwork === true);
       form.reset({
         siteName: pickString(settings, "siteName"),
         siteDescription: pickString(settings, "siteDescription"),
@@ -260,7 +262,7 @@ export default function AdminSettingsPage() {
             <CardDescription>{t("Upload or replace the storefront logo")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <BrandLogoCard initialUrl={siteLogoUrl} />
+            <BrandLogoCard initialUrl={siteLogoUrl} initialDarkArtwork={siteLogoDarkArtwork} />
           </CardContent>
         </Card>
 

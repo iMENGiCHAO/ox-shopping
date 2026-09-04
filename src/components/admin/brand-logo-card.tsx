@@ -15,9 +15,17 @@ import { useT } from "@/components/admin/lang-provider";
  * - 上传/粘贴图片 URL,保存到 site_settings.siteLogoUrl
  * - 前台顶栏即时生效(深色图案自动白色托底展示);空 = 恢复内置默认
  */
-export function BrandLogoCard({ initialUrl }: { initialUrl: string }) {
+export function BrandLogoCard({
+  initialUrl,
+  initialDarkArtwork = false,
+}: {
+  initialUrl: string;
+  /** 服务端测定的「图案偏暗」标记：暗色预览格据此反白，与前台顶栏保持一致 */
+  initialDarkArtwork?: boolean;
+}) {
   const t = useT();
   const [url, setUrl] = React.useState(initialUrl);
+  const [darkArtwork, setDarkArtwork] = React.useState(initialDarkArtwork);
   const [saving, setSaving] = React.useState(false);
 
   const save = async () => {
@@ -28,6 +36,11 @@ export function BrandLogoCard({ initialUrl }: { initialUrl: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ siteLogoUrl: url || null }),
       });
+      // 服务端已对新 LOGO 测定明度，回读一次让预览与前台一致
+      const res = await apiFetch<{ settings: Record<string, unknown> } | null>(
+        "/api/admin/settings",
+      );
+      setDarkArtwork(res?.settings?.siteLogoDarkArtwork === true);
       toast.success(t("Brand logo updated. The storefront header updates immediately."));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Failed to save"));
@@ -65,7 +78,16 @@ export function BrandLogoCard({ initialUrl }: { initialUrl: string }) {
         <div className="flex items-center rounded-md bg-ink px-3 py-2">
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="logo 暗色背景预览" className="h-[40px] w-auto max-w-[200px] object-contain" />
+            <img
+              src={url}
+              alt="logo 暗色背景预览"
+              className={`h-[40px] w-auto max-w-[200px] object-contain${darkArtwork ? " invert" : ""}`}
+              title={
+                darkArtwork
+                  ? t("Dark artwork detected — auto-inverted on the dark header, same as storefront")
+                  : undefined
+              }
+            />
           ) : (
             <span className="text-xs text-muted-foreground">{t("(default X logo)")}</span>
           )}
@@ -83,7 +105,7 @@ export function BrandLogoCard({ initialUrl }: { initialUrl: string }) {
       </div>
       <p className="text-xs text-muted-foreground">
         {t(
-          "Best with transparent background and light/white artwork for the dark header. Clear it to restore the built-in default.",
+          "Best with transparent background and light/white artwork for the dark header. If the artwork is dark, the storefront header auto-inverts it — clear to restore the built-in default.",
         )}
       </p>
     </div>
