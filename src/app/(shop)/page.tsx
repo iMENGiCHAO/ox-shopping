@@ -7,6 +7,7 @@ import { Reveal } from "@/components/shop/reveal";
 import { toCardData } from "@/components/shop/types";
 import { getT, getLang } from "@/lib/shop-i18n-server";
 import { pickName } from "@/lib/shop-i18n";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { OFFICIAL_LISTING_EXCLUDE_SLUGS } from "@/lib/catalog";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,12 @@ export default async function HomePage() {
 
   const t = await getT();
   const lang = await getLang();
+  // 结构化数据用真实站点配置，避免硬编码站名/域名污染 SEO/GEO
+  const settings = await getSiteSettings();
+  const orgName = pickLang(settings.siteName, lang) || "Ox Shopping";
+  const siteUrl =
+    (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const logoSrc = settings.siteLogoUrl || "/images/brand/favicon.png";
   // 提前声明：bannerData 在初始化时就需要 catName，必须在 bannerData 之前完成。
   const catName = (c: (typeof featured)[number]) => pickName(c.name, c.nameEn ?? null, lang);
 
@@ -117,19 +124,18 @@ export default async function HomePage() {
             {
               "@context": "https://schema.org",
               "@type": "Organization",
-              name: "Ox Shopping",
-              url: "https://ox.example.com",
-              logo: "https://ox.example.com/images/brand/favicon.png",
-              sameAs: ["https://x.com"],
+              name: orgName,
+              url: siteUrl,
+              logo: `${siteUrl}${logoSrc}`,
             },
             {
               "@context": "https://schema.org",
               "@type": "WebSite",
-              name: "Ox Shopping",
-              url: "https://ox.example.com",
+              name: orgName,
+              url: siteUrl,
               potentialAction: {
                 "@type": "SearchAction",
-                target: "https://ox.example.com/products?q={search_term_string}",
+                target: `${siteUrl}/products?q={search_term_string}`,
                 "query-input": "required name=search_term_string",
               },
             },

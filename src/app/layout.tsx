@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Toaster } from "sonner";
 import { headers } from "next/headers";
 import { getLang } from "@/lib/shop-i18n-server";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import "./globals.css";
 
 /*
@@ -10,27 +11,60 @@ import "./globals.css";
  * dependency, and it is exactly the shop.x.com look (regular weight).
  */
 
-export const metadata: Metadata = {
-  // OG/Twitter 图片绝对地址基准；未配置域名时回落本地
-  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
-  icons: {
+const FALLBACK_NAME = "Official Ox Shopping";
+const FALLBACK_DESCRIPTION =
+  "Official Ox Shopping — official apparel and accessories. Tees, hoodies, hats, drinkware and more.";
+const FALLBACK_KEYWORDS = [
+  "Ox Shopping",
+  "Grok",
+  "X",
+  "shop",
+  "store",
+  "apparel",
+  "tee",
+  "hoodie",
+];
+
+/** 动态站点元信息：后台「站点设置」的站名/描述/SEO关键词直达 <head>，消除信息孤岛 */
+export async function generateMetadata(): Promise<Metadata> {
+  // 后台路由不读站点设置（避开头/正文重复查询），留默认 SEO
+  const settings = await getSiteSettings();
+  const lang = await getLang();
+
+  const siteName = pickLang(settings.siteName, lang) || FALLBACK_NAME;
+  const description =
+    pickLang(settings.siteDescription, lang) || FALLBACK_DESCRIPTION;
+  const kwRaw = settings.seoKeywords?.trim() ?? "";
+  // 后台 SEO 关键词用逗号分隔；未配置时回落默认
+  const keywordParts = kwRaw
+    ? kwRaw
+        .split(/[,，]/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : FALLBACK_KEYWORDS;
+  const keywords = keywordParts.slice(0, 10);
+
+  return {
+    metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
+    icons: {
       icon: "/images/brand/favicon.png",
       apple: "/images/brand/favicon.png",
     },
-  title: {
-    default: "Official Ox Shopping",
-    template: "%s | Official Ox Shopping",
-  },
-  description:
-    "Official Ox Shopping — official apparel and accessories. Tees, hoodies, hats, drinkware and more.",
-  keywords: ["Ox Shopping", "Grok", "X", "shop", "store", "apparel", "tee", "hoodie"],
-  openGraph: {
-    type: "website",
-    locale: "en_US",
-    siteName: "Official Ox Shopping",
-  },
-  robots: { index: true, follow: true },
-};
+    title: {
+      default: siteName,
+      template: `%s | ${siteName}`,
+    },
+    description,
+    keywords,
+    openGraph: {
+      type: "website",
+      locale: lang === "zh" ? "zh_CN" : "en_US",
+      siteName,
+      description,
+    },
+    robots: { index: true, follow: true },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#000000",

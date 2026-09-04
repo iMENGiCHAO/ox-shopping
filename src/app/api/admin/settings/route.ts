@@ -4,6 +4,7 @@ import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { siteSettingsSchema } from "@/lib/validations/admin";
 import { isLogoArtworkDark } from "@/lib/logo-contrast";
+import { invalidateSettingsCache } from "@/server/services/settings.service";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -46,6 +47,9 @@ export const PUT = apiHandler(async (req) => {
       });
     }
   }
+
+  // 使前端 getSiteSettings() 缓存立即失效，改动近实时直达前台
+  await invalidateSettingsCache();
 
   await audit({
     userId: actor.id,

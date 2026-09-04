@@ -2,6 +2,7 @@ import { apiHandler, json, readJson } from "@/lib/api";
 import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { invalidateSettingsCache } from "@/server/services/settings.service";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -69,6 +70,8 @@ export const PUT = apiHandler(async (req) => {
   }
 
   if (touched.length) {
+    // 政策页内容属站点设置缓存范围，写入后立即失效
+    await invalidateSettingsCache();
     await audit({
       userId: actor.id,
       action: "SETTINGS_UPDATE",

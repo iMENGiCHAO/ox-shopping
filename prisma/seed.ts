@@ -298,19 +298,6 @@ async function seedSiteSettings() {
     contactPhone: "400-000-0000",
     icp: "",
     seoKeywords: "Ox Shopping,Grok,X,shop,apparel",
-    pageBanners: {
-      homeLeft: {
-        href: "/products?category=x-collection",
-        image: "/images/xcom2/banner-x.jpg",
-        title: "X Collection",
-      },
-      homeRight: {
-        href: "/products?category=spacexai-collection",
-        image: "/images/xcom2/banner-xai.jpg",
-        title: "Ox Collection",
-      },
-      collectionsFallbackImage: "/images/xcom2/banner-x.jpg",
-    },
   };
   for (const [key, value] of Object.entries(defaults)) {
     await prisma.siteSetting.upsert({

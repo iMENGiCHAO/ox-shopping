@@ -15,8 +15,8 @@ export function AccountLogoutButton() {
     try {
       await apiFetch("/api/auth/logout", { method: "POST" });
       window.dispatchEvent(new CustomEvent("auth:logout"));
+      // 仅 router.push()：去掉多余 router.refresh()，消除退出后白屏竞态
       router.push("/");
-      router.refresh();
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("Sign-out failed, please try again later"),

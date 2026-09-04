@@ -71,8 +71,8 @@ export default function RegisterPage() {
       });
       toast.success(t("Registration successful!"));
       window.dispatchEvent(new CustomEvent("auth:login"));
+      // 仅 router.push()：去掉多余 router.refresh()，消除"注册后白屏"竞态
       router.push("/");
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Registration failed, please try again later"));
     } finally {

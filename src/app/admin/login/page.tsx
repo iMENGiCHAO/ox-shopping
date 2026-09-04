@@ -62,9 +62,11 @@ function LoginForm() {
       }
       window.dispatchEvent(new CustomEvent("auth:login"));
       toast.success(`${t("Welcome back")}, ${user.name}`);
+      // 仅 router.push()：登录后 cookie 已由登录接口写入，软导航到目标路由时
+      // 服务端重新渲染即读到新会话。原 router.push()+router.refresh() 并发会
+      // 偶发"登录后白屏需手动刷新"——remove redundant refresh 即消除该竞态。
       const target = next && next.startsWith("/admin") ? next : "/admin";
       router.push(target);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Sign in failed, please try again"));
     } finally {

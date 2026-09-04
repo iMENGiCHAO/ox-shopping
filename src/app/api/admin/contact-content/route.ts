@@ -1,6 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth/session";
+import { invalidateSettingsCache } from "@/server/services/settings.service";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -32,5 +33,6 @@ export const PUT = apiHandler(async (req) => {
     update: { value },
     create: { key: KEY, value },
   });
+  await invalidateSettingsCache();
   return json({ data: value });
 });

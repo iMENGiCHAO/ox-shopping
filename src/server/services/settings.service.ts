@@ -4,6 +4,7 @@ import { POLICY_DEFAULTS, PolicyKey, getPolicyContent } from "@/lib/policy-defau
 import { Lang } from "@/lib/shop-i18n";
 import { logger } from "@/lib/logger";
 import { isLogoArtworkDark } from "@/lib/logo-contrast";
+import { cacheGet, cacheSet, cacheDel } from "@/lib/cache";
 
 /**
  * 站点设置：读取 SiteSetting(由管理端 /api/admin/settings 维护)。
@@ -78,6 +79,29 @@ export function getPolicyText(map: PolicyContentMap, key: PolicyKey, lang: Lang)
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
+  // 缓存命中：站点设置几乎每个页面都要读(页头/页脚/SEO/公告)，是并发热路径。
+  // 短 TTL 缓存避免每次请求都打 DB(高并发下避免连接池/锁阻塞)；
+  // 管理端写入设置时通过 invalidateSettingsCache() 立即失效，改动近实时生效。
+  const cached = await cacheGet<SiteSettings>(SETTINGS_CACHE_KEY);
+  if (cached) return cached;
+
+  const settings = await computeSiteSettings();
+  // 计算失败返回内置默认值时也缓存，避免 DB 抖动导致请求洪峰
+  await cacheSet(SETTINGS_CACHE_KEY, settings, SETTINGS_CACHE_TTL);
+  return settings;
+}
+
+/** 站点设置缓存 key（供管理端写入后失效） */
+export const SETTINGS_CACHE_KEY = "settings:v1";
+/** 站点设置缓存 TTL（秒）——短 TTL 兼顾实时性与并发保护 */
+export const SETTINGS_CACHE_TTL = 30;
+
+/** 失效站点设置缓存 —— 任何修改 siteSetting 的路由都应调用 */
+export async function invalidateSettingsCache(): Promise<void> {
+  await cacheDel(SETTINGS_CACHE_KEY);
+}
+
+async function computeSiteSettings(): Promise<SiteSettings> {
   // DB 故障降级：页头/页脚是每个页面的必经之路，站点设置读不到时
   // 返回内置默认值，保证全站其余部分仍可渲染（而非整站 500 白屏）。
   let rows: { key: string; value: unknown }[];
@@ -169,60 +193,4 @@ export function pickLang<T extends Record<"zh" | "en", string>>(
   lang: Lang,
 ): string {
   return value[lang] || value.en || value.zh;
-}
-
-
-/* ── 页面横幅(前台大图解耦：后台可配，未配置时回落分类/默认值) ── */
-
-export interface BannerSlotConfig {
-  /** 图片 URL；空 = 使用默认来源 */
-  image: string;
-  /** 点击跳转链接；空 = 分类默认链接 */
-  href: string;
-  /** 覆盖标题；空 = 显示分类名 */
-  title: string;
-}
-
-export interface PageBannersConfig {
-  /** 首页左侧半宽横幅 */
-  homeLeft: BannerSlotConfig;
-  /** 首页右侧半宽横幅 */
-  homeRight: BannerSlotConfig;
-}
-
-export const PAGE_BANNERS_KEY = "pageBanners";
-
-const EMPTY_SLOT: BannerSlotConfig = { image: "", href: "", title: "" };
-
-export const DEFAULT_PAGE_BANNERS: PageBannersConfig = {
-  homeLeft: { ...EMPTY_SLOT },
-  homeRight: { ...EMPTY_SLOT },
-};
-
-/** 读取页面横幅配置（容错：损坏数据回退默认；历史遗留字段忽略） */
-export function parsePageBanners(raw: unknown): PageBannersConfig {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_PAGE_BANNERS };
-  const m = raw as Record<string, unknown>;
-  const slot = (v: unknown): BannerSlotConfig => {
-    if (!v || typeof v !== "object") return { ...EMPTY_SLOT };
-    const o = v as Record<string, unknown>;
-    return {
-      image: typeof o.image === "string" ? o.image : "",
-      href: typeof o.href === "string" ? o.href : "",
-      title: typeof o.title === "string" ? o.title : "",
-    };
-  };
-  return {
-    homeLeft: slot(m.homeLeft),
-    homeRight: slot(m.homeRight),
-  };
-}
-
-export async function getPageBanners(): Promise<PageBannersConfig> {
-  try {
-    const row = await prisma.siteSetting.findUnique({ where: { key: PAGE_BANNERS_KEY } });
-    return parsePageBanners(row?.value);
-  } catch {
-    return { ...DEFAULT_PAGE_BANNERS };
-  }
 }

@@ -52,8 +52,8 @@ export function LoginForm({ next }: { next: string }) {
       toast.success(t("Welcome back, {name}!", { name: res.user?.name ?? "user" }));
       // Notify global state (cart merge, etc.)
       window.dispatchEvent(new CustomEvent("auth:login"));
+      // 仅 router.push()：去掉多余的 router.refresh()，消除"登录后白屏需手动刷新"竞态
       router.push(next);
-      router.refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Sign-in failed, please try again later"));
     } finally {

@@ -5,6 +5,7 @@ import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { GATEWAYS } from "@/lib/payment-gateways";
+import { invalidateSettingsCache } from "@/server/services/settings.service";
 
 export const runtime = "nodejs";
 
@@ -88,6 +89,7 @@ export const PUT = apiHandler(async (req) => {
     update: { value: jsonSafe },
     create: { key: DB_KEY, value: jsonSafe },
   });
+  await invalidateSettingsCache();
 
   await audit({
     userId: actor.id,
