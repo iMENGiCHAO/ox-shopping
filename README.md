@@ -49,7 +49,7 @@ ecommerce/
 │   ├── emails/                 # react-email 邮件模板
 │   ├── lib/                    # 认证/数据库/缓存/邮件/支付/存储/日志/校验/工具
 │   ├── server/services/        # 业务逻辑（订单事务、购物车、商品、统计）
-│   ├── middleware.ts           # 请求ID / CSRF / admin 守卫（Edge）
+│   ├── proxy.ts                # 请求ID / CSP / CSRF / admin 守卫（Next 16 中间件约定）
 │   └── types/
 ├── prisma/                     # schema + 种子数据
 ├── public/fonts/               # 发票中文字体（Noto Sans CJK，OFL 协议）
@@ -127,7 +127,7 @@ npm run db:seed
 npm run dev               # http://localhost:3000
 ```
 
-> 说明：仓库未内置迁移历史目录（`.env` 与 DATABASE_URL 因环境而异），开发用 `prisma db push` 同步 schema，生产/CI 用 `prisma migrate deploy`；需要版本化迁移时在开发环境执行 `npx prisma migrate dev --name init` 提交 `prisma/migrations/`。
+> 说明：仓库已内置版本化迁移历史 `prisma/migrations/`（含 init / payment_log / order_payment_indexes / category_banner_image / business_core_tables 5 个迁移）。生产/CI 用 `prisma migrate deploy` 应用历史迁移；开发快速迭代可用 `prisma db push` 同步 schema；新增结构变更用 `npx prisma migrate dev --name <名称>` 生成并提交新迁移。
 
 ---
 

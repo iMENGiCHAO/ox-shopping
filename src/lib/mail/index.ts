@@ -209,7 +209,8 @@ async function sendViaConsole(to: string, subject: string, html: string, templat
   // 开发模式：打印日志并落盘 HTML 便于浏览器预览
   logger.info({ to, subject, template }, "[mock-mail] 邮件内容(未配置邮件服务)");
   try {
-    const dir = path.join(process.cwd(), ".mail-out");
+    // 落盘目录可配置：默认 .mail-out，部署可指向卷外(避免备份盘膨胀)
+    const dir = process.env.MAIL_OUT_DIR || path.join(process.cwd(), ".mail-out");
     await mkdir(dir, { recursive: true });
     const file = path.join(
       dir,
