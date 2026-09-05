@@ -134,7 +134,7 @@
 
 ---
 
-### P2-1：specStock 等 Json 字段的一致性治理
+### P2-1：specStock 等 Json 字段的一致性治理 `[x]` ✅ 提交 `7adadb7`（2026-09-05）
 
 - **问题证据**：`prisma/schema.prisma` 中 `specStock` / `images` / `attributes` 均为 `Json` 类型。
   其中 **`specStock` 参与库存扣减**（见 `src/server/services/spec-stock.ts` 与订单扣减路径），
@@ -148,7 +148,7 @@
 
 ---
 
-### P2-2：仓库卫生（数据目录与构建产物）
+### P2-2：仓库卫生（数据目录与构建产物） `[x]` ✅ 提交 `915f58e`（2026-09-05）
 
 - **问题证据**：项目根存在 `.pg-data/`（Postgres 数据目录）、`.test-pg-data/`、`.test-postgres/`、`.test-pg17/`、`.test-pg-manual/`、
   `.mail-out/`（邮件落盘，2.2MB+）、`tsconfig.tsbuildinfo`（2.2MB）。虽未被 git 追踪，但 **Time Machine 备份会全部带走，备份盘持续膨胀**。
@@ -160,7 +160,7 @@
 
 ---
 
-### P2-3：文档与现实对齐（README / AGENT_CONVENTIONS）
+### P2-3：文档与现实对齐（README / AGENT_CONVENTIONS） `[x]` ✅ 提交 `915f58e`（2026-09-05）
 
 - **问题证据**：
   - `README.md` 称"仓库未内置迁移历史目录"——**实际 `prisma/migrations/` 已有 5 个迁移**；
