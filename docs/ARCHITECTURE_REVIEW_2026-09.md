@@ -75,7 +75,15 @@
 
 ---
 
-### P1-1：i18n 迁移到路由级 locale（SEO 硬伤，商业价值最大）
+### P1-1：i18n 迁移到路由级 locale（SEO 硬伤，商业价值最大） `[x]` ✅ 第一步完成，提交 `1699cac`（2026-09-05）
+
+> 采用**方案 B**（与用户确认）：无前缀 = 英文（现状不变，不破坏现有链接/收录），
+> `/zh` 前缀 = 中文、`/en` = 显式英文。
+> - ✅ 第一步（路由结构 + 语言注入）：`proxy.ts` 识别 `/zh|/en` 前缀 → 注入 `x-lang` +
+>   rewrite 去前缀；`getLang()` 优先读 `x-lang`，`<html lang>` / og:locale 自动跟随。
+>   实测 `/zh` → `lang="zh"` + 中文 SSR，`/` `/en` → `en` 不变。
+> - ⏳ 第二步（语言切换器改"导航式跳 locale 路径"，替换 cookie+refresh 运行时切换）：未做。
+> - ⏳ 第三步（SEO 输出：sitemap hreflang 交替链接 / 页面 canonical+hreflang / JSON-LD）：未做。
 
 - **问题证据**：`src/lib/shop-i18n.ts` 注释明确——
   *"Language state is managed by I18nProvider (client context)"*。
