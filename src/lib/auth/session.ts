@@ -132,8 +132,36 @@ export async function rotateSession(refreshToken: string): Promise<RotatedTokens
   const tokenHash = await sha256(refreshToken);
   const record = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
-  // 重放检测：token 已被轮换/吊销却再次出现
+  // 重放检测：token 已被轮换/吊销却再次出现。
+  // 关键：区分「真·窃取重放」与「善意重试」。轮换过程是"先写新 record、再标旧 record
+  // replacedBy（同一事务）"；若客户端在事务提交后、尚未收到响应前断网（移动端弱网极常见），
+  // 浏览器仍持有旧 token 并重发它。此时旧 record 的 replacedBy 指向的后继 token 仍处于
+  // 「未使用」状态（未被再次轮换、未吊销、未过期）= 链未闭合，说明原客户端根本没拿到
+  // 新 token、只是本人重试 → 不应吊销全部会话，只需重建当前会话。
   if (record && (record.revokedAt || record.replacedBy)) {
+    const benignRetry = record.replacedBy ? await isChainUnclosed(record.replacedBy) : false;
+
+    if (benignRetry) {
+      // 善意重试：吊销卡住的后继 token 并重建一条新会话，不殃及其它设备。
+      const retryUser = await prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
+      });
+      if (!retryUser || retryUser.status !== "ACTIVE") throw unauthorized("账号已被禁用");
+
+      await prisma.refreshToken.updateMany({
+        where: { tokenHash: record.replacedBy!, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      const retried = await issueSession(retryUser);
+      logger.warn({ userId: record.userId }, "refresh token 善意重试（响应丢失后重发），重建会话而非吊销全部");
+      return {
+        accessToken: retried.accessToken,
+        refreshToken: retried.refreshToken,
+        user: toSessionUser(retryUser),
+      };
+    }
+
     await revokeAllUserTokens(record.userId);
     logger.warn({ userId: record.userId }, "refresh token 重放，已吊销该用户全部会话");
     throw unauthorized("检测到异常登录，请重新登录");
@@ -184,6 +212,25 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+}
+
+/**
+ * 判定「链未闭合」：被轮换的旧 token 的 replacedBy 后继，是否仍处于未使用状态。
+ * - 后继存在、未被吊销、未被再次轮换、且未过期 → 原客户端从未成功收下后继 token
+ *   （响应丢失后重发旧 token 属善意重试），返回 true；
+ * - 后继已被再次轮换/吊销/过期/不存在（链已闭合）→ 旧 token 的再次出现是窃取重放，
+ *   返回 false。
+ */
+async function isChainUnclosed(replacedByHash: string): Promise<boolean> {
+  const successor = await prisma.refreshToken.findUnique({
+    where: { tokenHash: replacedByHash },
+    select: { revokedAt: true, replacedBy: true, expiresAt: true },
+  });
+  if (!successor) return false;
+  if (successor.revokedAt) return false;
+  if (successor.replacedBy) return false;
+  if (successor.expiresAt < new Date()) return false;
+  return true;
 }
 
 /** 清理过期 refresh token 记录(定期任务可调用) */
