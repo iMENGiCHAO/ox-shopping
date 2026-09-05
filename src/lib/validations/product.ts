@@ -19,7 +19,48 @@ export const productAttributeSchema = z.object({
   values: z.array(z.string().trim().min(1).max(50)).min(1, "至少一个属性值").max(50),
 });
 
-export const productCreateSchema = z.object({
+/**
+ * 规格库存与属性取值一致性校验（P2-1）：specStock 的组名必须对应某个 attribute.name，
+ * 组内值必须属于该 attribute.values。仅当两者在同一请求中同时出现时才校验，
+ * 避免误伤"分步更新"场景。孤儿组/值会让 aggregateTrackedStock 多算/漏算总库存。
+ */
+function checkSpecStockConsistency(
+  val: { specStock?: Record<string, Record<string, number>> | null; attributes?: { name: string; values: string[] }[] | null },
+  ctx: z.RefinementCtx,
+): void {
+  if (val.specStock == null || val.attributes == null) return;
+
+  const attrByName = new Map<string, Set<string>>();
+  for (const a of val.attributes) {
+    if (!a.name) continue;
+    const set = attrByName.get(a.name) ?? new Set<string>();
+    for (const v of a.values) set.add(v);
+    attrByName.set(a.name, set);
+  }
+
+  for (const [group, values] of Object.entries(val.specStock)) {
+    const attrValues = attrByName.get(group);
+    if (!attrValues) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["specStock", group],
+        message: `规格库存的组「${group}」在属性中不存在`,
+      });
+      continue;
+    }
+    for (const value of Object.keys(values)) {
+      if (!attrValues.has(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["specStock", group, value],
+          message: `规格库存的值「${value}」不在属性「${group}」的可选值中`,
+        });
+      }
+    }
+  }
+}
+
+const productBaseSchema = z.object({
   name: z.string().trim().min(2, "商品名称至少 2 个字符").max(120),
   slug: z
     .string()
@@ -57,9 +98,14 @@ export const productCreateSchema = z.object({
   categoryId: z.string().min(1, "请选择分类"),
 });
 
-export const productUpdateSchema = productCreateSchema.partial().extend({
-  sku: z.string().trim().min(3).max(64).optional(),
-});
+export const productCreateSchema = productBaseSchema.superRefine(checkSpecStockConsistency);
+
+export const productUpdateSchema = productBaseSchema
+  .partial()
+  .extend({
+    sku: z.string().trim().min(3).max(64).optional(),
+  })
+  .superRefine(checkSpecStockConsistency);
 
 export const productStatusUpdateSchema = z.object({
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]),

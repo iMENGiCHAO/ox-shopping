@@ -94,7 +94,7 @@
 
 ---
 
-### P1-2：proxy.ts 职责拆分 + CSP nonce 修正
+### P1-2：proxy.ts 职责拆分 + CSP nonce 修正 `[x]` ✅ 提交 `b1c20d9`（2026-09-05）
 
 - **问题证据**：`src/proxy.ts` 单文件四职责——请求 ID / CSP / CSRF / admin 守卫；且 Next 16 proxy 默认 Node runtime，**每个页面请求都过 Node 中间件**。CSP nonce 用 `btoa(crypto.randomUUID())`——UUID 仅 122bit 随机性且含固定位，nonce 应为无偏随机。
 - **目标文件**：`src/proxy.ts`，可新增 `src/lib/server/proxy-*.ts` 纯函数模块。
