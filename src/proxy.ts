@@ -34,8 +34,28 @@ function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 }
 
+/**
+ * 路由级 locale（P1-1 第一步）：识别 `/zh` `/en` 前缀并返回去掉前缀后的路径。
+ * 无前缀 = 英文（默认，不破坏现有链接/收录）；`/zh` = 中文，`/en` = 显式英文。
+ * 仅作用于商城前台路由；`/api` `/admin` `/healthz` 等不受影响。
+ */
+function parseLocalePrefix(pathname: string): { lang: "zh" | "en" | null; rest: string } {
+  const m = /^\/(zh|en)(?=\/|$)/.exec(pathname);
+  if (!m) return { lang: null, rest: pathname };
+  const lang = m[1] as "zh" | "en";
+  const rest = pathname.slice(m[0].length) || "/";
+  // 只对商城前台生效：/zh/admin 之类保留原样（不该出现，防御性不处理）
+  if (rest.startsWith("/api") || rest.startsWith("/admin") || rest.startsWith("/healthz")) {
+    return { lang: null, rest: pathname };
+  }
+  return { lang, rest };
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // ---------- 路由级 locale 识别 ----------
+  const locale = parseLocalePrefix(pathname);
 
   // ---------- 请求 ID ----------
   let requestId = req.headers.get(REQUEST_ID_HEADER);
@@ -46,17 +66,24 @@ export async function proxy(req: NextRequest) {
   requestHeaders.set(REQUEST_ID_HEADER, requestId);
   // 供服务端组件(如 /admin layout)判断当前路径(headers() 不提供 pathname)
   requestHeaders.set("x-pathname", pathname);
+  // 路由级语言信号（getLang() 优先读它，使 SSR 语言感知）
+  if (locale.lang) requestHeaders.set("x-lang", locale.lang);
 
   // ---------- CSP（生产：per-request nonce + strict-dynamic）----------
   // 开发模式保留宽松策略(HMR 依赖 eval/inline)；生产由 proxy 按请求签发 nonce，
   // Next 检测到请求头 CSP 含 nonce 后会自动写入其自有 bootstrap 脚本。
   const isProd = process.env.NODE_ENV === "production";
+  // 路由级 locale：有前缀时 rewrite 到去前缀路径（URL 仍显示 /zh|/en，内部路由命中 shop）
+  const rewriteUrl = locale.lang ? new URL(locale.rest, req.url) : undefined;
+
   if (isProd && !isPublicPath(pathname)) {
     const nonce = randomNonce();
     requestHeaders.set("x-nonce", nonce);
     const csp = buildCsp(nonce, true);
     requestHeaders.set("Content-Security-Policy", csp);
-    const cspRes = NextResponse.next({ request: { headers: requestHeaders } });
+    const cspRes = rewriteUrl
+      ? NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
+      : NextResponse.next({ request: { headers: requestHeaders } });
     cspRes.headers.set("Content-Security-Policy", csp);
     cspRes.headers.set(REQUEST_ID_HEADER, requestId);
     return cspRes;
@@ -67,7 +94,9 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  const res = rewriteUrl
+    ? NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
+    : NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set(REQUEST_ID_HEADER, requestId);
 
   // 开发模式：宽松 CSP（HMR 需要 eval/inline）
