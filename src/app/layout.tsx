@@ -30,6 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
   // 后台路由不读站点设置（避开头/正文重复查询），留默认 SEO
   const settings = await getSiteSettings();
   const lang = await getLang();
+  const base = new URL(process.env.SITE_URL ?? "http://localhost:3000");
 
   const siteName = pickLang(settings.siteName, lang) || FALLBACK_NAME;
   const description =
@@ -44,8 +45,17 @@ export async function generateMetadata(): Promise<Metadata> {
     : FALLBACK_KEYWORDS;
   const keywords = keywordParts.slice(0, 10);
 
+  // hreflang alternates（P1-1 第三步）：无前缀=en(canonical/x-default)，/zh=中文。
+  // 由 proxy 注入 x-pathname（原始路径，保留 /zh 前缀）反推成对 URL。
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const isZhPath = pathname === "/zh" || pathname.startsWith("/zh/");
+  const enPath = isZhPath ? pathname.slice(3) || "/" : pathname;
+  const zhPath = isZhPath ? pathname : `/zh${pathname === "/" ? "" : pathname}`;
+  const enUrl = new URL(enPath, base).toString();
+  const zhUrl = new URL(zhPath, base).toString();
+
   return {
-    metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
+    metadataBase: base,
     icons: {
       icon: "/images/brand/favicon.png",
       apple: "/images/brand/favicon.png",
@@ -56,6 +66,14 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     description,
     keywords,
+    alternates: {
+      canonical: enUrl,
+      languages: {
+        en: enUrl,
+        zh: zhUrl,
+        "x-default": enUrl,
+      },
+    },
     openGraph: {
       type: "website",
       locale: lang === "zh" ? "zh_CN" : "en_US",

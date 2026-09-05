@@ -5,14 +5,32 @@ export const dynamic = "force-dynamic";
 
 const BASE_URL = (process.env.SITE_URL || "http://localhost:3000").replace(/\/$/, "");
 
-/** Commercial SEO: static pages + categories + products */
+/** 语言交替链接：无前缀=英文(canonical/x-default)，/zh=中文（P1-1 方案 B） */
+function hreflang(url: string) {
+  // url 形如 https://site/path 或 https://site/path?query=x —— 取 path 部分拼 /zh 前缀
+  const u = new URL(url);
+  const zhUrl = `${BASE_URL}/zh${u.pathname === "/" ? "" : u.pathname}${u.search}`;
+  return {
+    languages: {
+      en: url,
+      zh: zhUrl,
+      "x-default": url,
+    },
+  };
+}
+
+/** Commercial SEO: static pages + categories + products，带 en/zh hreflang 交替链接 */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const statics: MetadataRoute.Sitemap = ["", "/products"].map((path) => ({
-    url: `${BASE_URL}${path}`,
-    lastModified: new Date(),
-    changeFrequency: path === "" ? ("daily" as const) : ("weekly" as const),
-    priority: path === "" ? 1 : 0.6,
-  }));
+  const statics: MetadataRoute.Sitemap = ["", "/products"].map((path) => {
+    const url = `${BASE_URL}${path}`;
+    return {
+      url,
+      lastModified: new Date(),
+      changeFrequency: path === "" ? ("daily" as const) : ("weekly" as const),
+      priority: path === "" ? 1 : 0.6,
+      alternates: hreflang(url),
+    };
+  });
 
   try {
     const [products, categories] = await Promise.all([
@@ -30,17 +48,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     return [
       ...statics,
-      ...categories.map((c) => ({
-        url: `${BASE_URL}/products?category=${c.slug}`,
-        changeFrequency: "weekly" as const,
-        priority: 0.7,
-      })),
-      ...products.map((p) => ({
-        url: `${BASE_URL}/products/${p.slug}`,
-        lastModified: p.updatedAt,
-        changeFrequency: "daily" as const,
-        priority: 0.8,
-      })),
+      ...categories.map((c) => {
+        const url = `${BASE_URL}/products?category=${c.slug}`;
+        return {
+          url,
+          changeFrequency: "weekly" as const,
+          priority: 0.7,
+          alternates: hreflang(url),
+        };
+      }),
+      ...products.map((p) => {
+        const url = `${BASE_URL}/products/${p.slug}`;
+        return {
+          url,
+          lastModified: p.updatedAt,
+          changeFrequency: "daily" as const,
+          priority: 0.8,
+          alternates: hreflang(url),
+        };
+      }),
     ];
   } catch {
     // DB unavailable at build/runtime — ship statics rather than fail
