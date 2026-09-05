@@ -52,6 +52,22 @@ export async function Footer() {
             {settings.icp ? ` · ${settings.icp}` : null}
           </p>
         </div>
+
+        {/* 客服联系方式 —— 后台「站点设置」contactEmail/contactPhone 直接展示，避免数据孤岛 */}
+        {settings.contactEmail || settings.contactPhone ? (
+          <p className="mt-6 text-xs text-ink-foreground/55">
+            {settings.contactEmail ? (
+              <a
+                href={`mailto:${settings.contactEmail}`}
+                className="transition-opacity hover:opacity-100"
+              >
+                {settings.contactEmail}
+              </a>
+            ) : null}
+            {settings.contactEmail && settings.contactPhone ? <span className="mx-2">·</span> : null}
+            {settings.contactPhone ? <span>{settings.contactPhone}</span> : null}
+          </p>
+        ) : null}
       </div>
     </footer>
   );
