@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { ACCESS_TOKEN_COOKIE, REQUEST_ID_HEADER } from "@/lib/constants";
 import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/auth/csrf";
+import { randomNonce, buildCsp } from "@/lib/server/proxy-helpers";
 
 /**
  * Next 16 Proxy（原 Middleware，已在 16.0 弃用 middleware 并改名为 proxy）：
@@ -47,25 +48,13 @@ export async function proxy(req: NextRequest) {
   requestHeaders.set("x-pathname", pathname);
 
   // ---------- CSP（生产：per-request nonce + strict-dynamic）----------
-  // 开发模式保留宽松策略(HMR 依赖 eval/inline)；生产由中间件按请求签发 nonce，
+  // 开发模式保留宽松策略(HMR 依赖 eval/inline)；生产由 proxy 按请求签发 nonce，
   // Next 检测到请求头 CSP 含 nonce 后会自动写入其自有 bootstrap 脚本。
   const isProd = process.env.NODE_ENV === "production";
   if (isProd && !isPublicPath(pathname)) {
-    const nonce = btoa(crypto.randomUUID());
+    const nonce = randomNonce();
     requestHeaders.set("x-nonce", nonce);
-    const csp = [
-      "default-src 'self'",
-      `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`,
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com https://*.amazonaws.com",
-      "font-src 'self' data:",
-      "connect-src 'self' https://api.stripe.com",
-      "frame-src https://js.stripe.com https://hooks.stripe.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "form-action 'self' https://checkout.stripe.com",
-      "frame-ancestors 'self'",
-    ].join("; ");
+    const csp = buildCsp(nonce, true);
     requestHeaders.set("Content-Security-Policy", csp);
     const cspRes = NextResponse.next({ request: { headers: requestHeaders } });
     cspRes.headers.set("Content-Security-Policy", csp);
@@ -83,21 +72,7 @@ export async function proxy(req: NextRequest) {
 
   // 开发模式：宽松 CSP（HMR 需要 eval/inline）
   if (!isProd) {
-    res.headers.set(
-      "Content-Security-Policy",
-      [
-        "default-src 'self'",
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
-        "style-src 'self' 'unsafe-inline'",
-        "img-src 'self' data: blob: https://picsum.photos https://images.unsplash.com http://localhost:*",
-        "font-src 'self' data:",
-        "connect-src 'self' https://api.stripe.com http://localhost:* ws:",
-        "frame-src https://js.stripe.com https://hooks.stripe.com",
-        "object-src 'none'",
-        "base-uri 'self'",
-        "form-action 'self' https://checkout.stripe.com",
-      ].join("; "),
-    );
+    res.headers.set("Content-Security-Policy", buildCsp("", false));
   }
 
   // ---------- CSRF：变更请求校验 ----------

@@ -110,7 +110,14 @@
 
 ---
 
-### P1-3：调度器多实例分布式锁（多副本部署前必做）
+### P1-3：调度器多实例分布式锁（多副本部署前必做） `[x]` ✅ 已提前完成，无需改动（2026-09-05 核验）
+
+> 核验结论：`src/server/jobs/scheduler.ts` 已用 Postgres 事务级咨询锁
+> `pg_try_advisory_xact_lock(918273645)` 选主（非文档所述"仅 globalThis 守卫"）；
+> `start.ts` 的 `globalThis.__cronStarted` 只防 dev HMR 重复注册。此实现优于本文档
+> 建议的 Redis `SET NX EX`：①不依赖 Redis（REDIS_ENABLED=false 仍安全）②事务结束
+> 锁自动释放、崩溃无残留（Redis 需 TTL 兜底，有提前过期双跑窗口）③对账任务已在锁内，
+> 多实例不重复对账。RUNBOOK-multi-instance.md §二 已记录该语义。故不引入 Redis 锁方案。
 
 - **问题证据**：`src/server/jobs/scheduler.ts` 的 `globalThis` 守卫只防**单进程内**重复；
   多副本部署时每个副本都会执行"订单过期取消 / 掉单对账 / token 清理"——**对账任务重复执行是真实资金/数据风险**。
