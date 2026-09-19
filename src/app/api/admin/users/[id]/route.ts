@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { adminUserUpdateSchema } from "@/lib/validations/admin";
 import { revokeAllUserTokens } from "@/lib/auth/session";
 import { routeParam } from "@/app/api/_lib/params";
+import { sendMail } from "@/lib/mail";
 
 export const runtime = "nodejs";
 
@@ -159,4 +160,72 @@ export const PUT = apiHandler(async (req, ctx) => {
   });
 
   return json({ user: updated });
+});
+
+/**
+ * DELETE /api/admin/users/[id] — 后台删除用户（大爷 2026-09-20 要求）。
+ *
+ * 与「注销申请 → 确认注销」**同语义**的匿名化删除（不物理删行，保住订单/财务外键）：
+ *   - 匿名化前先给原邮箱发 account-deleted 通知（邮箱一旦替换就发不出去）
+ *   - email → deleted-{id}@invalid.local、name → 已注销用户、status=DISABLED、
+ *     emailVerified=false、清空注销申请时间
+ *   - 全端会话即时吊销（revokeAllUserTokens）
+ *
+ * 护栏：
+ *   - 不能删除自己（管理权限自我保护）
+ *   - 不能删除**最后一个可用管理员**（否则后台永久锁死）
+ *   - 已注销账号幂等拒绝（避免重复发信/重复审计）
+ */
+export const DELETE = apiHandler(async (req, ctx) => {
+  const actor = await requireAdmin();
+  const id = routeParam(ctx.params.id);
+
+  if (id === actor.id) throw badRequest("不能删除自己的账号");
+
+  const target = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, name: true, role: true, status: true },
+  });
+  if (!target) throw notFound("用户不存在");
+
+  if (target.email.endsWith("@invalid.local")) {
+    throw badRequest("该账号已注销，无需重复删除");
+  }
+
+  // 最后一个可用管理员保护：删掉就再也没人能进后台
+  if (target.role === "ADMIN") {
+    const activeAdmins = await prisma.user.count({
+      where: { role: "ADMIN", status: "ACTIVE", NOT: { id } },
+    });
+    if (activeAdmins === 0) throw badRequest("不能删除最后一个管理员账号");
+  }
+
+  await sendMail({
+    to: target.email,
+    template: "account-deleted",
+    data: { name: target.name },
+  }).catch(() => undefined);
+
+  await prisma.user.update({
+    where: { id },
+    data: {
+      email: `deleted-${id}@invalid.local`,
+      name: "已注销用户",
+      status: "DISABLED",
+      emailVerified: false,
+      deletionRequestedAt: null,
+    },
+  });
+  await revokeAllUserTokens(id);
+
+  await audit({
+    userId: actor.id,
+    action: "ADMIN_USER_DELETE",
+    entity: "User",
+    entityId: id,
+    meta: { email: target.email, name: target.name, role: target.role },
+    req,
+  });
+
+  return json({ ok: true });
 });

@@ -136,6 +136,32 @@ export default function AdminUsersPage() {
     void load();
   }, [load]);
 
+  /**
+   * 后台直接删除用户（大爷 2026-09-20 要求）。
+   * 与「确认注销」同语义的匿名化删除：个人信息清除、账号停用、全端会话吊销，
+   * 历史订单以匿名形式保留（财务合规）。不可恢复，故二次确认并把后果说清楚。
+   */
+  const deleteUser = async (user: AdminUser) => {
+    if (
+      !window.confirm(
+        `确认删除用户 ${user.email}？\n\n此操作不可恢复：\n· 个人信息将被匿名化清除（邮箱/姓名）\n· 账号停用，全部登录会话立即失效\n· 历史订单以匿名形式保留（财务合规）`,
+      )
+    ) {
+      return;
+    }
+    setUpdatingId(user.id);
+    try {
+      await apiFetch(`/api/admin/users/${user.id}`, { method: "DELETE" });
+      toast.success("用户已删除（匿名化）");
+      setDetailOpen(false);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   /** 处理注销申请：approve=匿名化删除（不可恢复）/ reject=驳回（note 随邮件告知用户） */
   const processDeletion = async (user: AdminUser, action: "approve" | "reject", note?: string) => {
     if (action === "approve") {
@@ -476,6 +502,21 @@ export default function AdminUsersPage() {
                   </div>
                 </section>
               ) : null}
+              {/* 通用删除入口（不论用户有没有提交注销申请都能删；护栏在服务端） */}
+              <section className="space-y-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+                <h3 className="text-sm font-semibold text-destructive">危险操作</h3>
+                <p className="text-xs text-muted-foreground">
+                  删除为匿名化删除（不可恢复）：个人信息清除、账号停用、会话吊销，订单匿名保留。
+                </p>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  disabled={updatingId === detail.id}
+                  onClick={() => void deleteUser(detail)}
+                >
+                  删除用户
+                </Button>
+              </section>
               <section className="space-y-2">
                 <h3 className="text-sm font-semibold">最近订单（{detail.orders?.length ?? 0}）</h3>
                 {detail.orders && detail.orders.length > 0 ? (
