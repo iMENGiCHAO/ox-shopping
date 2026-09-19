@@ -12,10 +12,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
 import { DataTableActions } from "@/components/admin/data-table-actions";
 import { ImageUploader } from "@/components/admin/image-uploader";
-import {
-  collectNodeAndDescendants,
-  flattenCategoryTree,
-} from "@/components/admin/category-utils";
+import { collectNodeAndDescendants, flattenCategoryTree } from "@/components/admin/category-utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -209,8 +206,7 @@ export default function AdminCategoriesPage() {
       cardImage: editing?.cardImage ?? "",
       parentId: editing?.parentId ?? "",
       sortOrder: String(editing?.sortOrder ?? 0),
-      homeSortOrder:
-        editing?.homeSortOrder != null ? String(editing.homeSortOrder) : "",
+      homeSortOrder: editing?.homeSortOrder != null ? String(editing.homeSortOrder) : "",
       isActive: editing?.isActive ?? true,
     });
   }, [formOpen, editing, form]);
@@ -335,11 +331,7 @@ export default function AdminCategoriesPage() {
             <TableCell className="w-12">
               {node.image ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={node.image}
-                  alt={node.name}
-                  className="h-8 w-8 rounded object-cover"
-                />
+                <img src={node.image} alt={node.name} className="h-8 w-8 rounded object-cover" />
               ) : (
                 <div className="flex h-8 w-8 items-center justify-center rounded bg-muted text-muted-foreground">
                   <FolderTree className="h-4 w-4" />
@@ -347,10 +339,7 @@ export default function AdminCategoriesPage() {
               )}
             </TableCell>
             <TableCell className="min-w-0">
-              <div
-                className="flex items-center gap-1"
-                style={{ paddingLeft: depth * 24 }}
-              >
+              <div className="flex items-center gap-1" style={{ paddingLeft: depth * 24 }}>
                 {hasChildren ? (
                   <button
                     type="button"
@@ -385,11 +374,7 @@ export default function AdminCategoriesPage() {
               </div>
             </TableCell>
             <TableCell className="w-[160px]">
-              <CellText
-                value={node.slug}
-                className="font-mono text-xs"
-                title={node.slug}
-              />
+              <CellText value={node.slug} className="font-mono text-xs" title={node.slug} />
             </TableCell>
             <TableCell className="w-[140px]">
               <CellText
@@ -619,8 +604,12 @@ export default function AdminCategoriesPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="cat-home-sort">
-                  {t("Home banner order")}（1=左，2=右；留空不上首页）
+                {/* 标签保持**一行**，括号说明下沉为输入框下方小字：
+                    此前把「（1=左，2=右；留空不上首页）」写进 Label，标签折成两行，
+                    把本列输入框整体压低，与右侧「启用」列（items-end 对齐输入框底）
+                    错位，大爷反馈弹窗“变形”。 */}
+                <Label htmlFor="cat-home-sort" className="block truncate">
+                  {t("Home banner order")}
                 </Label>
                 <Input
                   id="cat-home-sort"
@@ -628,6 +617,7 @@ export default function AdminCategoriesPage() {
                   placeholder="—"
                   {...form.register("homeSortOrder")}
                 />
+                <p className="text-xs text-muted-foreground">1=左，2=右；留空不上首页</p>
                 {form.formState.errors.homeSortOrder ? (
                   <p className="text-xs text-destructive">
                     {form.formState.errors.homeSortOrder.message}
@@ -649,9 +639,7 @@ export default function AdminCategoriesPage() {
               <Label htmlFor="cat-image">分类图片（可选，可上传或粘贴 URL）</Label>
               <ImageUploader
                 value={form.watch("image") ? [form.watch("image")!] : []}
-                onChange={(urls) =>
-                  form.setValue("image", urls[0] ?? "", { shouldValidate: true })
-                }
+                onChange={(urls) => form.setValue("image", urls[0] ?? "", { shouldValidate: true })}
                 max={1}
               />
               <Input id="cat-image" placeholder="https://..." {...form.register("image")} />
@@ -660,7 +648,9 @@ export default function AdminCategoriesPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-card">集合卡片图（`/collections` 列表用；留空则回落到上方图片）</Label>
+              <Label htmlFor="cat-card">
+                集合卡片图（`/collections` 列表用；留空则回落到上方图片）
+              </Label>
               <ImageUploader
                 value={form.watch("cardImage") ? [form.watch("cardImage")!] : []}
                 onChange={(urls) =>
@@ -670,11 +660,15 @@ export default function AdminCategoriesPage() {
               />
               <Input id="cat-card" placeholder="https://..." {...form.register("cardImage")} />
               {form.formState.errors.cardImage ? (
-                <p className="text-xs text-destructive">{form.formState.errors.cardImage.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.cardImage.message}
+                </p>
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="cat-banner">大横幅（分类落地页顶部全宽图；前两个分类也用作首页横幅）</Label>
+              <Label htmlFor="cat-banner">
+                大横幅（分类落地页顶部全宽图；前两个分类也用作首页横幅）
+              </Label>
               <ImageUploader
                 value={form.watch("bannerImage") ? [form.watch("bannerImage")!] : []}
                 onChange={(urls) =>
@@ -684,7 +678,9 @@ export default function AdminCategoriesPage() {
               />
               <Input id="cat-banner" placeholder="https://..." {...form.register("bannerImage")} />
               {form.formState.errors.bannerImage ? (
-                <p className="text-xs text-destructive">{form.formState.errors.bannerImage.message}</p>
+                <p className="text-xs text-destructive">
+                  {form.formState.errors.bannerImage.message}
+                </p>
               ) : null}
             </div>
             <div className="space-y-2">
