@@ -588,7 +588,9 @@ export default function AdminCategoriesPage() {
                 <p className="text-xs text-destructive">{form.formState.errors.parentId.message}</p>
               ) : null}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
+            {/* 三字段同排：2 列时「启用」会被挤到第二行（大爷反馈错位）。
+                三列各自「标签 + 48px 控件」结构一致，方块自然对齐。 */}
+            <div className="grid gap-4 sm:grid-cols-3">
               <div className="space-y-2">
                 <Label htmlFor="cat-sort">{t("Sort")}</Label>
                 <Input
@@ -604,13 +606,10 @@ export default function AdminCategoriesPage() {
                 ) : null}
               </div>
               <div className="space-y-2">
-                {/* 标签保持**一行**，括号说明下沉为输入框下方小字：
-                    此前把「（1=左，2=右；留空不上首页）」写进 Label，标签折成两行，
-                    把本列输入框整体压低，与右侧「启用」列（items-end 对齐输入框底）
-                    错位，大爷反馈弹窗“变形”。 */}
-                <Label htmlFor="cat-home-sort" className="block truncate">
-                  {t("Home banner order")}
-                </Label>
+                {/* 标签只留字段名（括号说明下沉到输入框下方）：
+                    写进 Label 会折成两行；而加 truncate 又会让标签高度与同排标签不一致
+                    （14px vs 17px），把本列输入框顶高 10px —— 两种写法都错位，故用默认样式。 */}
+                <Label htmlFor="cat-home-sort">{t("Home banner order")}</Label>
                 <Input
                   id="cat-home-sort"
                   type="number"
@@ -624,15 +623,16 @@ export default function AdminCategoriesPage() {
                   </p>
                 ) : null}
               </div>
-              <div className="flex items-end gap-2 pb-2">
-                <Label htmlFor="cat-active" className="shrink-0">
-                  启用
-                </Label>
-                <Switch
-                  id="cat-active"
-                  checked={form.watch("isActive")}
-                  onCheckedChange={(v) => form.setValue("isActive", v)}
-                />
+              <div className="space-y-2">
+                <Label htmlFor="cat-active">启用</Label>
+                {/* 与 Input 同高（48px），使三列控件底边严格对齐 */}
+                <div className="flex h-12 items-center">
+                  <Switch
+                    id="cat-active"
+                    checked={form.watch("isActive")}
+                    onCheckedChange={(v) => form.setValue("isActive", v)}
+                  />
+                </div>
               </div>
             </div>
             <div className="space-y-2">
