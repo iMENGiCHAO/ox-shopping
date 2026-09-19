@@ -638,6 +638,7 @@ export default function AdminCategoriesPage() {
             <div className="space-y-2">
               <Label htmlFor="cat-image">分类图片（可选，可上传或粘贴 URL）</Label>
               <ImageUploader
+                purpose="categories"
                 value={form.watch("image") ? [form.watch("image")!] : []}
                 onChange={(urls) => form.setValue("image", urls[0] ?? "", { shouldValidate: true })}
                 max={1}
@@ -652,6 +653,7 @@ export default function AdminCategoriesPage() {
                 集合卡片图（`/collections` 列表用；留空则回落到上方图片）
               </Label>
               <ImageUploader
+                purpose="categories"
                 value={form.watch("cardImage") ? [form.watch("cardImage")!] : []}
                 onChange={(urls) =>
                   form.setValue("cardImage", urls[0] ?? "", { shouldValidate: true })
@@ -670,6 +672,7 @@ export default function AdminCategoriesPage() {
                 大横幅（分类落地页顶部全宽图；前两个分类也用作首页横幅）
               </Label>
               <ImageUploader
+                purpose="categories"
                 value={form.watch("bannerImage") ? [form.watch("bannerImage")!] : []}
                 onChange={(urls) =>
                   form.setValue("bannerImage", urls[0] ?? "", { shouldValidate: true })

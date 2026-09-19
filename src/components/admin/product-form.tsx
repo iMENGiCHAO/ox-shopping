@@ -159,7 +159,8 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           name: a.name,
           values: a.values.join("，"),
           // 与店面 parseAttributes 口径一致：未显式标注时多值组默认可选
-          selectable: a.selectable === true ? true : a.selectable === false ? false : a.values.length > 1,
+          selectable:
+            a.selectable === true ? true : a.selectable === false ? false : a.values.length > 1,
         })) ?? [],
     },
   });
@@ -175,7 +176,10 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       (attrWatch ?? [])
         .map((a) => ({
           name: a.name.trim(),
-          values: a.values.split(/[,，、]/).map((v) => v.trim()).filter(Boolean),
+          values: a.values
+            .split(/[,，、]/)
+            .map((v) => v.trim())
+            .filter(Boolean),
           selectable: a.selectable,
         }))
         .filter((a) => a.selectable && a.name && a.values.length > 0),
@@ -207,9 +211,14 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       for (const oldKey of orphans) {
         // 在 next 里找一个未匹配的同前缀组名（启发式：startsWith），尽量自动迁移
         const candidate = selectableGroups.find(
-          (g) => g.name !== oldKey && g.name.toLowerCase().includes(oldKey.toLowerCase().slice(0, 3)),
+          (g) =>
+            g.name !== oldKey && g.name.toLowerCase().includes(oldKey.toLowerCase().slice(0, 3)),
         );
-        if (candidate && next[candidate.name] && Object.keys(next[candidate.name] ?? {}).length === 0) {
+        if (
+          candidate &&
+          next[candidate.name] &&
+          Object.keys(next[candidate.name] ?? {}).length === 0
+        ) {
           next[candidate.name] = { ...prev[oldKey]! };
         } else {
           // 找不到匹配的新组：保留为孤儿键，最终不写入 payload（用户可手动复制）
@@ -241,21 +250,29 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       for (const g of selectableGroups) {
         const entries = Object.entries(specMaps[g.name] ?? {}).filter(([, v]) => v !== "");
         if (entries.length > 0)
-          out[g.name] = Object.fromEntries(entries.map(([k, v]) => [k, Math.max(0, Number(v) || 0)]));
+          out[g.name] = Object.fromEntries(
+            entries.map(([k, v]) => [k, Math.max(0, Number(v) || 0)]),
+          );
       }
       return Object.keys(out).length > 0 ? out : null;
     })();
     // 一致性规则：整件库存 = min(各组规格之和)。任一维度的池都是可售上限，
     // 取最小值保证 Color×Size 任选组合都不会超卖（与下单扣减口径一致）。
     const summedStock = specStock
-      ? Math.min(...Object.values(specStock).map((m) => Object.values(m).reduce((a, b) => a + b, 0)))
+      ? Math.min(
+          ...Object.values(specStock).map((m) => Object.values(m).reduce((a, b) => a + b, 0)),
+        )
       : null;
-    const chartClean = {
-      headers: chart.headers.map((h) => h.trim()).filter(Boolean),
-      rows: chart.rows.map((r) => r.map((c) => c.trim())),
-    }.rows.length > 0 && chart.headers.filter(Boolean).length >= 2
-      ? { headers: chart.headers.map((h) => h.trim()).filter(Boolean), rows: chart.rows.map((r) => r.map((c) => c.trim())) }
-      : null;
+    const chartClean =
+      {
+        headers: chart.headers.map((h) => h.trim()).filter(Boolean),
+        rows: chart.rows.map((r) => r.map((c) => c.trim())),
+      }.rows.length > 0 && chart.headers.filter(Boolean).length >= 2
+        ? {
+            headers: chart.headers.map((h) => h.trim()).filter(Boolean),
+            rows: chart.rows.map((r) => r.map((c) => c.trim())),
+          }
+        : null;
     const payload: ProductFormPayload = {
       name: values.name,
       nameEn: values.nameEn?.trim() || null,
@@ -384,13 +401,19 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
 
         <div className="flex items-center justify-between space-y-0.5 rounded-lg border border-border px-3 py-2.5 sm:col-span-2">
           <div>
-            <Label htmlFor="pf-presale" className="cursor-pointer">预售商品（Pre-order）</Label>
-            <p className="text-xs text-muted-foreground">开启后即使库存为 0 仍可下单，前台显示「预售」标签</p>
+            <Label htmlFor="pf-presale" className="cursor-pointer">
+              预售商品（Pre-order）
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              开启后即使库存为 0 仍可下单，前台显示「预售」标签
+            </p>
           </div>
           <Switch
             id="pf-presale"
             checked={form.watch("isPresale")}
-            onCheckedChange={(checked) => form.setValue("isPresale", checked, { shouldDirty: true })}
+            onCheckedChange={(checked) =>
+              form.setValue("isPresale", checked, { shouldDirty: true })
+            }
           />
         </div>
 
@@ -407,9 +430,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
               maxLength={200}
               {...form.register("presaleNoteZh")}
             />
-            <p className="text-xs text-muted-foreground">
-              选 CNY 货币或中文语言时显示
-            </p>
+            <p className="text-xs text-muted-foreground">选 CNY 货币或中文语言时显示</p>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="pf-presale-en">预售提示（英文）</Label>
@@ -420,16 +441,16 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
               maxLength={200}
               {...form.register("presaleNoteEn")}
             />
-            <p className="text-xs text-muted-foreground">
-              在非 CNY 货币或英文语言环境下显示
-            </p>
+            <p className="text-xs text-muted-foreground">在非 CNY 货币或英文语言环境下显示</p>
           </div>
         </div>
 
         <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
           <div className="flex items-center justify-between space-y-0.5 rounded-lg border border-border px-3 py-2.5">
             <div>
-              <Label htmlFor="pf-isnew" className="cursor-pointer">新品上市（New）</Label>
+              <Label htmlFor="pf-isnew" className="cursor-pointer">
+                新品上市（New）
+              </Label>
               <p className="text-xs text-muted-foreground">前台商品卡与详情页显示「New」徽标</p>
             </div>
             <Switch
@@ -440,7 +461,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           </div>
           <div className="flex items-center justify-between space-y-0.5 rounded-lg border border-border px-3 py-2.5">
             <div>
-              <Label htmlFor="pf-ishot" className="cursor-pointer">热卖（Hot）</Label>
+              <Label htmlFor="pf-ishot" className="cursor-pointer">
+                热卖（Hot）
+              </Label>
               <p className="text-xs text-muted-foreground">前台商品卡与详情页显示「Hot」徽标</p>
             </div>
             <Switch
@@ -474,7 +497,10 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                         value={specMaps[g.name]?.[v] ?? ""}
                         onChange={(e) => {
                           const val = e.target.value.replace(/[^0-9]/g, "");
-                          setSpecMaps((prev) => ({ ...prev, [g.name]: { ...(prev[g.name] ?? {}), [v]: val } }));
+                          setSpecMaps((prev) => ({
+                            ...prev,
+                            [g.name]: { ...(prev[g.name] ?? {}), [v]: val },
+                          }));
                           // 实时联动：总库存 = min(各组之和)
                           const draft = structuredClone(specMaps);
                           draft[g.name] = { ...(draft[g.name] ?? {}), [v]: val };
@@ -488,7 +514,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                             .filter((g2) => g2.tracked)
                             .map((g2) => g2.sum);
                           if (sums.length > 0)
-                            form.setValue("stock", String(Math.min(...sums)), { shouldDirty: true });
+                            form.setValue("stock", String(Math.min(...sums)), {
+                              shouldDirty: true,
+                            });
                         }}
                       />
                       <p className="text-center text-[11px] text-muted-foreground">{v}</p>
@@ -505,14 +533,18 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           <div className="flex items-center justify-between">
             <div>
               <Label>产品参数对照表（Size Chart）</Label>
-              <p className="text-xs text-muted-foreground">填写后前台商品大图下方显示可折叠参数表明细；留空则不显示</p>
+              <p className="text-xs text-muted-foreground">
+                填写后前台商品大图下方显示可折叠参数表明细；留空则不显示
+              </p>
             </div>
             <div className="flex gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setChart((c) => ({ ...c, rows: [...c.rows, c.headers.map(() => "")] }))}
+                onClick={() =>
+                  setChart((c) => ({ ...c, rows: [...c.rows, c.headers.map(() => "")] }))
+                }
               >
                 添加行
               </Button>
@@ -520,11 +552,21 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setChart((c) => ({ headers: [...c.headers, ""], rows: c.rows.map((r) => [...r, ""]) }))}
+                onClick={() =>
+                  setChart((c) => ({
+                    headers: [...c.headers, ""],
+                    rows: c.rows.map((r) => [...r, ""]),
+                  }))
+                }
               >
                 添加列
               </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setChart({ headers: ["尺码"], rows: [] })}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setChart({ headers: ["尺码"], rows: [] })}
+              >
                 清空
               </Button>
             </div>
@@ -555,7 +597,10 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                       className="text-destructive"
                       disabled={chart.headers.length <= 2}
                       onClick={() =>
-                        setChart((c) => ({ headers: c.headers.slice(0, -1), rows: c.rows.map((r) => r.slice(0, -1)) }))
+                        setChart((c) => ({
+                          headers: c.headers.slice(0, -1),
+                          rows: c.rows.map((r) => r.slice(0, -1)),
+                        }))
                       }
                     >
                       −
@@ -571,7 +616,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                           onChange={(e) =>
                             setChart((c) => ({
                               ...c,
-                              rows: c.rows.map((r, i) => (i === ri ? r.map((x, j) => (j === ci ? e.target.value : x)) : r)),
+                              rows: c.rows.map((r, i) =>
+                                i === ri ? r.map((x, j) => (j === ci ? e.target.value : x)) : r,
+                              ),
                             }))
                           }
                         />
@@ -583,7 +630,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                         variant="ghost"
                         size="sm"
                         className="text-destructive"
-                        onClick={() => setChart((c) => ({ ...c, rows: c.rows.filter((_, i) => i !== ri) }))}
+                        onClick={() =>
+                          setChart((c) => ({ ...c, rows: c.rows.filter((_, i) => i !== ri) }))
+                        }
                       >
                         ×
                       </Button>
@@ -651,6 +700,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         <div className="space-y-2 sm:col-span-2">
           <Label>{t("Product images")}</Label>
           <ImageUploader
+            purpose="products"
             value={form.watch("images")}
             onChange={(urls) => form.setValue("images", urls, { shouldValidate: true })}
           />
@@ -695,9 +745,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             </div>
           ))}
           {form.formState.errors.attributes ? (
-            <p className="text-xs text-destructive">
-              {form.formState.errors.attributes.message}
-            </p>
+            <p className="text-xs text-destructive">{form.formState.errors.attributes.message}</p>
           ) : null}
           <Button
             type="button"

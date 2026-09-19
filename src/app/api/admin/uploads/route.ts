@@ -1,7 +1,12 @@
 import { apiHandler, json } from "@/lib/api";
 import { badRequest } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
-import { effectiveStorageDriver, saveUpload, validateUpload } from "@/lib/storage";
+import {
+  effectiveStorageDriver,
+  normalizeUploadPurpose,
+  saveUpload,
+  validateUpload,
+} from "@/lib/storage";
 import { audit } from "@/lib/audit";
 
 export const runtime = "nodejs";
@@ -19,14 +24,16 @@ export const POST = apiHandler(async (req) => {
   if (!validation.ok) throw badRequest(validation.error ?? "文件不合法");
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const { url, key } = await saveUpload(buffer, file.name, file.type);
+  // 用途决定归档子目录（categories/products/brand/misc），未知值归 misc
+  const purpose = normalizeUploadPurpose(form.get("purpose"));
+  const { url, key } = await saveUpload(buffer, file.name, file.type, purpose);
 
   await audit({
     userId: actor.id,
     action: "UPLOAD",
     entity: "Upload",
     entityId: key,
-    meta: { url, size: file.size },
+    meta: { url, size: file.size, purpose },
     req,
   });
   return json({ url, key });

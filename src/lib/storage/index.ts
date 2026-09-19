@@ -54,10 +54,25 @@ export function validateUpload(file: { type: string; size: number }): UploadVali
   return { ok: true };
 }
 
-function objectKey(originalName: string): string {
+/**
+ * 上传用途 → 存储子目录（大爷 2026-09-20：图片要按用途有序归档，
+ * 不要所有图混在同一个位置）。落盘形如 `uploads/categories/2026/09/xxx.jpg`，
+ * S3 模式的 Key 同规则，本地/云两侧目录结构一致。
+ */
+export const UPLOAD_PURPOSES = ["categories", "products", "brand", "misc"] as const;
+export type UploadPurpose = (typeof UPLOAD_PURPOSES)[number];
+
+/** 把外部传入的 purpose 收敛到白名单（未知值一律归 misc，避免路径注入/目录爆炸） */
+export function normalizeUploadPurpose(value: unknown): UploadPurpose {
+  return typeof value === "string" && (UPLOAD_PURPOSES as readonly string[]).includes(value)
+    ? (value as UploadPurpose)
+    : "misc";
+}
+
+function objectKey(originalName: string, purpose: UploadPurpose = "misc"): string {
   const d = new Date();
   const ym = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`;
-  return `uploads/${ym}/${randomFilename(originalName)}`;
+  return `uploads/${purpose}/${ym}/${randomFilename(originalName)}`;
 }
 
 function publicUrlFor(key: string): string {
@@ -82,11 +97,12 @@ function localPathFor(key: string): string {
 export async function getPresignedUpload(
   originalName: string,
   mime: string,
+  purpose: UploadPurpose = "misc",
 ): Promise<{ url: string; key: string } | null> {
   if (effectiveStorageDriver !== "s3") return null;
   const s3 = getS3();
   if (!s3) return null;
-  const key = objectKey(originalName);
+  const key = objectKey(originalName, purpose);
   const command = new PutObjectCommand({
     Bucket: env.S3_BUCKET,
     Key: key,
@@ -101,8 +117,9 @@ export async function saveUpload(
   buffer: Buffer,
   originalName: string,
   mime: string,
+  purpose: UploadPurpose = "misc",
 ): Promise<{ url: string; key: string }> {
-  const key = objectKey(originalName);
+  const key = objectKey(originalName, purpose);
 
   if (effectiveStorageDriver === "s3") {
     const s3 = getS3();

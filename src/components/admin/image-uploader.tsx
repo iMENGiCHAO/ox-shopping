@@ -23,9 +23,17 @@ export interface ImageUploaderProps {
   /** max number of images allowed, default 10 */
   max?: number;
   className?: string;
+  /** 上传用途：决定服务器归档子目录（categories/products/brand/misc），默认 misc */
+  purpose?: "categories" | "products" | "brand" | "misc";
 }
 
-export function ImageUploader({ value, onChange, max = 10, className }: ImageUploaderProps) {
+export function ImageUploader({
+  value,
+  onChange,
+  max = 10,
+  className,
+  purpose = "misc",
+}: ImageUploaderProps) {
   const t = useT();
 
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -63,7 +71,11 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
     try {
       const res = await apiFetch<AdminUploadPresignResult>("/api/admin/uploads/presign", {
         method: "POST",
-        body: JSON.stringify({ filename: file.name, mime: file.type || "image/jpeg" }),
+        body: JSON.stringify({
+          filename: file.name,
+          mime: file.type || "image/jpeg",
+          purpose,
+        }),
       });
       if (!res.url) throw new Error("Presign 响应缺少 url");
       // Presigned URLs are sensitive to extra headers — use raw fetch
@@ -83,6 +95,7 @@ export function ImageUploader({ value, onChange, max = 10, className }: ImageUpl
     // 2) Local storage: direct FormData upload
     const form = new FormData();
     form.append("file", file);
+    form.append("purpose", purpose);
     const res = await apiFetch<AdminUploadResult>("/api/admin/uploads", {
       method: "POST",
       body: form,

@@ -54,6 +54,7 @@ export function BrandLogoCard({
       <div className="space-y-2">
         <Label>{t("Brand logo (transparent PNG recommended, ~3:1)")}</Label>
         <ImageUploader
+          purpose="brand"
           value={url ? [url] : []}
           onChange={(urls) => setUrl(urls[0] ?? "")}
           max={1}
@@ -70,7 +71,11 @@ export function BrandLogoCard({
         <div className="flex items-center rounded-md border border-border bg-background px-3 py-2">
           {url ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt="logo 亮色背景预览" className="h-[40px] w-auto max-w-[200px] object-contain" />
+            <img
+              src={url}
+              alt="logo 亮色背景预览"
+              className="h-[40px] w-auto max-w-[200px] object-contain"
+            />
           ) : (
             <span className="text-xs text-muted-foreground">{t("(default X logo)")}</span>
           )}
@@ -81,10 +86,12 @@ export function BrandLogoCard({
             <img
               src={url}
               alt="logo 暗色背景预览"
-              className={`h-[40px] w-auto max-w-[200px] object-contain${darkArtwork ? " invert" : ""}`}
+              className={`h-[40px] w-auto max-w-[200px] object-contain${darkArtwork ? "invert" : ""}`}
               title={
                 darkArtwork
-                  ? t("Dark artwork detected — auto-inverted on the dark header, same as storefront")
+                  ? t(
+                      "Dark artwork detected — auto-inverted on the dark header, same as storefront",
+                    )
                   : undefined
               }
             />
