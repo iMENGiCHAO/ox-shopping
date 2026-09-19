@@ -11,11 +11,12 @@ import { pickName, localizePath } from "@/lib/shop-i18n";
  * 商品卡角标。原站（2026-09-19 复核）**只有 `Sold out` 一种**，
  * 深色底白字；`Pre-order` / `Sale` / `New` / `Hot` 均不存在，故不再保留分支。
  */
-function SoldOutBadge({ label }: { label: string }) {
+function CardBadge({ label }: { label: string }) {
   return (
     /* 原站实测（2026-09-20 Playwright 取 .badge--sold-out 计算样式）：
        背景 rgb(239,239,239) 浅灰、文字 rgba(0,0,0,.65)、11px、padding 1px 5px。
-       此前用黑底白字（bg-black/80 text-white），大爷指正与原站不符。 */
+       此前用黑底白字（bg-black/80 text-white），大爷指正与原站不符。
+       售罄与预售共用同款克制样式，只有文案不同。 */
     <span className="bg-[#efefef] px-[5px] py-[1px] text-[11px] uppercase leading-[18px] tracking-normal text-black/65">
       {label}
     </span>
@@ -75,7 +76,10 @@ export async function ProductCard({ product, priority, className }: ProductCardP
      原先的 `Pre-order` / `Sale` / `New` / `Hot` 角标均为本地自创（原站无），
      已移除；`isPresale` / `isNew` / `isHot` 字段本身保留（PDP、结账页仍会用到）。
      若日后确需恢复，注意它们会立刻破坏与原站的视觉一致性。 */
-  const badgeLabel = outOfStock ? t("Sold out") : null;
+  /* 角标优先级（大爷 2026-09-20 指正，业务逻辑优先）：
+     开启预售 → 显示「预售」；**不再显示售罄**（预售品本就未发售/无现货，
+     标售罄会误导用户以为买不到）。未开预售且无库存 → 才显示「售罄」。 */
+  const badgeLabel = product.isPresale ? t("Pre-order") : outOfStock ? t("Sold out") : null;
 
   return (
     <Link
@@ -108,7 +112,7 @@ export async function ProductCard({ product, priority, className }: ProductCardP
         {/* 商品角标：原站仅售罄一种 */}
         {badgeLabel && (
           <div className="absolute left-2 top-2 z-10">
-            <SoldOutBadge label={badgeLabel} />
+            <CardBadge label={badgeLabel} />
           </div>
         )}
       </div>
