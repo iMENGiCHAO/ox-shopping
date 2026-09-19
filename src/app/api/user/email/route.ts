@@ -29,12 +29,12 @@ export const PUT = apiHandler(async (req) => {
   if (!full) throw unauthorized();
 
   const ok = await verifyPassword(input.currentPassword, full.passwordHash);
-  if (!ok) throw badRequest("当前密码不正确");
+  if (!ok) throw badRequest("Current password is incorrect");
 
-  if (input.newEmail === full.email) throw badRequest("新邮箱与当前邮箱相同");
+  if (input.newEmail === full.email) throw badRequest("The new email is the same as your current email");
 
   const taken = await prisma.user.findUnique({ where: { email: input.newEmail } });
-  if (taken) throw conflict("该邮箱已被其他账号使用");
+  if (taken) throw conflict("This email is already used by another account");
 
   const updated = await prisma.user.update({
     where: { id: user.id },

@@ -9,8 +9,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useCurrency } from "@/components/shop/currency-provider";
 import { useCart } from "@/components/shop/cart-provider";
 import { QuantityInput } from "@/components/shop/quantity-input";
-import { formatSpecs } from "@/components/shop/types";
+import { formatSpecValues } from "@/components/shop/types";
 import { useT, useShopLang } from "@/components/shop/lang-provider";
+import { punct } from "@/lib/shop-i18n";
 import { apiFetch } from "@/lib/fetch-client";
 
 interface ShippingMethodLite {
@@ -91,17 +92,19 @@ export default function CartPage() {
     );
   }
 
-  /* ── 空态 ── */
+  /* ── 空态 ──
+     垂直节奏取自原站实测：标题字形 y=336、副标题 y=383、按钮 y=434（1200 视口）。
+     间距用 --cart-empty-* 令牌，见 globals.css。 */
   if (items.length === 0) {
     return (
-      <div className="flex flex-col items-center pb-[250px] pt-[314px] text-center">
-        <h1 className="text-[18px] font-normal text-foreground" style={{ lineHeight: 1.6 }}>
-          {t("Cart")}
-        </h1>
-        <p className="mt-4 text-[15px] font-normal text-foreground">{t("Your cart is empty")}</p>
+      <div className="flex flex-col items-center pb-[var(--cart-empty-pb)] pt-[var(--cart-empty-pt)] text-center">
+        <h1 className="text-[18px] font-normal leading-[1.6] text-foreground">{t("Cart")}</h1>
+        <p className="mt-[var(--cart-empty-gap-1)] text-[15px] font-normal text-foreground">
+          {t("Your cart is empty")}
+        </p>
         <Link
           href="/products"
-          className="mt-7 inline-flex h-[46px] items-center bg-primary px-[26px] text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
+          className="mt-[var(--cart-empty-gap-2)] inline-flex h-[46px] items-center bg-primary px-[var(--cart-btn-pad-x)] text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
         >
           {t("Continue shopping")}
         </Link>
@@ -162,20 +165,17 @@ export default function CartPage() {
                   {/* 库存 / 预购 状态徽章 */}
                   {item.stock <= 0 && !item.isPresale ? (
                     <p className="mt-1 inline-block rounded bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
-                      {lang === "zh" ? "缺货" : "Out of stock"}
+                      {t("Out of stock")}
                     </p>
                   ) : item.isPresale ? (
                     <p className="mt-1 inline-block rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
-                      {lang === "zh" ? "预售" : "Pre-order"}
+                      {t("Pre-order")}
                     </p>
                   ) : null}
-                  {formatSpecs(item.attributes) ? (
+                  {formatSpecValues(item.attributes) ? (
                     <p className="mt-1 text-[13px] uppercase text-foreground/70">
                       {/* 官方仅显示变体值（如 WHITE），不带选项名前缀 */}
-                      {formatSpecs(item.attributes)
-                        .split(" / ")
-                        .map((pair) => pair.split("：").pop()?.trim() ?? "")
-                        .join(" / ")}
+                      {formatSpecValues(item.attributes)}
                     </p>
                   ) : null}
                   {/* Remove — 移动端显示在信息下方；桌面端在数量列下 */}
@@ -228,18 +228,14 @@ export default function CartPage() {
         {hasOutOfStock ? (
           <div className="mt-6 rounded-md border border-destructive/40 bg-destructive/[0.06] p-3 text-sm text-foreground">
             <p className="font-medium text-destructive">
-              {lang === "zh"
-                ? "⚠️ 购物车中有缺货商品，请删除后再结账"
-                : "⚠️ Some items are out of stock. Please remove them before checkout."}
+              {t("Some items are out of stock. Please remove them before checkout.")}
             </p>
           </div>
         ) : null}
         {hasPresale ? (
           <div className="mt-3 rounded-md border border-warning/40 bg-warning/[0.06] p-3 text-sm text-foreground">
             <p className="text-warning-foreground">
-              {lang === "zh"
-                ? "🕐 购物车中有预售商品，发货时间会延后到货时再发出"
-                : "🕐 Your cart contains pre-order items. They will ship once back in stock."}
+              {t("Your cart contains pre-order items. They will ship once back in stock.")}
             </p>
           </div>
         ) : null}
@@ -249,7 +245,8 @@ export default function CartPage() {
           <div className="mt-8 flex flex-col items-end gap-2 border-t pt-6">
             <p className="flex items-center gap-2 text-[12px] text-foreground/70">
               <Truck className="h-3.5 w-3.5" />
-              {lang === "zh" ? "预计运费" : "Estimated shipping"}：
+              {t("Estimated shipping")}
+              {punct(lang).colon}
             </p>
             <select
               value={selectedMethodCode}
@@ -262,8 +259,8 @@ export default function CartPage() {
                 return (
                   <option key={m.id} value={m.code}>
                     {label}
-                    {eta ? `（${eta}）` : ""}
-                    {m.isCashOnDelivery ? " · 货到付款" : ""}
+                    {eta ? punct(lang).parens(eta) : ""}
+                    {m.isCashOnDelivery ? ` · ${t("Cash on Delivery")}` : ""}
                   </option>
                 );
               })}
@@ -271,36 +268,24 @@ export default function CartPage() {
             <p className="text-[13px] text-foreground/70">
               {isCOD ? (
                 <span className="text-warning">
-                  {lang === "zh"
-                    ? `货到付款，到付 ${format(selectedMethod?.fee ?? 0)}`
-                    : `Pay on delivery: ${format(selectedMethod?.fee ?? 0)}`}
+                  {t("Pay on delivery:")} {format(selectedMethod?.fee ?? 0)}
                 </span>
               ) : freeShipping ? (
                 <span className="text-success">
-                  {lang === "zh" ? "已享免邮" : "Free shipping unlocked"}
+                  {t("Free shipping unlocked")}
                 </span>
               ) : shippingFee > 0 ? (
                 <>
                   {format(shippingFee)}{" "}
                   <span className="text-foreground/50">
-                    ({lang === "zh" ? "订单确认时计算" : "calculated at checkout"})
+                    ({t("calculated at checkout")})
                   </span>
                 </>
               ) : null}
             </p>
             {toFreeShipping > 0 ? (
               <p className="text-[12px] text-foreground/65">
-                {lang === "zh" ? (
-                  <>
-                    再凑 <span className="font-bold text-primary">{format(toFreeShipping)}</span>{" "}
-                    即可享免邮
-                  </>
-                ) : (
-                  <>
-                    Spend <span className="font-bold text-primary">{format(toFreeShipping)}</span>{" "}
-                    more for free shipping
-                  </>
-                )}
+                {t("Spend {amount} more for free shipping", { amount: format(toFreeShipping) })}
               </p>
             ) : null}
           </div>
@@ -324,11 +309,7 @@ export default function CartPage() {
             onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
               if (hasOutOfStock) {
                 e.preventDefault();
-                toast.error(
-                  lang === "zh"
-                    ? "请先删除缺货商品"
-                    : "Please remove out-of-stock items first",
-                );
+                toast.error(t("Please remove out-of-stock items first"));
               }
             }}
           >

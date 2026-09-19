@@ -1,8 +1,14 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { detectLang, ERROR_COPY, type Lang } from "@/lib/error-copy";
+
 /**
- * 根级错误边界（global-error）——当根布局本身崩溃时启用，
- * 必须自带 <html>/<body>。普通页面错误由 app/error.tsx 处理。
+ * 根级错误边界（global-error）—— 当根布局本身崩溃时启用，必须自带 <html>/<body>。
+ * 普通页面错误由 app/error.tsx 处理。
+ *
+ * 这里不能依赖任何 Provider / 全局样式表，故用内联样式；
+ * 文案按 shop-lang cookie / 浏览器语言切换，不再写死单一语言。
  */
 export default function GlobalError({
   error,
@@ -11,8 +17,12 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const [lang, setLang] = useState<Lang>("en");
+  useEffect(() => setLang(detectLang()), []);
+  const c = ERROR_COPY[lang];
+
   return (
-    <html lang="en">
+    <html lang={lang}>
       <body
         style={{
           margin: 0,
@@ -28,10 +38,14 @@ export default function GlobalError({
         }}
       >
         <div>
-          <h1 style={{ fontSize: 18, fontWeight: 500 }}>Something went wrong</h1>
-          <p style={{ marginTop: 12, fontSize: 14, opacity: 0.7 }}>
-            We&apos;re fixing it. Please try again in a moment.
-          </p>
+          <h1 style={{ fontSize: 18, fontWeight: 500 }}>{c.title}</h1>
+          <p style={{ marginTop: 12, fontSize: 14, opacity: 0.7 }}>{c.body}</p>
+          {error?.digest ? (
+            <p style={{ marginTop: 8, fontSize: 12, opacity: 0.5 }}>
+              {c.errorIdLabel}
+              {error.digest}
+            </p>
+          ) : null}
           <button
             type="button"
             onClick={reset}
@@ -46,7 +60,7 @@ export default function GlobalError({
               fontSize: 15,
             }}
           >
-            Retry
+            {c.retry}
           </button>
         </div>
       </body>

@@ -14,7 +14,7 @@ const presignBodySchema = z.object({
 
 /** POST /api/admin/uploads/presign — S3 预签名上传 */
 export const POST = apiHandler(async (req) => {
-  const actor = await requireStaff();
+  await requireStaff();
   const input = await readJson(req, presignBodySchema);
 
   // size 传 1 仅做 MIME 白名单校验(预签名阶段不知道文件大小)

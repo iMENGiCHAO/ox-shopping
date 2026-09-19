@@ -82,7 +82,7 @@ export const POST = apiHandler(async (req) => {
   const skuExists = await prisma.product.findUnique({ where: { sku: input.sku } });
   if (skuExists) throw conflict("SKU 已存在");
 
-  const slug = await uniqueProductSlug(input.slug ?? slugifyName(input.name));
+  const slug = await uniqueProductSlug(input.slug ?? slugifyName(input.nameEn?.trim() || input.name));
 
   // 净化 description：去除危险 HTML（管理端富文本可能被注入恶意脚本）
   const safeDescription = input.description ? await sanitizeHtml(input.description) : "";
@@ -90,6 +90,7 @@ export const POST = apiHandler(async (req) => {
   const product = await prisma.product.create({
     data: {
       name: input.name,
+      nameEn: input.nameEn?.trim() || null,
       slug,
       sku: input.sku,
       price: input.price,

@@ -17,7 +17,7 @@ export const PUT = apiHandler(async (req) => {
   if (!full) throw unauthorized();
 
   const ok = await verifyPassword(input.currentPassword, full.passwordHash);
-  if (!ok) throw badRequest("当前密码不正确");
+  if (!ok) throw badRequest("Current password is incorrect");
 
   const passwordHash = await hashPassword(input.newPassword);
   await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });

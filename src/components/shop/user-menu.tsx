@@ -11,7 +11,7 @@ import type { SessionUser } from "@/types/api";
 /**
  * Header user area — 官方单链接（非下拉菜单）：
  * 未登录 → /auth/login；已登录 → /account。
- * 订单/收藏/优惠券/退出登录已收进个人中心右侧导航（/account 布局）。
+ * 订单/退出登录已收进个人中心右侧导航（/account 布局）。
  *
  * 已登录时，未读消息数字以 `Account (n)` 文字形式显示（与 CartBadge 一致），
  * 30s 拉一次 /api/notifications；0 时不显示括号数字。
@@ -66,8 +66,9 @@ export function UserMenu({
       className="h-auto gap-2 p-0 text-xs font-normal text-current opacity-65 hover:bg-transparent hover:opacity-100 [&_svg]:size-6"
     >
       <Link href={href} className="inline-flex items-center gap-2">
+        {/* 700–999px 只显示图标，≥1000px 只显示文字（见 globals.css 顶栏三段式） */}
         <UserCircle className="header-account-icon h-6 w-6" />
-        <span>{finalLabel}</span>
+        <span className="header-account-text">{finalLabel}</span>
       </Link>
     </Button>
   );

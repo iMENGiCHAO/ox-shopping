@@ -36,10 +36,20 @@ export function specKey(attributes?: SpecSelection[] | null): string {
   return JSON.stringify([...attributes].sort((a, b) => a.name.localeCompare(b.name)));
 }
 
-/** 规格展示文案：颜色：曜石黑 / 材质：ABS 塑料 */
-export function formatSpecs(attributes?: SpecSelection[] | null): string {
+/**
+ * 规格展示文案（只取值）：曜石黑 / ABS 塑料。
+ *
+ * 为什么只取值：原站结账页侧栏显示的是 Shopify 的 variant title——
+ * 只列取值、多值用「 / 」连接（实测：商品「The Core Tee」尺寸 M 处只显示「M」，
+ * 没有「Size：M」）。购物车/订单同理，故采购链路上统一用这个。
+ *
+ * 备注：早期还有一个 `formatSpecs`（带选项名、中文全角冒号连接），
+ * 全仓库零调用，且会把「：」硬编码进 UI（英文站会泄漏全角标点），已删除。
+ * 若将来确实需要在同一行显示「选项名：取值」，请走 shop-i18n 的 `punct(lang)`。
+ */
+export function formatSpecValues(attributes?: SpecSelection[] | null): string {
   if (!attributes || attributes.length === 0) return "";
-  return attributes.map((a) => `${a.name}：${a.value}`).join(" / ");
+  return attributes.map((a) => a.value).join(" / ");
 }
 
 /** 收货地址(客户端形态，JSON 序列化后) */
@@ -51,35 +61,16 @@ export interface ShopAddress {
   city: string;
   district: string;
   detail: string;
+  /** 街道地址第二行（公寓/单元号）；结账页写入 */
+  line2?: string | null;
+  /** 国家/地区 ISO alpha-2；历史地址为 null */
+  country?: string | null;
+  postalCode?: string | null;
   isDefault: boolean;
   createdAt?: string;
 }
 
-/** Reviews行(listReviews 返回行的序列化形态) */
-export interface ReviewRow {
-  id: string;
-  rating: number;
-  title: string | null;
-  comment: string;
-  images?: unknown;
-  isVerifiedPurchase: boolean;
-  createdAt: string | Date;
-  user: { name: string | null };
-}
 
-/** Discount券展示形态 */
-export interface CouponData {
-  id: string;
-  code: string;
-  type: "PERCENTAGE" | "FIXED" | "FREE_SHIPPING";
-  value: number | string;
-  minSpend: number | string;
-  maxDiscount?: number | string | null;
-  startsAt: string | Date;
-  endsAt: string | Date;
-  usageLimit: number;
-  usedCount: number;
-}
 
 /** 取商品图片数组首图(兼容 Prisma Json 序列化结果) */
 export function firstImage(images: unknown): string | null {
@@ -162,4 +153,26 @@ export function toCardData<
     isPresale: p.isPresale ?? false,
     description: p.description ?? null,
   };
+}
+
+/**
+ * 前台折扣码展示数据。
+ *
+ * 与 `@/lib/coupon` 的 `CouponView` 刻意保持字段一致：卡片组件按 CouponView
+ * 消费，服务端把 Prisma 行转成这个形状（Decimal → number、Date → Date）。
+ */
+export interface CouponData {
+  id: string;
+  code: string;
+  type: "PERCENTAGE" | "FIXED" | "FREE_SHIPPING";
+  value: number;
+  minSpend: number;
+  maxDiscount: number | null;
+  startsAt: Date;
+  endsAt: Date;
+  /** 公开券的展示文案（多语，缺失时回落到券码） */
+  title: string | null;
+  titleEn: string | null;
+  description: string | null;
+  descriptionEn: string | null;
 }

@@ -5,13 +5,21 @@ import { useRouter } from "next/navigation";
 import { Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/fetch-client";
+import { orderApiUrl } from "@/lib/order-api";
 import { toast } from "sonner";
-import { useT } from "@/components/shop/lang-provider";
+import { useT, useShopLang } from "@/components/shop/lang-provider";
+import { punct } from "@/lib/shop-i18n";
 
 export interface OrderActionsProps {
   orderNumber: string;
   status: string;
   className?: string;
+  /**
+   * 游客订单的查询令牌（登录单为 null）。
+   * 非空即表示「这是游客单」：所有子接口调用都要带上它，
+   * 且隐藏「再次购买」（购物袋需要账号归属，游客无法加购）。
+   */
+  token?: string | null;
 }
 
 /**
@@ -21,9 +29,10 @@ export interface OrderActionsProps {
  * - DELIVERED / CANCELLED / REFUNDED → reorder (再次购买 — 一键加购)
  * After the action succeeds, router.refresh() re-renders the server-rendered page data.
  */
-export function OrderActions({ orderNumber, status, className }: OrderActionsProps) {
+export function OrderActions({ orderNumber, status, className, token }: OrderActionsProps) {
   const router = useRouter();
   const t = useT();
+  const { lang } = useShopLang();
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   const run = async (action: string, fn: () => Promise<void>) => {
@@ -39,7 +48,7 @@ export function OrderActions({ orderNumber, status, className }: OrderActionsPro
 
   const handlePay = () =>
     run("pay", async () => {
-      const data = await apiFetch<{ paymentUrl: string }>(`/api/orders/${orderNumber}/pay`, {
+      const data = await apiFetch<{ paymentUrl: string }>(orderApiUrl(orderNumber, token, "/pay"), {
         method: "POST",
       });
       if (data?.paymentUrl) {
@@ -51,14 +60,14 @@ export function OrderActions({ orderNumber, status, className }: OrderActionsPro
 
   const handleCancel = () =>
     run("cancel", async () => {
-      await apiFetch(`/api/orders/${orderNumber}/cancel`, { method: "POST" });
+      await apiFetch(orderApiUrl(orderNumber, token, "/cancel"), { method: "POST" });
       toast.success(t("Order cancelled"));
       router.refresh();
     });
 
   const handleConfirmReceipt = () =>
     run("confirm", async () => {
-      await apiFetch(`/api/orders/${orderNumber}/confirm-delivery`, { method: "POST" });
+      await apiFetch(orderApiUrl(orderNumber, token, "/confirm-delivery"), { method: "POST" });
       toast.success(t("Receipt confirmed — thanks for your purchase!"));
       router.refresh();
     });
@@ -70,7 +79,7 @@ export function OrderActions({ orderNumber, status, className }: OrderActionsPro
         skipped: { name: string; reason: string }[];
         addedCount: number;
         skippedCount: number;
-      }>(`/api/orders/${orderNumber}/reorder`, { method: "POST" });
+      }>(orderApiUrl(orderNumber, token, "/reorder"), { method: "POST" });
       const added = res?.addedCount ?? 0;
       const skipped = res?.skippedCount ?? 0;
       if (added === 0 && skipped === 0) {
@@ -83,12 +92,13 @@ export function OrderActions({ orderNumber, status, className }: OrderActionsPro
         );
       }
       if (skipped > 0) {
+        const p = punct(lang);
         const reasons = (res?.skipped ?? [])
           .slice(0, 3)
           .map((s) => `${s.name} (${s.reason})`)
-          .join("、");
+          .join(p.list);
         toast.warning(
-          `${skipped} 件未加入购物车：${reasons}${res && res.skipped.length > 3 ? "…" : ""}`,
+          `${t("{n} item(s) not added to cart", { n: skipped })}${p.colon}${reasons}${res && res.skipped.length > 3 ? "…" : ""}`,
         );
       }
       router.refresh();
@@ -120,7 +130,8 @@ export function OrderActions({ orderNumber, status, className }: OrderActionsPro
           {pendingAction === "confirm" ? t("Processing…") : t("Confirm receipt")}
         </Button>
       ) : null}
-      {status === "DELIVERED" || status === "CANCELLED" || status === "REFUNDED" ? (
+      {/* 游客单不支持一键再次购买：购物袋按 userId 归属，游客没有购物袋可加 */}
+      {!token && (status === "DELIVERED" || status === "CANCELLED" || status === "REFUNDED") ? (
         <Button
           size="sm"
           variant="outline"

@@ -14,18 +14,60 @@ export interface CurrencyDef {
 }
 
 export const CURRENCIES: CurrencyDef[] = [
-  { code: "USD", name: "US Dollar", country: "United States", symbol: "$", locale: "en-US", flag: "🇺🇸" },
+  {
+    code: "USD",
+    name: "US Dollar",
+    country: "United States",
+    symbol: "$",
+    locale: "en-US",
+    flag: "🇺🇸",
+  },
   { code: "CNY", name: "Chinese Yuan", country: "China", symbol: "¥", locale: "zh-CN", flag: "🇨🇳" },
   { code: "EUR", name: "Euro", country: "Eurozone", symbol: "€", locale: "de-DE", flag: "🇪🇺" },
-  { code: "GBP", name: "British Pound", country: "United Kingdom", symbol: "£", locale: "en-GB", flag: "🇬🇧" },
+  {
+    code: "GBP",
+    name: "British Pound",
+    country: "United Kingdom",
+    symbol: "£",
+    locale: "en-GB",
+    flag: "🇬🇧",
+  },
   { code: "JPY", name: "Japanese Yen", country: "Japan", symbol: "¥", locale: "ja-JP", flag: "🇯🇵" },
-  { code: "HKD", name: "Hong Kong Dollar", country: "Hong Kong", symbol: "HK$", locale: "zh-HK", flag: "🇭🇰" },
-  { code: "SGD", name: "Singapore Dollar", country: "Singapore", symbol: "S$", locale: "en-SG", flag: "🇸🇬" },
-  { code: "AUD", name: "Australian Dollar", country: "Australia", symbol: "A$", locale: "en-AU", flag: "🇦🇺" },
-  { code: "CAD", name: "Canadian Dollar", country: "Canada", symbol: "C$", locale: "en-CA", flag: "🇨🇦" },
+  {
+    code: "HKD",
+    name: "Hong Kong Dollar",
+    country: "Hong Kong",
+    symbol: "HK$",
+    locale: "zh-HK",
+    flag: "🇭🇰",
+  },
+  {
+    code: "SGD",
+    name: "Singapore Dollar",
+    country: "Singapore",
+    symbol: "S$",
+    locale: "en-SG",
+    flag: "🇸🇬",
+  },
+  {
+    code: "AUD",
+    name: "Australian Dollar",
+    country: "Australia",
+    symbol: "A$",
+    locale: "en-AU",
+    flag: "🇦🇺",
+  },
+  {
+    code: "CAD",
+    name: "Canadian Dollar",
+    country: "Canada",
+    symbol: "C$",
+    locale: "en-CA",
+    flag: "🇨🇦",
+  },
 ];
 
-/** 面向欧美客户：默认展示美元（用户可随时切换） */
+/** 默认展示美元（与官方商店一致；系统内金额单位为美元，用户可随时切换） */
 export const DEFAULT_CURRENCY = "USD";
 export const CURRENCY_COOKIE = "currency";
 
@@ -60,9 +102,13 @@ export function convertPrice(amountBase: number, rate: number): number {
   return amountBase * rate;
 }
 
-/** 用 Intl 输出币种金额；未知币种回退符号拼接 */
+/** 用 Intl 输出币种金额；未知币种回退符号拼接；欧元对齐 shop.x.com 格式 €58,95 */
 export function formatAmount(amount: number, code: string): string {
   const def = getCurrencyDef(code);
+  // shop.x.com 欧元格式：符号在前 + 逗号小数（€58,95）
+  if (code === "EUR") {
+    return `€${amount.toFixed(2).replace(".", ",")}`;
+  }
   try {
     return new Intl.NumberFormat(def.locale, {
       style: "currency",

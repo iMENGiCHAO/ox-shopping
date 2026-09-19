@@ -19,15 +19,14 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 10;
+// 精简为消费者最常用的 5 个状态：全部、待付款、处理中、已发货、已完成
+// 其他状态（已支付、已取消、已退款）仍可在"全部"中查看
 const STATUS_TABS = [
   "ALL",
   "PENDING_PAYMENT",
-  "PAID",
   "PROCESSING",
   "SHIPPED",
   "DELIVERED",
-  "CANCELLED",
-  "REFUNDED",
 ] as const;
 
 interface OrdersPageProps {
@@ -97,6 +96,7 @@ export default async function OrdersPage(props: OrdersPageProps) {
               {key === "ALL"
                 ? t("All")
                 : // 用 enum key（i18n 表已有翻译）而非 ORDER_STATUS_LABELS（后台中文版）
+                  // 保留所有状态的翻译（URL 可能直接访问其他状态），但标签页只显示 5 个常用状态
                   t(
                     {
                       PENDING_PAYMENT: "Payment pending",
@@ -106,7 +106,7 @@ export default async function OrdersPage(props: OrdersPageProps) {
                       DELIVERED: "Delivered",
                       CANCELLED: "Cancelled",
                       REFUNDED: "Refunded",
-                    }[key as OrderStatus],
+                    }[key as OrderStatus] ?? key,
                   )}
             </a>
           );
@@ -140,6 +140,7 @@ export default async function OrdersPage(props: OrdersPageProps) {
               createdAt: order.createdAt,
               total: Number(order.total),
               currency: order.currency,
+              exchangeRate: Number(order.exchangeRate),
               items: order.items.map((item) => ({
                 productName: item.productName,
                 productImage: item.productImage,

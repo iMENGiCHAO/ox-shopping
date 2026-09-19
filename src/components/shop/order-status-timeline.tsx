@@ -2,7 +2,6 @@ import { format } from "date-fns";
 import { enUS, zhCN } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import type { OrderStatus } from "@prisma/client";
-import { ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { getT } from "@/lib/shop-i18n-server";
 
 export interface OrderTimelineData {
@@ -87,7 +86,18 @@ export async function OrderStatusTimeline({ order }: { order: OrderTimelineData 
         );
       })}
       <li className="pt-1 text-xs text-muted-foreground">
-        {t("Current status:")} {t(ORDER_STATUS_LABELS[order.status]) ?? order.status}
+        {t("Current status:")}{" "}
+        {t(
+          {
+            PENDING_PAYMENT: "Payment pending",
+            PAID: "Paid",
+            PROCESSING: "Processing",
+            SHIPPED: "Shipped",
+            DELIVERED: "Delivered",
+            CANCELLED: "Cancelled",
+            REFUNDED: "Refunded",
+          }[order.status] ?? order.status,
+        )}
       </li>
     </ol>
   );

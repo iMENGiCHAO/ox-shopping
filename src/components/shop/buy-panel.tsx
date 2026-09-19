@@ -124,6 +124,7 @@ export function BuyPanel({
   });
 
   const max = isPresale ? Math.min(5, MAX_PRESALE_QTY) : Math.min(99, Math.max(1, stock));
+  /* 整件售罄（非预售）：数量输入禁用、整页按钮切到货提醒 */
   const disabled = stock <= 0 && !isPresale;
 
   const selectedAttributes = useMemo<SpecSelection[]>(
@@ -133,6 +134,13 @@ export function BuyPanel({
         .filter((s) => s.value),
     [selectableAttributes, selections],
   );
+
+  /* 当前所选规格组合是否含售罄值（整件售罄，或任意选中项落在 soldOutValues 里）。
+     决定按钮形态：选中组合有货 → 「加入购物车」，选中售罄 → 「到货提醒」；
+     这是大爷指出的核心诉求——售罄规格仍可选，选后切到货提醒，而不是点不动。 */
+  const selectedSoldOut =
+    disabled ||
+    selectableAttributes.some((g) => (g.soldOutValues ?? []).includes(selections[g.name] ?? ""));
 
   return (
     <div className={className}>
@@ -146,25 +154,24 @@ export function BuyPanel({
             const soldOut = g.soldOutValues ?? [];
             return (
               <div key={g.name} className="space-y-2.5">
+                {/* 原站形态：组名带冒号，**冒号后回显当前选中值**（如 `Color: White`）。
+                    原站实测（2026-09-20 Playwright 取 PDP 规格标签文本）：标签文本为
+                    `Color: White` / `Size: XS`，大爷也明确指出要有这段选中文字。 */}
                 <p className="flex items-center gap-3 text-[13px] text-foreground">
-                  <span>
-                    {g.name}
-                    <span className="ml-2 opacity-60">{selections[g.name]}</span>
-                  </span>
+                  <span>{`${g.name}: ${selections[g.name] ?? g.values[0] ?? ""}`}</span>
                 </p>
                 {colorMode ? (
                   /* Round swatches — 官方 34px,active 黑环;售罄加正斜杠 */
                   <div className="flex flex-wrap gap-2.5">
                     {g.values.map((v) => {
                       const active = selections[g.name] === v;
-                      /* 官方：部分缺货或整件售罄均画反斜杠；整件售罄仍可点（到货提醒） */
+                      /* 售罄但**仍可点**：选中后整页按钮切到货提醒（大爷反馈的核心交互）。
+                         售罄仅用反斜杠 + title 提示，不 disabled，保证可选中登记到货通知。 */
                       const out = soldOut.includes(v) || disabled;
                       return (
                         <button
                           key={v}
                           type="button"
-                          /* 整件售罄(disabled=true)时仍可选（到货提醒用）；仅部分缺货的值禁点 */
-                          disabled={!disabled && out}
                           title={out ? `${v} — ${t("Sold out")}` : v}
                           aria-label={`${g.name}: ${v}`}
                           aria-pressed={active}
@@ -172,11 +179,12 @@ export function BuyPanel({
                           className={cn(
                             "relative h-[34px] w-[34px] rounded-full border p-0 transition-colors",
                             active ? "border-foreground" : "border-transparent hover:border-border",
-                            !disabled && out && "cursor-not-allowed",
                           )}
                         >
+                          {/* 可见色圆比触摸区小（原站观感更精细）：34px 按钮内 24px 色圆，
+                              1px 极淡描边；此前用满尺寸 34px 实心圆 + 描边，视觉上偏大偏粗糙 */}
                           <span
-                            className="block h-full w-full overflow-hidden rounded-full border border-black/10"
+                            className="absolute left-1/2 top-1/2 block h-6 w-6 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full ring-1 ring-black/10"
                             style={{ backgroundColor: COLOR_HEX[v] ?? "#D4D4D4" }}
                           />
                           {/* 官方售罄样式：反斜杠细线，两端略超出圆外更易识别 */}
@@ -213,8 +221,7 @@ export function BuyPanel({
                         <SelectItem
                           key={v}
                           value={v}
-                          /* 整件售罄时全部可选（到货提醒用）；仅部分缺货的值禁用 */
-                          disabled={!disabled && soldOut.includes(v)}
+                          /* 售罄选项仍可选（选中后切到货提醒） */
                           className="text-sm"
                         >
                           {soldOut.includes(v) ? `${v} — ${t("Sold out")}` : v}
@@ -235,8 +242,12 @@ export function BuyPanel({
           min={1}
           max={max}
           onChange={setQuantity}
-          disabled={disabled}
+          disabled={selectedSoldOut && !isPresale}
         />
+        {/* 大爷需求：库存即时友好提示——低库存（1-5 件）加购前即提示，不等结账 */}
+        {!isPresale && stock > 0 && stock <= 5 ? (
+          <p className="text-[13px] text-foreground/65">{t("Only {n} left", { n: stock })}</p>
+        ) : null}
       </div>
       {isPresale ? (
         <p className="mt-4 border border-border bg-secondary px-3 py-2 text-[13px] text-foreground/80">
@@ -244,22 +255,24 @@ export function BuyPanel({
         </p>
       ) : null}
       <div className="mt-8 flex flex-col gap-3">
-        {/* 对齐官方 PDP：有货仅 Add to Bag；售罄（非预售）仅 Notify me */}
-        {disabled && !isPresale ? null : (
+        {/* 按钮形态：当前所选组合有货 → 「加入购物车」；选中售罄（整件或单规格）→ 「到货提醒」 */}
+        {selectedSoldOut && !isPresale ? null : (
           <AddToCartButton
             productId={productId}
             quantity={quantity}
             attributes={selectedAttributes}
-            disabled={disabled}
+            disabled={false}
+            stock={stock}
+            isPresale={isPresale}
             className="h-[46px] w-full text-[15px]"
           />
         )}
-        {disabled && !isPresale ? (
+        {selectedSoldOut && !isPresale ? (
           <BuyNowButton
             productId={productId}
             quantity={quantity}
             attributes={selectedAttributes}
-            disabled={disabled}
+            disabled={false}
             soldOut
             defaultEmail={defaultEmail}
             productName={productName}

@@ -16,11 +16,33 @@ export function VerifyEmailForm({ token }: { token: string }) {
   const t = useT();
   const [state, setState] = useState<VerifyState>("verifying");
   const [message, setMessage] = useState("");
+  const [resending, setResending] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sent" | "error">("idle");
+  const [resendMessage, setResendMessage] = useState("");
+
+  const resend = async () => {
+    setResending(true);
+    setResendState("idle");
+    try {
+      await apiFetch("/api/auth/verify-email/resend", { method: "POST" });
+      setResendState("sent");
+      setResendMessage(t("Verification email resent — please check your inbox."));
+    } catch (err) {
+      setResendState("error");
+      setResendMessage(
+        err instanceof Error ? err.message : t("Failed to resend, please try again later"),
+      );
+    } finally {
+      setResending(false);
+    }
+  };
 
   useEffect(() => {
     if (!token) {
       setState("error");
-      setMessage(t("Missing verification token — please open this page through the link in the email."));
+      setMessage(
+        t("Missing verification token — please open this page through the link in the email."),
+      );
       return;
     }
     let cancelled = false;
@@ -34,7 +56,9 @@ export function VerifyEmailForm({ token }: { token: string }) {
       } catch (err) {
         if (cancelled) return;
         setState("error");
-        setMessage(err instanceof Error ? err.message : t("Verification failed, please try again later"));
+        setMessage(
+          err instanceof Error ? err.message : t("Verification failed, please try again later"),
+        );
       }
     })();
     return () => {
@@ -67,8 +91,20 @@ export function VerifyEmailForm({ token }: { token: string }) {
               <XCircle className="h-16 w-16 text-destructive" />
               <h1 className="text-xl font-bold">{t("Email verification failed")}</h1>
               <p className="text-sm text-muted-foreground">
-                {message || t("Verification link invalid or expired — please resend the verification email.")}
+                {message ||
+                  t("Verification link invalid or expired — please resend the verification email.")}
               </p>
+              {resendState !== "idle" ? (
+                <p
+                  className={`text-sm ${resendState === "sent" ? "text-success" : "text-destructive"}`}
+                  role="status"
+                >
+                  {resendMessage}
+                </p>
+              ) : null}
+              <Button onClick={() => void resend()} disabled={resending}>
+                {resending ? t("Sending…") : t("Resend verification email")}
+              </Button>
               <Button asChild variant="outline">
                 <Link href="/auth/forgot-password">{t("Help")}</Link>
               </Button>

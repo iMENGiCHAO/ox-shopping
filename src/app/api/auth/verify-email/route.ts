@@ -12,7 +12,7 @@ export const POST = apiHandler(async (req) => {
   const input = await readJson(req, verifyEmailSchema);
 
   const payload = await verifyEmailToken(input.token, "verify-email");
-  if (!payload) throw badRequest("验证链接无效或已过期");
+  if (!payload) throw badRequest("This verification link is invalid or has expired");
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (user && !user.emailVerified) {

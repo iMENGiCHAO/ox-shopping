@@ -1,9 +1,10 @@
 import { apiHandler } from "@/lib/api";
 import { badRequest } from "@/lib/errors";
-import { requireUser } from "@/lib/auth/session";
-import { assertOrderOwner, getOrderByNumber } from "@/server/services/order.service";
+import { requireOrderAccess, orderContact } from "@/server/services/order-access";
 import { generateInvoicePdf } from "@/lib/invoice";
 import { routeParam } from "@/app/api/_lib/params";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
+import { getLang } from "@/lib/shop-i18n-server";
 import type { OrderStatus } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -12,13 +13,13 @@ const DOWNLOADABLE: OrderStatus[] = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED
 
 /** GET /api/orders/[orderNumber]/invoice — 下载 PDF 发票 */
 export const GET = apiHandler(async (req, ctx) => {
-  const user = await requireUser();
   const orderNumber = routeParam(ctx.params.orderNumber);
+  const { order, user } = await requireOrderAccess(req, orderNumber);
 
-  const order = await getOrderByNumber(orderNumber);
-  assertOrderOwner(order, user.id);
+  if (!DOWNLOADABLE.includes(order.status)) throw badRequest("Order has not been paid");
 
-  if (!DOWNLOADABLE.includes(order.status)) throw badRequest("订单未支付");
+  // 发票语言跟随当前站点语言；抬头品牌名取后台「站点设置 → 站点名称」
+  const [lang, settings] = await Promise.all([getLang(), getSiteSettings()]);
 
   const buffer = await generateInvoicePdf({
     orderNumber: order.orderNumber,
@@ -29,8 +30,11 @@ export const GET = apiHandler(async (req, ctx) => {
     tax: Number(order.tax),
     discount: Number(order.discount),
     total: Number(order.total),
-    customerName: user.name,
-    customerEmail: user.email,
+    // 发票抬头：登录单用账号信息，游客单用订单收货人 + 联系邮箱
+    customerName: user?.name ?? orderContact(order).name,
+    customerEmail: user?.email ?? orderContact(order).email,
+    siteName: pickLang(settings.siteName, lang),
+    lang,
     address: order.addressSnapshot as {
       recipientName?: string;
       phone?: string;

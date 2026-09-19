@@ -146,57 +146,82 @@ const COPY = {
       preview: "数据删除请求已收到",
       title: "数据删除请求已收到",
       greet: (n: string) => `您好，${n}：`,
-      body: "我们已收到您的账户数据删除请求，将在 <strong>30 个自然日内</strong>完成处理。处理完成后，您的账户及关联数据将被永久删除。",
-      note: "如需撤回该请求，请尽快联系客服：",
-      link: (u: string) => `${u}/policies/contact`,
-      suffix: "或回复本邮件地址。",
+      body: "我们已收到您的账户数据删除请求，将在 <strong>30 个自然日内</strong>完成处理。处理完成后，您的账户及关联数据将被删除。",
+      note: "处理完成前您可随时登录本站，在「个人资料」页自助撤回该申请。",
+      link: (u: string) => `${u}/account/profile`,
+      suffix: "撤回后账户立即恢复正常。",
     },
     en: {
       preview: "Data deletion request received",
       title: "Data deletion request received",
       greet: (n: string) => `Hi ${n},`,
-      body: "We have received your account data deletion request and will process it within <strong>30 calendar days</strong>. Once completed, your account and associated data will be permanently deleted.",
-      note: "To withdraw this request, please contact customer support as soon as possible:",
-      link: (u: string) => `${u}/policies/contact`,
-      suffix: "Or reply to this email.",
+      body: "We have received your account data deletion request and will process it within <strong>30 calendar days</strong>. Once completed, your account and associated data will be deleted.",
+      note: "Before processing, you can withdraw this request anytime on the Profile page after signing in:",
+      link: (u: string) => `${u}/account/profile`,
+      suffix: "Your account returns to normal immediately after withdrawal.",
+    },
+  },
+  accountDeleted: {
+    zh: {
+      preview: "您的注销申请已处理完成",
+      title: "您的注销申请已处理完成",
+      greet: () => "您好：",
+      body: "您的账户注销申请已处理完成。您的个人身份信息（姓名、邮箱、登录凭证）已从系统中清除，本邮箱将不再收到本站的任何通知。",
+      note: "为满足财务与法律合规要求，历史订单记录将以匿名形式保留，其中不再含任何可识别您个人身份的信息。",
+      hint: "如需继续使用本站，欢迎使用新邮箱重新注册。",
+    },
+    en: {
+      preview: "Your account deletion is complete",
+      title: "Your account deletion is complete",
+      greet: () => "Hi,",
+      body: "Your account deletion request has been processed. Personally identifiable information (name, email, sign-in credentials) has been removed from our system, and this email address will no longer receive any notifications from us.",
+      note: "To meet financial and legal compliance requirements, historical order records are retained in anonymized form and no longer contain information identifying you.",
+      hint: "If you'd like to keep shopping with us, you're welcome to sign up again with a new email address.",
+    },
+  },
+  deletionRejected: {
+    zh: {
+      preview: "您的注销申请未通过",
+      title: "您的注销申请未通过",
+      greet: (n: string) => `您好，${n}：`,
+      body: "经核实，您的注销申请暂未通过，您的账户未做任何变更，可继续正常使用。",
+      noteLabel: "客服备注：",
+      hint: "如有疑问，请联系客服咨询详情。",
+    },
+    en: {
+      preview: "Your account deletion request was declined",
+      title: "Your account deletion request was declined",
+      greet: (n: string) => `Hi ${n},`,
+      body: "After review, your account deletion request was declined. Your account is unchanged and remains fully usable.",
+      noteLabel: "Support note:",
+      hint: "If you have questions, please contact customer support.",
     },
   },
   restock: {
     zh: {
       preview: (p: string) => `您关注的「${p}」已现货回归`,
       title: "您关注的商品到货啦",
+      presaleTitle: "您预购的商品已到货开售",
       greet: (n: string) => `您好，${n}：`,
       body: "您登记到货通知的商品已有现货，数量有限，先到先得：",
+      presaleBody: "您登记的预售商品已到货并开售，付款后将按顺序发出，数量有限，先到先得：",
       variant: "您关注的规格",
+      urgency: "库存有限，售完即止",
       cta: "立即购买",
-      hint: "此提醒来自您曾登记的到货通知，如不想再收到可忽略本邮件。",
+      hint: "此提醒来自您曾登记的到货通知（一对一发送，仅针对您登记的商品），如不想再收到可忽略本邮件。",
     },
     en: {
       preview: (p: string) => `${p} is back in stock`,
       title: "Back in stock — the item you wanted is here",
+      presaleTitle: "Pre-order now available",
       greet: (n: string) => `Hi ${n},`,
       body: "Good news — the item you signed up for is back in stock. Limited quantity, first come first served:",
+      presaleBody:
+        "The pre-order item you signed up for has arrived and is now shipping. Orders are fulfilled in the order received — limited quantity, first come first served:",
       variant: "Variant you asked about",
+      urgency: "Limited stock — once it's gone, it's gone",
       cta: "Shop now",
-      hint: "You're receiving this because you signed up for a restock notification. Ignore this email if you no longer want updates.",
-    },
-  },
-  "price-drop": {
-    zh: {
-      preview: (p: string) => `「${p}」降价了，现在购买正当时`,
-      title: "您关注的商品降价了",
-      greet: (n: string) => `您好，${n}：`,
-      body: "您订阅降价提醒的商品已降价。机会难得，尽快入手：",
-      cta: "立即购买",
-      hint: "此提醒来自您曾登记的降价通知。如不想再收到此类邮件，可点击下方取消订阅。",
-    },
-    en: {
-      preview: (p: string) => `${p} just got cheaper`,
-      title: "Price drop on the item you wanted",
-      greet: (n: string) => `Hi ${n},`,
-      body: "Good news — an item you subscribed to is now cheaper. Limited time:",
-      cta: "Shop now",
-      hint: "You're receiving this because you signed up for a price-drop alert. Unsubscribe below if you no longer want these emails.",
+      hint: "You're receiving this because you signed up for a restock notification (one-to-one, only for the item you chose). Ignore this email if you no longer want updates.",
     },
   },
 } as const;
@@ -466,6 +491,40 @@ export function DataDeletionEmail(props: BaseProps & { name: string }) {
   );
 }
 
+/** 注销处理完成通知（admin 确认注销后、匿名化前发往原邮箱） */
+export function AccountDeletedEmail(props: BaseProps & { name: string }) {
+  const lang: Lang = props.lang ?? "zh";
+  const c = pick(COPY.accountDeleted, lang);
+  return (
+    <EmailShell {...props} preview={c.preview} lang={lang}>
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+      <Text style={{ lineHeight: "24px" }}>{c.greet()}</Text>
+      <Text style={{ lineHeight: "24px" }}>{c.body}</Text>
+      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.note}</Text>
+      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.hint}</Text>
+    </EmailShell>
+  );
+}
+
+/** 注销申请驳回通知（admin 驳回后发给用户，note 为客服备注可选） */
+export function DeletionRejectedEmail(props: BaseProps & { name: string; note?: string }) {
+  const lang: Lang = props.lang ?? "zh";
+  const c = pick(COPY.deletionRejected, lang);
+  return (
+    <EmailShell {...props} preview={c.preview} lang={lang}>
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+      <Text style={{ lineHeight: "24px" }}>{c.greet(props.name)}</Text>
+      <Text style={{ lineHeight: "24px" }}>{c.body}</Text>
+      {props.note ? (
+        <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>
+          {c.noteLabel} {props.note}
+        </Text>
+      ) : null}
+      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.hint}</Text>
+    </EmailShell>
+  );
+}
+
 export function RestockEmail(
   props: BaseProps & {
     name: string;
@@ -478,29 +537,40 @@ export function RestockEmail(
     priceText: string;
     compareAtText?: string;
     productUrl: string;
+    /** 预售商品开售（商品配置了预售提示文案）→ 文案切换为「预购开售」口径 */
+    isPresale?: boolean;
   },
 ) {
   const lang: Lang = props.lang ?? "zh";
   const c = pick(COPY.restock, lang);
   return (
-    <EmailShell {...props} preview={c.preview(props.productName)} lang={lang}>
-      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+    <EmailShell
+      {...props}
+      preview={props.isPresale ? c.presaleTitle : c.preview(props.productName)}
+      lang={lang}
+    >
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>
+        {props.isPresale ? c.presaleTitle : c.title}
+      </Heading>
       <Text style={{ lineHeight: "24px" }}>{c.greet(props.name)}</Text>
-      <Text style={{ lineHeight: "24px" }}>{c.body}</Text>
+      <Text style={{ lineHeight: "24px" }}>{props.isPresale ? c.presaleBody : c.body}</Text>
 
-      {/* 商品卡片：图 + 名 + 卖点 + 规格 + 价格 + CTA（到货提醒即广告） */}
-      <Section style={{ margin: "18px 0", border: "1px solid #e5e7eb" }}>
+      {/* 商品卡片：图 + 名 + 卖点 + 规格 + 价格 + 紧迫提示 + CTA（到货提醒即广告） */}
+      <Section
+        style={{
+          margin: "18px auto",
+          maxWidth: "420px",
+          border: "1px solid #e5e7eb",
+          borderRadius: "8px",
+          overflow: "hidden",
+        }}
+      >
         {props.image ? (
           <Img
             src={props.image}
             alt={props.productName}
-            style={{
-              width: "100%",
-              height: "auto",
-              maxHeight: "320px",
-              objectFit: "cover",
-              display: "block",
-            }}
+            width={420}
+            style={{ width: "100%", height: "auto", display: "block" }}
           />
         ) : null}
         <div style={{ padding: "16px 18px 18px" }}>
@@ -525,7 +595,7 @@ export function RestockEmail(
               {c.variant}: <strong>{props.variantText}</strong>
             </Text>
           ) : null}
-          <Text style={{ fontSize: 15, lineHeight: "22px", margin: "0 0 14px" }}>
+          <Text style={{ fontSize: 15, lineHeight: "22px", margin: "0 0 10px" }}>
             <strong>{props.priceText}</strong>
             {props.compareAtText ? (
               <span
@@ -540,6 +610,17 @@ export function RestockEmail(
               </span>
             ) : null}
           </Text>
+          <Text
+            style={{
+              fontSize: 12,
+              color: "#b45309",
+              lineHeight: "18px",
+              margin: "0 0 14px",
+              fontWeight: 600,
+            }}
+          >
+            ⏳ {c.urgency}
+          </Text>
           <Button href={props.productUrl} style={primaryButton(lang)}>
             {c.cta}
           </Button>
@@ -551,100 +632,41 @@ export function RestockEmail(
   );
 }
 
-/** 降价通知邮件（订阅降价提醒的商品价格下降时触发） */
-export function PriceDropEmail(
-  props: BaseProps & {
-    productName: string;
-    image?: string;
-    /** 原价（划线价） */
-    oldPrice: string;
-    /** 新价（突出） */
-    newPrice: string;
-    currency: string;
-    /** 降价百分比（整数 %） */
-    percent: number;
-    productUrl: string;
-    /** 取消订阅 URL（可选） */
-    unsubscribeUrl?: string;
-  },
+/**
+ * 联系表单留言通知 —— 发给**站点运营者**（不是顾客）。
+ *
+ * 与其它模板的区别：收件人是内部运营，因此文案以运营侧习惯为准
+ * （默认中文），并把顾客原文完整附上，方便直接回复。
+ * 顾客填写的姓名/邮箱/正文一律原样展示（已在上游做长度与格式校验）。
+ */
+export function ContactMessageEmail(
+  props: BaseProps & { name: string; email: string; message: string; source: string },
 ) {
   const lang: Lang = props.lang ?? "zh";
-  const c = pick(COPY["price-drop"], lang);
+  const zh = lang === "zh";
   return (
-    <EmailShell {...props} preview={c.preview(props.productName)} lang={lang}>
-      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
-      {/* greet 接收 "客户" 即可，这里用通用问候 */}
-      <Text style={{ lineHeight: "24px" }}>{c.greet(lang === "zh" ? "顾客" : "Customer")}</Text>
-      <Text style={{ lineHeight: "24px" }}>{c.body}</Text>
-
-      <Section style={{ margin: "18px 0", border: "1px solid #e5e7eb" }}>
-        {props.image ? (
-          <Img
-            src={props.image}
-            alt={props.productName}
-            style={{
-              width: "100%",
-              height: "auto",
-              maxHeight: "320px",
-              objectFit: "cover",
-              display: "block",
-            }}
-          />
-        ) : null}
-        <div style={{ padding: "16px 18px 18px" }}>
-          <Text
-            style={{
-              fontSize: 16,
-              fontWeight: 600,
-              color: "#111827",
-              lineHeight: "22px",
-              margin: "0 0 8px",
-            }}
-          >
-            {props.productName}
-          </Text>
-          <Text style={{ fontSize: 15, lineHeight: "22px", margin: "0 0 14px" }}>
-            <strong style={{ color: "#dc2626", fontSize: 22 }}>
-              {props.currency} {props.newPrice}
-            </strong>
-            <span
-              style={{
-                marginLeft: 8,
-                color: "#9ca3af",
-                textDecoration: "line-through",
-                fontSize: 14,
-              }}
-            >
-              {props.currency} {props.oldPrice}
-            </span>
-            <span
-              style={{
-                marginLeft: 8,
-                background: "#dc2626",
-                color: "#fff",
-                padding: "2px 8px",
-                borderRadius: 4,
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              -{props.percent}%
-            </span>
-          </Text>
-          <Button href={props.productUrl} style={primaryButton(lang)}>
-            {c.cta}
-          </Button>
-        </div>
-      </Section>
-
-      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>{c.hint}</Text>
-      {props.unsubscribeUrl ? (
-        <Text style={{ fontSize: 12, color: "#9ca3af", margin: "12px 0 0" }}>
-          <a href={props.unsubscribeUrl} style={{ color: "#9ca3af" }}>
-            {lang === "zh" ? "取消订阅" : "Unsubscribe"}
-          </a>
-        </Text>
-      ) : null}
+    <EmailShell
+      {...props}
+      preview={zh ? "收到一条新的联系表单留言" : "New contact form message"}
+      lang={lang}
+    >
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>
+        {zh ? "新的联系表单留言" : "New contact form message"}
+      </Heading>
+      <Text style={{ lineHeight: "24px" }}>
+        <strong>{zh ? "姓名" : "Name"}</strong>：{props.name}
+        <br />
+        <strong>{zh ? "邮箱" : "E-mail"}</strong>：{props.email}
+        <br />
+        <strong>{zh ? "来源" : "Source"}</strong>：{props.source}
+      </Text>
+      <Hr style={{ borderColor: "#e5e7eb", margin: "16px 0" }} />
+      <Text style={{ lineHeight: "24px", whiteSpace: "pre-wrap" }}>{props.message}</Text>
+      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>
+        {zh
+          ? "直接回复本邮件即可联系到对方；留言同时已存入后台「联系留言」。"
+          : "Reply to this email to reach the sender. The message is also stored in the admin inbox."}
+      </Text>
     </EmailShell>
   );
 }

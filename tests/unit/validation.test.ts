@@ -1,12 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { registerSchema, loginSchema } from "@/lib/validations/auth";
 import { addressSchema } from "@/lib/validations/address";
-import {
-  orderCreateSchema,
-  couponApplySchema,
-  couponCreateSchema,
-  reviewCreateSchema,
-} from "@/lib/validations/cart-order";
+import { orderCreateSchema } from "@/lib/validations/cart-order";
 import { productCreateSchema, categoryCreateSchema } from "@/lib/validations/product";
 
 describe("注册校验", () => {
@@ -58,7 +53,7 @@ describe("地址校验", () => {
     expect(r.data?.isDefault).toBe(false); // 默认值
   });
 
-  it("非法手机号拒绝", () => {
+  it("手机号：明显非法拒绝、国际格式接受", () => {
     const base = {
       recipientName: "张三",
       province: "广东省",
@@ -66,8 +61,12 @@ describe("地址校验", () => {
       district: "南山区",
       detail: "科技园南路 1 号",
     };
+    // 明显非法：过短（<6 位）/ 含字母
     expect(addressSchema.safeParse({ ...base, phone: "12345" }).success).toBe(false);
-    expect(addressSchema.safeParse({ ...base, phone: "23800138000" }).success).toBe(false);
+    expect(addressSchema.safeParse({ ...base, phone: "abc123456" }).success).toBe(false);
+    // 国际号码格式应接受（本站默认面向欧美客户，不能只认中国手机号）
+    expect(addressSchema.safeParse({ ...base, phone: "23800138000" }).success).toBe(true);
+    expect(addressSchema.safeParse({ ...base, phone: "+1 (415) 555-0132" }).success).toBe(true);
   });
 });
 
@@ -92,38 +91,10 @@ describe("订单创建校验", () => {
     const r = orderCreateSchema.safeParse({
       items: [{ productId: "p1", quantity: 2 }],
       addressId: "addr1",
-      couponCode: "SAVE50",
       shippingMethod: "express",
     });
     expect(r.success).toBe(true);
     expect(r.data?.shippingMethod).toBe("express");
-  });
-});
-
-describe("评价校验", () => {
-  it("评分范围 1-5", () => {
-    expect(reviewCreateSchema.safeParse({ rating: 0, comment: "好极了！" }).success).toBe(false);
-    expect(reviewCreateSchema.safeParse({ rating: 6, comment: "好极了！" }).success).toBe(false);
-    expect(reviewCreateSchema.safeParse({ rating: 5, comment: "商品很好用！" }).success).toBe(true);
-  });
-
-  it("评论长度限制", () => {
-    expect(reviewCreateSchema.safeParse({ rating: 5, comment: "短" }).success).toBe(false);
-  });
-});
-
-describe("优惠券", () => {
-  it("优惠码字符集限制（管理端创建）", () => {
-    const base = {
-      type: "FIXED",
-      value: 50,
-      minSpend: 300,
-      startsAt: new Date().toISOString(),
-      endsAt: new Date().toISOString(),
-    };
-    expect(couponApplySchema.safeParse({ code: "OK", subtotal: 100 }).success).toBe(true);
-    expect(couponCreateSchema.safeParse({ ...base, code: "SAVE99" }).success).toBe(true);
-    expect(couponCreateSchema.safeParse({ ...base, code: "非法字符" }).success).toBe(false);
   });
 });
 
@@ -143,5 +114,45 @@ describe("商品校验（管理端）", () => {
   it("slug 格式校验", () => {
     expect(categoryCreateSchema.safeParse({ name: "手机", slug: "Bad Slug" }).success).toBe(false);
     expect(categoryCreateSchema.safeParse({ name: "手机", slug: "phones" }).success).toBe(true);
+  });
+});
+
+describe("注册蜜罐字段（防脚本灌水）", () => {
+  it("未携带/空串 company 正常通过（人类路径）", () => {
+    const ok = registerSchema.safeParse({
+      email: "user@example.com",
+      name: "张三",
+      password: "Abcdef12",
+    });
+    expect(ok.success).toBe(true);
+    const okEmpty = registerSchema.safeParse({
+      email: "user@example.com",
+      name: "张三",
+      password: "Abcdef12",
+      company: "",
+    });
+    expect(okEmpty.success).toBe(true);
+  });
+
+  it("机器人填了 company 也能通过 schema（由 route 层静默拦截，不暴露蜜罐语义）", () => {
+    // schema 层只做长度卫生；route 层对非空值统一 400
+    const bot = registerSchema.safeParse({
+      email: "bot@example.com",
+      name: "机器人",
+      password: "Abcdef12",
+      company: "spam-inc",
+    });
+    expect(bot.success).toBe(true);
+    expect((bot.data as Record<string, unknown>).company).toBe("spam-inc");
+  });
+
+  it("超长 company 值被 schema 卫生拦截", () => {
+    const evil = registerSchema.safeParse({
+      email: "bot@example.com",
+      name: "机器人",
+      password: "Abcdef12",
+      company: "x".repeat(201),
+    });
+    expect(evil.success).toBe(false);
   });
 });

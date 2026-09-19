@@ -8,7 +8,7 @@ import { useCart } from "@/components/shop/cart-provider";
 import type { SpecSelection } from "@/components/shop/types";
 import { toast } from "sonner";
 import { useT } from "@/components/shop/lang-provider";
-import { apiFetchRaw } from "@/lib/fetch-client";
+import { apiFetch } from "@/lib/fetch-client";
 
 export interface SpecGroupOption {
   name: string;
@@ -49,12 +49,14 @@ export function BuyNowButton({
   const [pending, setPending] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [email, setEmail] = useState(defaultEmail ?? "");
-  // 默认选中每组首个有货值（官方 select 行为：始终有选中项）
+  // 默认选中每组首个售罄值（到货通知的登记目标；大爷指正：有货值不该是通知对象）
   const [picked, setPicked] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const g of specGroups) {
       if (g.values.length === 0) continue;
-      init[g.name] = g.values.find((v) => !(g.soldOutValues ?? []).includes(v)) ?? g.values[0]!;
+      const soldOut = g.soldOutValues ?? [];
+      init[g.name] =
+        soldOut.find((v) => g.values.includes(v)) ?? g.values[0]!;
     }
     return init;
   });
@@ -83,11 +85,11 @@ export function BuyNowButton({
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return;
     setNotifyState("sending");
     try {
-      const j = await apiFetchRaw<{ data?: { already?: boolean } }>("/api/notify-me", {
+      const j = await apiFetch<{ ok?: boolean; already?: boolean }>("/api/notify-me", {
         method: "POST",
         body: JSON.stringify({ email: email.trim(), productId, attributes: picked }),
       });
-      setNotifyState(j?.data?.already ? "dupe" : "done");
+      setNotifyState(j?.already ? "dupe" : "done");
     } catch (err) {
       setNotifyState("idle");
       toast.error(err instanceof Error ? err.message : t("Could not process, please try again"));
@@ -112,7 +114,7 @@ export function BuyNowButton({
             setNotifyOpen(true);
           }}
           style={{ fontSize: 13 }}
-          className={`${className ?? ""} border-0 bg-[#1c1c1c] font-bold uppercase tracking-[2.34px] text-white hover:bg-black hover:text-white`}
+          className={`${className ?? ""} border-0 bg-primary font-bold uppercase tracking-[2.34px] text-white hover:bg-black hover:text-white`}
           data-notify-me="true"
         >
           {t("Notify me")}
@@ -125,9 +127,9 @@ export function BuyNowButton({
             role="dialog"
             aria-modal="true"
           >
-            {/* 官方面板：白色、直角、#202223 文字 */}
+            {/* 官方面板：白色、直角、深色文字（走 --foreground 令牌） */}
             <div
-              className="w-full max-w-[400px] bg-white p-6 text-[#202223] shadow-xl"
+              className="w-full max-w-[400px] bg-white p-6 text-foreground shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
               {notifyState === "done" || notifyState === "dupe" ? (
@@ -167,24 +169,33 @@ export function BuyNowButton({
                     <p className="mt-3 text-sm font-semibold">{productName}</p>
                   ) : null}
 
-                  {/* 规格：官方为原生 select 下拉，全部可选（含售罄值——这正是登记目的） */}
-                  {groups.map((g) => (
-                    <select
-                      key={g.name}
-                      value={picked[g.name] ?? ""}
-                      onChange={(e) => setPicked((p) => ({ ...p, [g.name]: e.target.value }))}
-                      aria-label={g.name}
-                      className="mt-3 h-11 w-full border border-[#dfe3e8] bg-white px-3 text-sm outline-none focus:border-[#202223]"
-                    >
-                      {g.values.map((v) => (
-                        <option key={v} value={v}>
-                          {(g.soldOutValues ?? []).includes(v)
-                            ? `${v} — ${t("Sold out")}`
-                            : v}
-                        </option>
-                      ))}
-                    </select>
-                  ))}
+                  {/* 规格：官方为原生 select 下拉。大爷指正（bug 修复）：有货的规格
+                      不应可选——能直接买的组合登记到货通知毫无意义，且下次任意补货
+                      触发时会收到「从未售罄过」的错误提醒邮件。因此：
+                      - 该组存在售罄值 → 只列售罄值（它们才是补货回归的目标）
+                      - 该组无售罄值（多组商品里另一组才是售罄项）→ 列全量值，
+                        仅作为组合偏好记录，正常有货不会触发错误邮件（整件有货时
+                        服务端会拒绝无售罄值的登记兜底） */}
+                  {groups.map((g) => {
+                    const soldOut = g.soldOutValues ?? [];
+                    const options =
+                      soldOut.length > 0 ? g.values.filter((v) => soldOut.includes(v)) : g.values;
+                    return (
+                      <select
+                        key={g.name}
+                        value={picked[g.name] ?? ""}
+                        onChange={(e) => setPicked((p) => ({ ...p, [g.name]: e.target.value }))}
+                        aria-label={g.name}
+                        className="mt-3 h-11 w-full border border-border bg-white px-3 text-sm outline-none focus:border-foreground"
+                      >
+                        {options.map((v) => (
+                          <option key={v} value={v}>
+                            {soldOut.includes(v) ? `${v} — ${t("Sold out")}` : v}
+                          </option>
+                        ))}
+                      </select>
+                    );
+                  })}
 
                   <label className="sr-only" htmlFor="notify-me-email">
                     {t("Email address")}
@@ -196,14 +207,14 @@ export function BuyNowButton({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder={t("Email address")}
                     autoComplete="email"
-                    className="mt-3 h-11 w-full border border-[#dfe3e8] bg-white px-3 text-sm outline-none placeholder:text-[#9aa0a6] focus:border-[#202223]"
+                    className="mt-3 h-11 w-full border border-border bg-white px-3 text-sm outline-none placeholder:text-muted-foreground focus:border-foreground"
                   />
 
                   <button
                     type="button"
                     disabled={notifyState === "sending" || !emailValid}
                     onClick={() => void submitNotify()}
-                    className="mt-5 h-12 w-full bg-[#202223] text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-40"
+                    className="mt-5 h-12 w-full bg-primary text-sm font-medium text-white transition-colors hover:bg-black disabled:opacity-40"
                   >
                     {notifyState === "sending"
                       ? t("Submitting…")

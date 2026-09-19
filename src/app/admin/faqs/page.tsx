@@ -25,6 +25,8 @@ interface FaqRow {
   id: string;
   question: string;
   answer: string;
+  questionEn: string | null;
+  answerEn: string | null;
   sortOrder: number;
   published: boolean;
 }
@@ -35,7 +37,14 @@ interface ContactContent {
   email: string;
 }
 
-const EMPTY_FORM = { question: "", answer: "", sortOrder: 0, published: true };
+const EMPTY_FORM = {
+  question: "",
+  answer: "",
+  questionEn: "",
+  answerEn: "",
+  sortOrder: 0,
+  published: true,
+};
 
 /** 后台「FAQ 与联系我们」：FAQ 增删改 + 联系板块文案（前台 /pages/faqs 实时读取） */
 export default function AdminFaqsPage() {
@@ -73,7 +82,14 @@ export default function AdminFaqsPage() {
 
   const openEdit = (row: FaqRow) => {
     setEditing(row);
-    setForm({ question: row.question, answer: row.answer, sortOrder: row.sortOrder, published: row.published });
+    setForm({
+      question: row.question,
+      answer: row.answer,
+      questionEn: row.questionEn ?? "",
+      answerEn: row.answerEn ?? "",
+      sortOrder: row.sortOrder,
+      published: row.published,
+    });
     setFormOpen(true);
   };
 
@@ -83,12 +99,18 @@ export default function AdminFaqsPage() {
       return;
     }
     setSaving(true);
+    // 英文留空 → 存 null（前台英文站点回落到中文条目，不出现空白问答）
+    const payload = {
+      ...form,
+      questionEn: form.questionEn.trim() || null,
+      answerEn: form.answerEn.trim() || null,
+    };
     try {
       if (editing) {
-        await apiFetch(`/api/admin/faqs/${editing.id}`, { method: "PUT", body: JSON.stringify(form) });
+        await apiFetch(`/api/admin/faqs/${editing.id}`, { method: "PUT", body: JSON.stringify(payload) });
         toast.success(t("FAQ updated"));
       } else {
-        await apiFetch("/api/admin/faqs", { method: "POST", body: JSON.stringify(form) });
+        await apiFetch("/api/admin/faqs", { method: "POST", body: JSON.stringify(payload) });
         toast.success(t("FAQ created"));
       }
       setFormOpen(false);
@@ -221,6 +243,25 @@ export default function AdminFaqsPage() {
                 rows={5}
                 value={form.answer}
                 onChange={(e) => setForm((f) => ({ ...f, answer: e.target.value }))}
+              />
+            </div>
+            {/* 英文问答（选填）：留空则英文站点回落到上面的中文条目 */}
+            <div className="space-y-2">
+              <Label>{t("Question")} (English)</Label>
+              <Input
+                value={form.questionEn}
+                onChange={(e) => setForm((f) => ({ ...f, questionEn: e.target.value }))}
+                maxLength={200}
+                placeholder={t("Leave blank to reuse the entry above")}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("Answer")} (English)</Label>
+              <Textarea
+                rows={4}
+                value={form.answerEn}
+                onChange={(e) => setForm((f) => ({ ...f, answerEn: e.target.value }))}
+                placeholder={t("Leave blank to reuse the entry above")}
               />
             </div>
             <div className="flex items-center justify-between">

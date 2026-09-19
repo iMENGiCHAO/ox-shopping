@@ -14,6 +14,16 @@ for (const cfg of configs) {
     // React 19 新规：数据获取型 effect 的 setState 属既有合理模式
     cfg.rules = { ...cfg.rules, "react-hooks/set-state-in-effect": "off" };
   }
+  if (cfg.plugins?.["@typescript-eslint"]) {
+    // `_` 前缀参数 = 有意保留的兼容签名（如 formatOrderAmount 的 _orderExchangeRate）
+    cfg.rules = {
+      ...cfg.rules,
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    };
+  }
 }
 
 export default defineConfig([

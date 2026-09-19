@@ -2,19 +2,40 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Trash2, X } from "lucide-react";
+import { Trash2, X, User, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { useCart } from "@/components/shop/cart-provider";
 import { useCurrency } from "@/components/shop/currency-provider";
 import { QuantityInput } from "@/components/shop/quantity-input";
 import { toast } from "sonner";
-import { formatSpecs } from "@/components/shop/types";
+import { formatSpecValues } from "@/components/shop/types";
+import { LOGGED_IN_COOKIE } from "@/lib/constants";
 
 import { useShopLang } from "@/components/shop/lang-provider";
+
+/** 检测用户是否已登录（客户端：读服务端写入的 JS 可读提示 cookie） */
+function useIsLoggedIn() {
+  const [loggedIn, setLoggedIn] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      // access_token 是 httpOnly，JS 读不到；改用服务端登录时写入的 logged_in 提示 cookie
+      setLoggedIn(
+        document.cookie.split(";").some((c) => c.trim().startsWith(`${LOGGED_IN_COOKIE}=`)),
+      );
+    };
+    check();
+    // 监听登录/登出事件
+    window.addEventListener("auth:changed", check);
+    return () => window.removeEventListener("auth:changed", check);
+  }, []);
+  return loggedIn;
+}
+
 /** Cart drawer — slides in from the right after add-to-bag */
 export function CartDrawer() {
   const { t } = useShopLang();
+  const isLoggedIn = useIsLoggedIn();
 
   const { items, count, subtotal, loading, updateQuantity, removeItem } = useCart();
   const { format } = useCurrency();
@@ -63,7 +84,7 @@ export function CartDrawer() {
       >
         {/* header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-base font-normal text-foreground">Your Bag ({count})</h2>
+          <h2 className="text-base font-normal text-foreground">{t("Your Bag")} ({count})</h2>
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -77,13 +98,13 @@ export function CartDrawer() {
         {/* items */}
         <div className="flex-1 overflow-y-auto px-5">
           {loading ? (
-            <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
+            <p className="py-16 text-center text-sm text-muted-foreground">{t("Loading…")}</p>
           ) : items.length === 0 ? (
             <div className="py-16 text-center">
-              <p className="text-base font-medium text-foreground">Your bag is empty</p>
-              <p className="text-sm text-muted-foreground">Discover something you&rsquo;ll love.</p>
+              <p className="text-base font-medium text-foreground">{t("Your bag is empty")}</p>
+              <p className="text-sm text-muted-foreground">{t("Discover something you'll love.")}</p>
               <Button asChild className="mt-6" onClick={() => setOpen(false)}>
-                <Link href="/products">Start Shopping</Link>
+                <Link href="/products">{t("Start Shopping")}</Link>
               </Button>
             </div>
           ) : (
@@ -123,9 +144,9 @@ export function CartDrawer() {
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
-                    {formatSpecs(item.attributes) ? (
+                    {formatSpecValues(item.attributes) ? (
                       <p className="mt-1 text-xs opacity-60">
-                        {formatSpecs(item.attributes)}
+                        {formatSpecValues(item.attributes)}
                       </p>
                     ) : null}
                     <div className="mt-auto flex items-end justify-between pt-2">
@@ -154,14 +175,14 @@ export function CartDrawer() {
         {items.length > 0 ? (
           <div className="space-y-3 border-t border-border px-5 py-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm opacity-60">Subtotal</span>
+              <span className="text-sm opacity-60">{t("Subtotal")}</span>
               <span className="text-lg font-normal text-foreground">{format(subtotal)}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Shipping & taxes calculated at checkout.
+              {t("Shipping & taxes calculated at checkout.")}
             </p>
             <Button asChild size="lg" className="w-full" onClick={() => setOpen(false)}>
-              <Link href="/checkout">Checkout</Link>
+              <Link href="/checkout">{t("Checkout")}</Link>
             </Button>
             <Button
               asChild
@@ -169,10 +190,53 @@ export function CartDrawer() {
               className="w-full"
               onClick={() => setOpen(false)}
             >
-              <Link href="/cart">View Full Bag</Link>
+              <Link href="/cart">{t("View Full Bag")}</Link>
             </Button>
           </div>
         ) : null}
+
+        {/* 数据打通：账户中心入口（头部对齐 shop.x.com 无 UserMenu，在此提供账户/通知访问）
+            仅登录用户显示，消除"有账户页面但无入口"的信息孤岛 */}
+        {isLoggedIn ? (
+          <div className="border-t border-border px-5 py-3">
+            <div className="flex items-center justify-around">
+              <Link
+                href="/account"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <User className="h-3.5 w-3.5" />
+                {t("My Account")}
+              </Link>
+              <Link
+                href="/account/notifications"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                {t("Notifications")}
+              </Link>
+              <Link
+                href="/orders"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                {t("My Orders")}
+              </Link>
+            </div>
+          </div>
+        ) : (
+          /* 未登录用户：提供登录入口（结账时也会触发登录） */
+          <div className="border-t border-border px-5 py-3">
+            <Link
+              href="/auth/login"
+              onClick={() => setOpen(false)}
+              className="block text-center text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {t("Sign in to track orders and save your bag")}
+            </Link>
+          </div>
+        )}
       </aside>
     </div>
   );

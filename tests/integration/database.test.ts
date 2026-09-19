@@ -20,17 +20,15 @@ describe("数据库连通性", () => {
   });
 
   it("种子数据已写入", async () => {
-    const [users, products, categories, coupons] = await Promise.all([
+    const [users, products, categories] = await Promise.all([
       prisma.user.count(),
       prisma.product.count(),
       prisma.category.count(),
-      prisma.coupon.count(),
     ]);
     expect(users).toBeGreaterThanOrEqual(3);
     expect(products).toBeGreaterThanOrEqual(20);
     // 官方镜像目录为 2 个分类（X Collection / SpaceXAI Collection）
     expect(categories).toBeGreaterThanOrEqual(2);
-    expect(coupons).toBeGreaterThanOrEqual(2);
   });
 
   it("种子账号存在且角色正确", async () => {
@@ -40,9 +38,8 @@ describe("数据库连通性", () => {
     expect(user?.role).toBe("CUSTOMER");
   });
 
-  it("订单/购物车/评价表可用", async () => {
+  it("订单/购物车表可用", async () => {
     await expect(prisma.order.count()).resolves.toBeGreaterThanOrEqual(0);
     await expect(prisma.cartItem.count()).resolves.toBeGreaterThanOrEqual(0);
-    await expect(prisma.review.count()).resolves.toBeGreaterThanOrEqual(0);
   });
 });

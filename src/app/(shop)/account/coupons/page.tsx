@@ -1,100 +1,120 @@
-import { redirect } from "next/navigation";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Ticket } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
-import { getSessionUser } from "@/lib/auth/session";
-import { prisma } from "@/lib/prisma";
-import { listActiveCoupons } from "@/server/services/product.service";
+import { Button } from "@/components/ui/button";
 import { CouponCard } from "@/components/shop/coupon-card";
-import { SectionTitle } from "@/components/shop/section-title";
-import type { CouponData } from "@/components/shop/types";
+import { buildAlternates } from "@/lib/shop-i18n";
 import { getT } from "@/lib/shop-i18n-server";
-import type { TFunc } from "@/lib/shop-i18n-server";
+import { getSessionUser } from "@/lib/auth/session";
+import { listPublicCoupons, listUserRedemptions } from "@/server/services/coupon.service";
+import { formatMoney } from "@/lib/utils";
+import type { CouponData } from "@/components/shop/types";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "My Coupons",
-  description: "View used coupons and coupons you can claim",
-};
-
-function toCouponData(coupon: {
-  id: string;
-  code: string;
-  type: string;
-  value: unknown;
-  minSpend: unknown;
-  maxDiscount: unknown;
-  startsAt: Date;
-  endsAt: Date;
-  usageLimit: number;
-  usedCount: number;
-}): CouponData {
-  return {
-    id: coupon.id,
-    code: coupon.code,
-    type: (["PERCENTAGE", "FIXED", "FREE_SHIPPING"] as const).includes(coupon.type as never)
-      ? (coupon.type as CouponData["type"])
-      : "FIXED",
-    value: Number(coupon.value),
-    minSpend: Number(coupon.minSpend),
-    maxDiscount: coupon.maxDiscount == null ? null : Number(coupon.maxDiscount),
-    startsAt: coupon.startsAt,
-    endsAt: coupon.endsAt,
-    usageLimit: coupon.usageLimit,
-    usedCount: coupon.usedCount,
-  };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getT();
+  return { title: t("My Coupons"), alternates: buildAlternates("/account/coupons") };
 }
 
-/** My Coupons (server) */
-export default async function CouponsPage() {
+/**
+ * /account/coupons —— 我的折扣码。
+ *
+ * 「可领取」只列公开券（`isPublic=true`）：定向发放的私密码不应在此泄露，
+ * 否则等于把邀请码公开。私密码仍可在结账页直接输入使用。
+ *
+ * 「已使用」的减免金额按**订单币种**格式化（核销记录里 discountAmount 是该单币种），
+ * 不与券面 USD 金额混算，避免跨币种错账。
+ */
+export default async function MyCouponsPage() {
+  const t = await getT();
   const user = await getSessionUser();
-  if (!user) redirect("/auth/login?next=/account/coupons");
+  // account layout 已做登录守卫；此处再取一次是为了拿到 userId（TS 收窄）
   if (!user) throw new Error("unreachable");
-  const t: TFunc = await getT();
 
-  const [usedRedemptions, available] = await Promise.all([
-    prisma.couponRedemption.findMany({
-      where: { userId: user.id },
-      include: { coupon: true },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    }),
-    listActiveCoupons(),
+  const [available, used] = await Promise.all([
+    listPublicCoupons(),
+    listUserRedemptions(user.id),
   ]);
+
+  const cards: CouponData[] = available.map((c) => ({
+    id: c.code,
+    code: c.code,
+    type: c.type,
+    value: c.value,
+    minSpend: c.minSpend,
+    maxDiscount: c.maxDiscount,
+    startsAt: new Date(),
+    endsAt: c.endsAt,
+    title: c.title,
+    titleEn: c.titleEn,
+    description: c.description,
+    descriptionEn: c.descriptionEn,
+  }));
 
   return (
     <div className="space-y-8">
       <section>
-        <SectionTitle title={t("Available Coupons")} subtitle={t("Enter the coupon code at checkout to apply")} />
-        {available.length === 0 ? (
+        <div className="mb-4 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-medium text-foreground">{t("Available Coupons")}</h2>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {t("Enter the discount code at checkout to apply")}
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm" className="shrink-0">
+            <Link href="/coupons">{t("Coupon Center")}</Link>
+          </Button>
+        </div>
+        {cards.length === 0 ? (
           <EmptyState
             icon={<Ticket className="h-5 w-5" />}
-            title={t("No coupons available right now")}
-            description={t("Check the homepage coupon center — we release new coupons from time to time.")}
+            title={t("No discount codes available right now")}
+            description={t("Shop all products")}
+            action={
+              <Button asChild variant="outline">
+                <Link href="/products">{t("Shop all products")}</Link>
+              </Button>
+            }
           />
         ) : (
           <div className="space-y-3">
-            {available.map((coupon) => (
-              <CouponCard key={coupon.id} coupon={toCouponData(coupon)} />
+            {cards.map((c) => (
+              <CouponCard key={c.id} coupon={c} />
             ))}
           </div>
         )}
       </section>
 
       <section>
-        <SectionTitle title={t("Used Coupons")} />
-        {usedRedemptions.length === 0 ? (
+        <h2 className="mb-4 text-lg font-medium text-foreground">{t("Used Coupons")}</h2>
+        {used.length === 0 ? (
           <p className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
             {t("You have not used any coupons yet")}
           </p>
         ) : (
           <div className="space-y-3">
-            {usedRedemptions.map((r) => (
+            {used.map((r) => (
               <CouponCard
                 key={r.id}
-                coupon={toCouponData(r.coupon)}
-                subtitle={t("Used · saved {amount}", { amount: Number(r.discountAmount).toFixed(2) })}
+                coupon={{
+                  id: r.coupon.id,
+                  code: r.coupon.code,
+                  type: r.coupon.type,
+                  value: r.coupon.value,
+                  minSpend: r.coupon.minSpend,
+                  maxDiscount: r.coupon.maxDiscount,
+                  startsAt: r.coupon.startsAt,
+                  endsAt: r.coupon.endsAt,
+                  title: r.coupon.title,
+                  titleEn: r.coupon.titleEn,
+                  description: r.coupon.description,
+                  descriptionEn: r.coupon.descriptionEn,
+                }}
+                subtitle={t("Used · saved {amount}", {
+                  amount: formatMoney(r.discountAmount, r.currency),
+                })}
                 className="opacity-70"
               />
             ))}

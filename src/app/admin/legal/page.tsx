@@ -12,36 +12,51 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { apiFetch } from "@/lib/fetch-client";
 import { useT } from "@/components/admin/lang-provider";
 
-/** 五份法务文档：键 = site_settings 存储键；labelKey = admin-i18n 词条 */
+/** 法务文档：键 = site_settings 存储键；labelKey = admin-i18n 词条 */
 const DOCUMENTS = [
   { key: "policyAccessibility", labelKey: "无障碍声明", hint: "/pages/accessibility-statement" },
   { key: "policyPrivacy", labelKey: "隐私政策", hint: "/policies/privacy" },
   { key: "policyTerms", labelKey: "服务条款", hint: "/policies/terms" },
   { key: "policyRefund", labelKey: "退款政策", hint: "/policies/refund" },
   { key: "policyCookies", labelKey: "Cookie 政策", hint: "/policies/cookies" },
+  { key: "policyDataSharingOptOut", labelKey: "您的隐私选择", hint: "/pages/data-sharing-opt-out" },
 ] as const;
 
 type LegalKey = (typeof DOCUMENTS)[number]["key"];
 
-type DocValue = string | { zh: string; en: string };
+/** 双语文档：{ zh, en }，各语言独立保存（空串 = 该语言使用内置默认） */
+interface BiDoc {
+  zh: string;
+  en: string;
+}
 
-/** 历史值兼容：单语字符串原样展示；双语对象取 zh（空则 en）作为编辑底稿 */
-function toEditable(value: unknown): string {
-  if (typeof value === "string") return value;
+/**
+ * 历史值兼容（与新 readPolicy 语义一致）：
+ * - 单语字符串 → 双语同值（旧编辑器只存一份的存量，双语共用）
+ * - { zh, en } 对象 → 原样取值（空/缺省 → 空串）
+ */
+function toEditablePair(value: unknown): BiDoc {
+  if (typeof value === "string") return { zh: value, en: value };
   if (value && typeof value === "object") {
     const o = value as Record<string, unknown>;
-    if (typeof o.zh === "string" && o.zh) return o.zh;
-    if (typeof o.en === "string") return o.en;
+    return {
+      zh: typeof o.zh === "string" ? o.zh : "",
+      en: typeof o.en === "string" ? o.en : "",
+    };
   }
-  return "";
+  return { zh: "", en: "" };
 }
 
 export default function LegalPagesPage() {
   const t = useT();
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<LegalKey | null>(null);
-  const [docs, setDocs] = useState<Record<LegalKey, string>>(
-    () => Object.fromEntries(DOCUMENTS.map((d) => [d.key, ""])) as Record<LegalKey, string>,
+  const [docs, setDocs] = useState<Record<LegalKey, BiDoc>>(
+    () =>
+      Object.fromEntries(DOCUMENTS.map((d) => [d.key, { zh: "", en: "" }])) as Record<
+        LegalKey,
+        BiDoc
+      >,
   );
   const [dirty, setDirty] = useState<Partial<Record<LegalKey, boolean>>>({});
 
@@ -51,8 +66,8 @@ export default function LegalPagesPage() {
       const res = await apiFetch<{ documents: Record<LegalKey, unknown> }>("/api/admin/legal");
       setDocs(
         Object.fromEntries(
-          DOCUMENTS.map((d) => [d.key, toEditable(res.documents?.[d.key])]),
-        ) as Record<LegalKey, string>,
+          DOCUMENTS.map((d) => [d.key, toEditablePair(res.documents?.[d.key])]),
+        ) as Record<LegalKey, BiDoc>,
       );
       setDirty({});
     } catch (err) {
@@ -69,10 +84,12 @@ export default function LegalPagesPage() {
   const save = async (key: LegalKey) => {
     setSavingKey(key);
     try {
+      const { zh, en } = docs[key];
+      // 始终保存 { zh, en } 双语对象；trim 后空串 = 该语言恢复内置默认
       await apiFetch("/api/admin/legal", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [key]: docs[key] }),
+        body: JSON.stringify({ [key]: { zh: zh.trim(), en: en.trim() } }),
       });
       setDirty((d) => ({ ...d, [key]: false }));
       toast.success(t("Saved. The storefront page updates immediately."));
@@ -83,11 +100,18 @@ export default function LegalPagesPage() {
     }
   };
 
+  const setLangText = (key: LegalKey, lang: "zh" | "en", text: string) => {
+    setDocs((s) => ({ ...s, [key]: { ...s[key], [lang]: text } }));
+    setDirty((d) => ({ ...d, [key]: true }));
+  };
+
   return (
     <div className="space-y-6">
       <AdminPageHeader
         title={t("Legal pages")}
-        description={t("Edit each legal document independently — Accessibility, Privacy, Terms, Refund and Cookie policies.")}
+        description={t(
+          "Each document is edited per language (Chinese / English) and linked to the storefront page and the footer — the storefront updates immediately after saving.",
+        )}
       />
 
       {loading ? (
@@ -113,19 +137,45 @@ export default function LegalPagesPage() {
               {DOCUMENTS.map((d) => (
                 <TabsContent key={d.key} value={d.key} className="mt-4 space-y-3">
                   <p className="text-xs opacity-60">
-                    {t("Frontend path")}: <code className="rounded bg-muted px-1.5 py-0.5">{d.hint}</code>
+                    {t("Frontend path")}:{" "}
+                    <code className="rounded bg-muted px-1.5 py-0.5">{d.hint}</code>
                     {" · "}
-                    {t("Lightweight markup: ## headings, - lists, **bold**. Clear the text to restore the built-in default.")}
+                    {t(
+                      "Lightweight markup: ## headings, - lists, **bold**. Clear a language's text to restore the built-in default for that language.",
+                    )}
                   </p>
-                  <Textarea
-                    rows={18}
-                    className="font-mono text-xs leading-relaxed"
-                    value={docs[d.key]}
-                    onChange={(e) =>
-                      setDocs((s) => ({ ...s, [d.key]: e.target.value }))
-                    }
-                    onInput={() => setDirty((s) => ({ ...s, [d.key]: true }))}
-                  />
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">
+                        {t("Chinese content")}
+                        <span className="ml-2 text-xs font-normal opacity-60">
+                          {t("shown on the zh storefront")}
+                        </span>
+                      </p>
+                      <Textarea
+                        rows={16}
+                        aria-label={t("Chinese content")}
+                        className="font-mono text-xs leading-relaxed"
+                        value={docs[d.key].zh}
+                        onChange={(e) => setLangText(d.key, "zh", e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium">
+                        {t("English content")}
+                        <span className="ml-2 text-xs font-normal opacity-60">
+                          {t("shown on the en storefront")}
+                        </span>
+                      </p>
+                      <Textarea
+                        rows={16}
+                        aria-label={t("English content")}
+                        className="font-mono text-xs leading-relaxed"
+                        value={docs[d.key].en}
+                        onChange={(e) => setLangText(d.key, "en", e.target.value)}
+                      />
+                    </div>
+                  </div>
                   <div className="flex justify-end">
                     <Button onClick={() => void save(d.key)} disabled={savingKey !== null}>
                       {savingKey === d.key ? (

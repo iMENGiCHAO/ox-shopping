@@ -32,6 +32,7 @@ import type {
 export const productFormSchema = z
   .object({
     name: z.string().trim().min(2, "商品名称至少 2 个字符").max(120),
+    nameEn: z.string().trim().max(120).optional().or(z.literal("")),
     slug: z
       .string()
       .trim()
@@ -95,6 +96,7 @@ export type ProductFormValues = z.infer<typeof productFormSchema>;
 /** Product payload submitted to the API */
 export interface ProductFormPayload {
   name: string;
+  nameEn?: string | null;
   slug?: string;
   description: string;
   sku: string;
@@ -136,6 +138,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
     resolver: zodResolver(productFormSchema),
     defaultValues: {
       name: initial?.name ?? "",
+      nameEn: initial?.nameEn ?? "",
       slug: initial?.slug ?? "",
       sku: initial?.sku ?? "",
       price: initial ? String(Number(initial.price)) : "",
@@ -221,7 +224,6 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   const [chart, setChart] = React.useState<{ headers: string[]; rows: string[][] }>(
     () => initial?.sizeChart ?? { headers: ["尺码"], rows: [] },
   );
-
   const handleSubmit = form.handleSubmit((values) => {
     const attributes = values.attributes
       .map((a) => ({
@@ -256,6 +258,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       : null;
     const payload: ProductFormPayload = {
       name: values.name,
+      nameEn: values.nameEn?.trim() || null,
       slug: values.slug || undefined,
       description: values.description,
       sku: values.sku,
@@ -287,6 +290,18 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           <Input id="pf-name" placeholder={t("Enter a product name")} {...form.register("name")} />
           {form.formState.errors.name ? (
             <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+          ) : null}
+        </div>
+
+        <div className="space-y-2 sm:col-span-2">
+          <Label htmlFor="pf-nameEn">{t("Product name (English)")}（可选）</Label>
+          <Input
+            id="pf-nameEn"
+            placeholder="英文名，用于英文界面展示与 URL 生成，留空则回退中文名"
+            {...form.register("nameEn")}
+          />
+          {form.formState.errors.nameEn ? (
+            <p className="text-xs text-destructive">{form.formState.errors.nameEn.message}</p>
           ) : null}
         </div>
 
@@ -436,14 +451,15 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           </div>
         </div>
 
-        {/* 规格级库存（不同尺寸 = 单独规格商品，0 = 售罄） */}
+        {/* 规格级库存（不同尺寸 = 单独规格商品，0 = 售罄）：直接内嵌在表单里逐规格编辑，
+          无需额外弹窗（大爷诉求：把详细库存在一个表单里直接填写） */}
         {selectableGroups.length > 0 ? (
           <div className="space-y-3 rounded-lg border border-border p-3 sm:col-span-2">
             <div>
               <Label>规格库存（每个可选组单独维护，0 = 该规格售罄）</Label>
               <p className="text-xs text-muted-foreground">
                 颜色、尺码等每个选项都是独立的库存池；保存后总库存自动取各组之和的最小值，
-                前台售罄的选项会画斜线并禁止选择。留空 = 不追踪该选项。
+                前台售罄的选项会画斜线。留空 = 不追踪该选项。
               </p>
             </div>
             {selectableGroups.map((g) => (
@@ -463,7 +479,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                           const draft = structuredClone(specMaps);
                           draft[g.name] = { ...(draft[g.name] ?? {}), [v]: val };
                           const sums = Object.entries(draft)
-                            .map(([gn, m]) => ({
+                            .map(([, m]) => ({
                               tracked: Object.values(m).some((n) => n !== ""),
                               sum: Object.values(m)
                                 .filter((n) => n !== "")

@@ -38,6 +38,19 @@ export const SEARCHABLE_PAGES: SearchablePage[] = [
     href: "/policies/cookies",
     keywords: "cookie consent 追踪 存储 cookie 同意 tracking storage 隐私",
   },
+  {
+    title: "Refund Policy",
+    titleZh: "退款政策",
+    href: "/policies/refund",
+    keywords: "refund 退款 return 退货 money back 退换 售后",
+  },
+  {
+    title: "Your Privacy Choices",
+    titleZh: "您的隐私选择",
+    href: "/pages/data-sharing-opt-out",
+    keywords:
+      "privacy choices 隐私选择 opt out 退出 do not sell 不出售 share 共享 数据共享 ccpa",
+  },
 ];
 
 /** 页面命中：标题（中/英）子串或关键词（中/英）子串 */

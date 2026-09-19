@@ -1,5 +1,4 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { notFound } from "@/lib/errors";
 import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/auth/session";
 import { routeParam } from "@/app/api/_lib/params";
@@ -10,6 +9,8 @@ export const runtime = "nodejs";
 const faqUpdateSchema = z.object({
   question: z.string().trim().min(2).max(200).optional(),
   answer: z.string().trim().min(2).optional(),
+  questionEn: z.string().trim().max(200).optional().nullable(),
+  answerEn: z.string().trim().optional().nullable(),
   sortOrder: z.number().int().min(0).max(999).optional(),
   published: z.boolean().optional(),
 });

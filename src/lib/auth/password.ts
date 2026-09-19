@@ -1,8 +1,35 @@
 import "server-only";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { isProduction } from "@/lib/env";
 
-const BCRYPT_ROUNDS = 12;
+/**
+ * bcrypt 成本因子（可配置，默认 12）。
+ *
+ * 为什么不能写死成常量：
+ *   1. **硬件差异极大**。同一份代码在快机上 12 轮约 250ms，但在本项目的外置卷
+ *      环境下实测单次哈希要 **5.8s**（`tests/unit/password.test.ts` 的两个用例
+ *      各跑了 5.8s / 4.1s）。写死就等于把「登录/注册要等几秒」固化进产品，
+ *      运维无法按机器能力调整 —— 这属于该由环境变量决定的事。
+ *   2. **测试环境必须调低**。集成测试每个文件都要 `login()`，一次哈希 5.8s
+ *      会把整轮套件拖长数分钟，并直接触发 vitest 的 hookTimeout（实测
+ *      `coupon-flow` 的 beforeAll 因此超时 90s）。测试用 4 轮即可。
+ *
+ * 安全下限：**生产环境低于 10 轮直接拒绝启动** —— 弱哈希约等于明文存储，
+ * 这是宁可起不来也不能带病上线的配置。测试/开发环境不设该下限（否则没法调低）。
+ */
+function resolveBcryptRounds(): number {
+  const raw = Number(process.env.BCRYPT_ROUNDS);
+  const rounds = Number.isInteger(raw) && raw >= 4 && raw <= 15 ? raw : 12;
+  if (isProduction && rounds < 10) {
+    throw new Error(
+      `BCRYPT_ROUNDS=${rounds} 过低：生产环境要求 ≥ 10（弱哈希约等于明文存储）`,
+    );
+  }
+  return rounds;
+}
+
+const BCRYPT_ROUNDS = resolveBcryptRounds();
 
 export function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, BCRYPT_ROUNDS);
@@ -12,14 +39,19 @@ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
 
-/** 密码强度要求：8-72 位，含大写、小写、数字 */
+/**
+ * 密码强度要求：8-72 位，含大写、小写、数字。
+ *
+ * 文案语言：**英文**。中文界面由 `lib/error-i18n` 的 `ERROR_ZH` 在 API
+ * 错误出口按请求语言替换；前台表单各自用 `t()` 构造本地化文案，不读这里。
+ */
 export const passwordSchema = z
   .string()
-  .min(8, "密码至少 8 位")
-  .max(72, "密码最长 72 位")
-  .regex(/[a-z]/, "密码必须包含小写字母")
-  .regex(/[A-Z]/, "密码必须包含大写字母")
-  .regex(/[0-9]/, "密码必须包含数字");
+  .min(8, "Password must be at least 8 characters")
+  .max(72, "Password must be at most 72 characters")
+  .regex(/[a-z]/, "Password must contain a lowercase letter")
+  .regex(/[A-Z]/, "Password must contain an uppercase letter")
+  .regex(/[0-9]/, "Password must contain a number");
 
 /** 密码强度评级(用于注册页实时提示) */
 export function passwordStrength(plain: string): 0 | 1 | 2 | 3 {

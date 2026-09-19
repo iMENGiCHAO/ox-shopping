@@ -1,16 +1,17 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { badRequest, notFound } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth/session";
-import { updateOrderStatus } from "@/server/services/order.service";
+import { updateOrderStatus, orderUrlFor, greetingName } from "@/server/services/order.service";
 import { serializeRefund } from "@/server/serializers";
 import { createStripeRefund } from "@/lib/payment/stripe";
+import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
+import { getProvider } from "@/lib/payment/providers";
 import { effectivePaymentMode } from "@/lib/env";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { logPayment } from "@/server/services/payment-log.service";
 import { createNotification } from "@/server/services/notification.service";
 import { formatMoney } from "@/lib/utils";
-import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { sanitizePlainText } from "@/lib/sanitize";
 import { z } from "zod";
@@ -22,6 +23,41 @@ const refundDecisionSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   adminNote: z.string().trim().max(500).optional().nullable(),
 });
+
+/**
+ * 发送退款进度邮件。
+ * 收件人优先取**订单联系邮箱**（游客单只有这个），登录单兜底账号邮箱；
+ * 两者皆无时静默跳过——绝不能给邮件服务传空收件人。
+ */
+async function sendRefundMail(
+  refund: {
+    amount: unknown;
+    order: {
+      orderNumber: string;
+      currency: string;
+      contactEmail: string | null;
+      accessToken: string | null;
+      addressSnapshot: unknown;
+    };
+    user: { name: string; email: string } | null;
+  },
+  opts: { statusText: string; note?: string; orderUrl: string },
+): Promise<void> {
+  const to = refund.order.contactEmail ?? refund.user?.email ?? null;
+  if (!to) return;
+  await sendMail({
+    to,
+    template: "refund-update",
+    data: {
+      name: greetingName(refund.user?.name, refund.order),
+      orderNumber: refund.order.orderNumber,
+      statusText: opts.statusText,
+      amount: formatMoney(Number(refund.amount), refund.order.currency),
+      note: opts.note,
+      orderUrl: opts.orderUrl,
+    },
+  });
+}
 
 /** PUT /api/admin/refunds/[id] — 退款审核 */
 export const PUT = apiHandler(async (req, ctx) => {
@@ -40,7 +76,10 @@ export const PUT = apiHandler(async (req, ctx) => {
   });
   if (!refund) throw notFound("退款申请不存在");
 
-  const orderUrl = `${env.SITE_URL}/orders/${refund.order.orderNumber}`;
+  // 订单详情链接：游客单必须带查询令牌（无账号，否则邮件里的链接点开是登录页）
+  const orderUrl = orderUrlFor(refund.order);
+  // 订单实际支付渠道（兼容旧 stripe/mock env 模式）
+  const refundProviderKey = refund.order.paymentProvider ?? effectivePaymentMode;
 
   if (input.decision === "approve") {
     // 原子认领：同一退款单并发审批只有一个成功；
@@ -71,23 +110,38 @@ export const PUT = apiHandler(async (req, ctx) => {
       return soFar;
     });
 
-    // Stripe 模式：发起线上退款（预留接口；mock 模式跳过）
+    // 网关退款：按订单支付渠道分发（Stripe 兼容 + payment_channels 渠道）；mock 无网关退款
     let gatewayRefundId: string | null = null;
-    if (effectivePaymentMode === "stripe" && refund.order.paymentId) {
-      try {
+    try {
+      if (refundProviderKey === "stripe" && refund.order.paymentId) {
         const r = await createStripeRefund(refund.order.paymentId, Number(refund.amount));
         gatewayRefundId = r.id;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "未知错误";
-        // 网关失败：回滚认领状态并记录原因，允许管理员重试（不留半途状态）
-        await prisma.refund
-          .update({
-            where: { id },
-            data: { status: "REQUESTED", adminNote: `网关退款失败：${msg}` },
-          })
-          .catch(() => undefined);
-        throw badRequest(`退款失败：${msg}`);
+      } else if (refundProviderKey && refundProviderKey !== "mock") {
+        const channel = await getChannelRuntimeByCode(refundProviderKey);
+        if (channel && channel.enabled) {
+          const provider = getProvider(channel.provider);
+          const r = await provider.refund(
+            {
+              orderNumber: refund.order.orderNumber,
+              amount: Number(refund.amount),
+              gatewayId: refund.order.paymentId ?? null,
+              currency: refund.order.currency,
+            },
+            channel.config,
+          );
+          gatewayRefundId = r.gatewayRefundId;
+        }
       }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      // 网关失败：回滚认领状态并记录原因，允许管理员重试（不留半途状态）
+      await prisma.refund
+        .update({
+          where: { id },
+          data: { status: "REQUESTED", adminNote: `网关退款失败：${msg}` },
+        })
+        .catch(() => undefined);
+      throw badRequest(`退款失败：${msg}`);
     }
 
     const updated = await prisma.refund.update({
@@ -98,7 +152,7 @@ export const PUT = apiHandler(async (req, ctx) => {
     // 资金流水：退款完成
     void logPayment({
       orderId: refund.orderId,
-      provider: effectivePaymentMode,
+      provider: refundProviderKey,
       event: "refunded",
       amount: Number(refund.amount),
       gatewayId: gatewayRefundId,
@@ -110,7 +164,14 @@ export const PUT = apiHandler(async (req, ctx) => {
     const cumulative = claimedRefund + Number(refund.amount);
     try {
       if (cumulative >= Number(refund.order.total) - 1e-9 && refund.order.status !== "REFUNDED") {
-        await updateOrderStatus(refund.order, "REFUNDED", { id: actor.id, name: actor.name });
+        // 本路由已在上方完成网关退款 → 只做本地记账（状态 + 库存回补），跳过重复网关退款
+        await updateOrderStatus(
+          refund.order,
+          "REFUNDED",
+          { id: actor.id, name: actor.name },
+          undefined,
+          { skipGatewayRefund: true },
+        );
       }
     } catch (err) {
       // 状态机不允许时忽略：Refund 已 REFUNDED 即可
@@ -121,17 +182,10 @@ export const PUT = apiHandler(async (req, ctx) => {
       );
     }
 
-    await sendMail({
-      to: refund.user.email,
-      template: "refund-update",
-      data: {
-        name: refund.user.name,
-        orderNumber: refund.order.orderNumber,
-        statusText: "已退款",
-        amount: formatMoney(Number(refund.amount), refund.order.currency),
-        note: input.adminNote ?? undefined,
-        orderUrl,
-      },
+    await sendRefundMail(refund, {
+      statusText: "已退款",
+      note: input.adminNote ?? undefined,
+      orderUrl,
     });
     await audit({
       userId: actor.id,
@@ -174,23 +228,16 @@ export const PUT = apiHandler(async (req, ctx) => {
 
   void logPayment({
     orderId: refund.orderId,
-    provider: effectivePaymentMode,
+    provider: refundProviderKey,
     event: "refund_rejected",
     amount: Number(refund.amount),
     payload: { refundId: refund.id, admin: actor.email },
   });
 
-  await sendMail({
-    to: refund.user.email,
-    template: "refund-update",
-    data: {
-      name: refund.user.name,
-      orderNumber: refund.order.orderNumber,
-      statusText: "已拒绝",
-      amount: formatMoney(Number(refund.amount), refund.order.currency),
-      note: input.adminNote ?? undefined,
-      orderUrl,
-    },
+  await sendRefundMail(refund, {
+    statusText: "已拒绝",
+    note: input.adminNote ?? undefined,
+    orderUrl,
   });
   await audit({
     userId: actor.id,

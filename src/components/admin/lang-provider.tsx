@@ -11,17 +11,24 @@ type Ctx = {
   setLang: (l: Lang) => void;
   toggle: () => void;
   t: (key: string) => string;
+  /**
+   * 站点品牌名 —— 由服务端 layout 注入（站点设置 → 环境变量 → 内置默认）。
+   * 客户端组件读不到站点设置，所以品牌名只走这一条通道，组件内不留字面量。
+   */
+  siteName: string;
 };
 
 const LangContext = React.createContext<Ctx | null>(null);
 
 export function LangProvider({
   children,
-  initialLang,
+  siteName = "",
 }: {
   children: React.ReactNode;
   /** SSR 从 cookie 读取的初始语言；后台已锁定纯中文，忽略外部传入 */
   initialLang?: Lang;
+  /** 站点品牌名（服务端注入） */
+  siteName?: string;
 }) {
   const [lang, setLangState] = React.useState<Lang>("zh");
   const router = useRouter();
@@ -57,7 +64,10 @@ export function LangProvider({
 
   const t = React.useCallback((key: string) => translate(key, lang), [lang]);
 
-  const value = React.useMemo(() => ({ lang, setLang, toggle, t }), [lang, setLang, toggle, t]);
+  const value = React.useMemo(
+    () => ({ lang, setLang, toggle, t, siteName }),
+    [lang, setLang, toggle, t, siteName],
+  );
 
   return (
     <LangContext.Provider value={value}>
@@ -75,6 +85,7 @@ export function useLang(): Ctx {
       setLang: () => {},
       toggle: () => {},
       t: (k: string) => translate(k, "zh"),
+      siteName: "",
     };
   }
   return ctx;
@@ -83,6 +94,11 @@ export function useLang(): Ctx {
 /** Convenience hook — returns just `t`. */
 export function useT() {
   return useLang().t;
+}
+
+/** Convenience hook — returns the server-injected site brand name. */
+export function useSiteName() {
+  return useLang().siteName;
 }
 
 export { LANG_LABEL, LANGS };

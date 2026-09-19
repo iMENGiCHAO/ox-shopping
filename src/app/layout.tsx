@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 import { headers } from "next/headers";
 import { getLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
+import { env, brandFallback } from "@/lib/env";
 import "./globals.css";
 
 /*
@@ -11,16 +12,17 @@ import "./globals.css";
  * dependency, and it is exactly the shop.x.com look (regular weight).
  */
 
-const FALLBACK_NAME = "Official Ox Shopping";
-const FALLBACK_DESCRIPTION =
-  "Official Ox Shopping — official apparel and accessories. Tees, hoodies, hats, drinkware and more.";
+// SEO 兜底：仅在后台「站点设置」未填写时生效。品牌名统一取 brandFallback，
+// 不在此处写死 —— 改名只需改环境变量 SITE_NAME 或后台设置。
+const FALLBACK_NAME = brandFallback;
+const FALLBACK_DESCRIPTION = `${brandFallback} — official apparel and accessories. Tees, hoodies, hats, drinkware and more.`;
 const FALLBACK_KEYWORDS = [
-  "Ox Shopping",
-  "Grok",
-  "X",
+  brandFallback,
+  "official",
   "shop",
   "store",
   "apparel",
+  "accessories",
   "tee",
   "hoodie",
 ];
@@ -30,7 +32,7 @@ export async function generateMetadata(): Promise<Metadata> {
   // 后台路由不读站点设置（避开头/正文重复查询），留默认 SEO
   const settings = await getSiteSettings();
   const lang = await getLang();
-  const base = new URL(process.env.SITE_URL ?? "http://localhost:3000");
+  const base = new URL(env.SITE_URL);
 
   const siteName = pickLang(settings.siteName, lang) || FALLBACK_NAME;
   const description =
@@ -57,8 +59,10 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     metadataBase: base,
     icons: {
-      icon: "/images/brand/favicon.png",
-      apple: "/images/brand/favicon.png",
+      // 标签栏使用深色(黑色)品牌 logo，才能在浏览器浅色标签栏上清晰可见；
+      // favicon.png 为白色品牌 logo，仅用于 JSON-LD 结构化数据等 logo 展示场景。
+      icon: "/images/brand/favicon-dark.png",
+      apple: "/images/brand/favicon-dark.png",
     },
     title: {
       default: siteName,

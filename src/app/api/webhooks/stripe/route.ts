@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { json } from "@/lib/api";
 import { constructWebhookEvent } from "@/lib/payment/stripe";
-import { markOrderPaid, updateOrderStatus } from "@/server/services/order.service";
+import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
+import { str } from "@/lib/payment/provider";
+import { markOrderPaid, markOrderRefundedByGateway } from "@/server/services/order.service";
 import { audit } from "@/lib/audit";
 import { logError } from "@/lib/logger";
 import { captureException } from "@/lib/monitoring";
@@ -18,9 +20,23 @@ export async function POST(req: Request) {
   const payload = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
 
+  // 渠道化 Stripe：后台配置并启用了 stripe 渠道时优先用渠道密钥验签；否则回落 env
+  let keys: { secretKey?: string; webhookSecret?: string } | undefined;
+  try {
+    const channel = await getChannelRuntimeByCode("stripe");
+    if (channel?.enabled) {
+      keys = {
+        secretKey: str(channel.config, "secretKey") || undefined,
+        webhookSecret: str(channel.config, "webhookSecret") || undefined,
+      };
+    }
+  } catch {
+    /* DB 异常时回落 env 密钥 */
+  }
+
   let event: Stripe.Event;
   try {
-    event = constructWebhookEvent(payload, sig);
+    event = constructWebhookEvent(payload, sig, keys);
   } catch (err) {
     // 签名/构造失败：Stripe 对 4xx 不重试，返回 400 属正确语义
     logError(err, req, { context: "stripe webhook signature" });
@@ -33,6 +49,47 @@ export async function POST(req: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         const orderNumber = session.metadata?.orderNumber;
         if (orderNumber) {
+          // 资金安全：校验网关侧支付金额与币种是否与订单一致，
+          // 防止篡改 session / 币种错配导致低价成交
+          const order = await prisma.order.findUnique({ where: { orderNumber } });
+          if (!order) {
+            logError(new Error(`订单不存在: ${orderNumber}`), req, {
+              context: "stripe checkout.session.completed",
+            });
+            return NextResponse.json({ error: "订单不存在" }, { status: 400 });
+          }
+          const expectedCents = Math.round(Number(order.total) * 100);
+          if (session.amount_total !== expectedCents) {
+            logError(
+              new Error(`支付金额不匹配: 网关=${session.amount_total}分, 订单=${expectedCents}分`),
+              req,
+              { context: "stripe checkout.session.completed amount_mismatch" },
+            );
+            await audit({
+              action: "STRIPE_AMOUNT_MISMATCH",
+              entity: "Order",
+              entityId: order.id,
+              meta: {
+                orderNumber,
+                gatewayAmount: session.amount_total,
+                expectedAmount: expectedCents,
+              },
+              req,
+            });
+            return NextResponse.json({ error: "支付金额与订单不一致" }, { status: 400 });
+          }
+          if (
+            session.currency &&
+            order.currency &&
+            session.currency.toLowerCase() !== order.currency.toLowerCase()
+          ) {
+            logError(
+              new Error(`支付币种不匹配: 网关=${session.currency}, 订单=${order.currency}`),
+              req,
+              { context: "stripe checkout.session.completed currency_mismatch" },
+            );
+            return NextResponse.json({ error: "支付币种与订单不一致" }, { status: 400 });
+          }
           const paymentIntent =
             typeof session.payment_intent === "string" ? session.payment_intent : undefined;
           await markOrderPaid(orderNumber, paymentIntent);
@@ -68,12 +125,19 @@ export async function POST(req: Request) {
               _sum: { amount: true },
             });
             const refundedTotal = Number(agg._sum.amount ?? 0);
+            // 取本次退款的 gateway refund ID（charge.refunds 数组中最新的一条）
+            const latestRefund =
+              Array.isArray(charge.refunds?.data) && charge.refunds.data.length > 0
+                ? charge.refunds.data[charge.refunds.data.length - 1]
+                : null;
             if (refundedTotal >= Number(order.total) - 1e-9 && order.status !== "REFUNDED") {
               try {
-                await updateOrderStatus(order, "REFUNDED", null);
+                // 用 markOrderRefundedByGateway 而非 updateOrderStatus→refundEntireOrder：
+                // 退款已在网关侧发生，不应再次发起 Stripe 退款（否则重复退款）
+                await markOrderRefundedByGateway(order, latestRefund?.id ?? null);
               } catch (err) {
                 // 状态机不允许时忽略(订单已处终态等)
-                logError(err, req, { context: "charge.refunded updateOrderStatus" });
+                logError(err, req, { context: "charge.refunded markOrderRefundedByGateway" });
               }
             }
           }

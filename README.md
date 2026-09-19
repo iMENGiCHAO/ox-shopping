@@ -22,12 +22,9 @@
   [docs/DESIGN.md](docs/DESIGN.md)
 - **后台管理**：独立设计令牌（`.admin-theme` 作用域）——现代 SaaS 风格（8px 圆角 +
   柔和阴影 + 浅灰分层，前台零影响）；统一数据表规范（sticky 操作列 / 状态徽章不换行 /
-  长文本截断）；**双向信息通知闭环**：前端动作（新订单/付款/退款/新用户/补货/降价）
+  长文本截断）；**双向信息通知闭环**：前端动作（新订单/付款/退款/新用户/补货）
   自动通知后台「消息中心」，后台处理（发货/退款/取消）自动邮件+站内通知客户；
   分类编辑内置落地页横幅（首页横幅由前两个分类驱动）；侧栏可收起/展开
-- **会话工作记忆 / 官方实测规格 / 已下线功能 / 坑位**：见
-  [docs/SESSION_SUMMARY.md](docs/SESSION_SUMMARY.md)（下次接手优化前必读）
-
 ---
 
 ## 目录结构
@@ -37,7 +34,7 @@ ecommerce/
 ├── src/
 │   ├── app/                    # App Router
 │   │   ├── (shop)/             # 用户端（首页/商品/购物车/结算/订单/个人中心/认证/政策）
-│   │   ├── admin/              # 管理端（仪表盘/商品/分类/订单/用户/优惠券/评价/退款/审计/设置）
+│   │   ├── admin/              # 管理端（仪表盘/商品/分类/订单/用户/退款/审计/设置）
 │   │   ├── api/                # 全部 API Route Handlers
 │   │   ├── globals.css
 │   │   ├── layout.tsx
@@ -96,8 +93,6 @@ docker compose up -d --build
 | 管理员 ADMIN | admin@example.com | Admin@123456 |
 | 顾客 CUSTOMER | user@example.com | User@123456 |
 | 客服 SUPPORT | support@example.com | Support@123456 |
-
-**种子优惠券**：`WELCOME10`（9 折，满 100 可用，最高减 200）、`SAVE50`（满 300 减 50）、`FREESHIP`（满 99 免运费）。
 
 docker-compose 默认使用**模拟支付**（Pay 环节跳转到站内模拟支付页）与**控制台邮件**，未配置任何外部服务即可完整跑通下单→支付→发货→退款全流程。
 
@@ -180,7 +175,7 @@ npm run dev               # http://localhost:3000
 
 4. 测试卡号：`4242 4242 4242 4242`（任意未来日期/CVC）。
 
-Webhook 会验证签名（签名错误返回 400）；事件处理幂等（重复事件不会重复发货/重复加优惠券使用量）。
+Webhook 会验证签名（签名错误返回 400）；事件处理幂等（重复事件不会重复发货/重复入账）。
 
 ---
 
@@ -192,7 +187,7 @@ npm run test:integration   # 集成测试（需要 PostgreSQL，.env.test 中 DA
 npm run test:e2e           # E2E（需要 dev 服务器 + 种子数据库）
 ```
 
-- **单元测试**：金额转换、密码强度、订单状态机、Zod 校验、优惠券计算、工具函数。
+- **单元测试**：金额转换、密码强度、订单状态机、Zod 校验、工具函数。
 - **集成测试**：直接调用 Route Handler（无需启动服务器），覆盖认证全流程、CSRF 中间件、RBAC、商品列表、购物车、下单锁库存、模拟支付、发票、退款审批、审计日志。`global-setup` 自动对 `DATABASE_URL` 执行 `prisma db push` + `db seed`。
 - **E2E**（Playwright）：注册/登录/登出、浏览→加购→结算→模拟支付→订单确认、管理端登录与商品创建。
 
@@ -285,9 +280,6 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 **Q：忘记管理员密码？**
 本地：`npm run db:studio` 打开 Prisma Studio 查看/修改；或重置 `users` 表 `passwordHash`（可用 `node -e "console.log(require('bcryptjs').hashSync('新密码',12))"` 生成）。
 
-**Q：优惠券使用量何时增加？**
-支付成功后 +1（未支付订单取消不占用额度），避免恶意占用。
-
 ## 许可证
 
 代码可自由商用。发票 PDF 使用的 Noto Sans CJK 字体遵循 [SIL Open Font License 1.1](https://scripts.sil.org/OFL)，保留该字体即符合许可要求。
@@ -303,7 +295,7 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 ### 一句话总结
 - 安全：CSRF double-submit + /admin 守卫 + Stripe 退款 + 行锁 + sanitize 全链路 + Redis Lua 原子限流
 - 资金：退款事务全状态计入 + 状态机硬化 + 整单退款走 `refundEntireOrder`（Stripe + 库存回补 + 邮件 + audit）
-- 体验：mock-pay 真实状态校验 / favorites 乐观更新 / 灯箱黑底 / 多币种 locale 修正 / 品牌资源统一
+- 体验：mock-pay 真实状态校验 / 灯箱黑底 / 多币种 locale 修正 / 品牌资源统一
 
 ### 部署前必须检查
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` ≥ 32 位随机串（`openssl rand -base64 48`）

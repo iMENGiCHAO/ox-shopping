@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { callApi, getData, login } from "../helpers/api";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 
-/** 商品 / 购物车 / 优惠券 / 订单全链路集成测试 */
+/** 商品 / 购物车 / 订单全链路集成测试 */
 
 function cookiesOf(jar: { get: (n: string) => string | undefined }): Record<string, string> {
   const out: Record<string, string> = {};
@@ -77,9 +77,16 @@ describe("购物车与订单全链路", () => {
 
   beforeAll(async () => {
     const product = await prisma.product.findFirstOrThrow({
-      where: { status: "ACTIVE", stock: { gt: 10 } },
+      where: { status: "ACTIVE" },
+      orderBy: { stock: "desc" },
     });
     productId = product.id;
+    // 种子对商品用 `update: {}`（非破坏，绝不覆盖人工数据），因此库存会跨测试轮次
+    // 单调递减——只挑「库存够」的商品早晚会因为被前面几轮跑干而假失败。抬到基线：
+    // 只升不降，既不破坏其他用例，也让本文件可重复运行。
+    if (product.stock < 200) {
+      await prisma.product.update({ where: { id: productId }, data: { stock: 200 } });
+    }
 
     const l = await login("user@example.com", "User@123456");
     jar = l.jar;
@@ -138,37 +145,10 @@ describe("购物车与订单全链路", () => {
     expect(del.status).toBe(200);
   });
 
-  it("优惠券校验与应用", async () => {
-    const { GET } = await import("@/app/api/coupons/validate/route");
-    const { POST } = await import("@/app/api/coupons/apply/route");
 
-    const validate = await callApi(GET, {
-      headers: { "x-test-url": "/api/coupons/validate?code=WELCOME10" },
-    });
-    expect(validate.status).toBe(200);
-
-    const invalid = await callApi(GET, {
-      headers: { "x-test-url": "/api/coupons/validate?code=NOPE123" },
-    });
-    expect(invalid.status).toBe(400);
-
-    const apply = await callApi(POST, {
-      method: "POST",
-      body: { code: "WELCOME10", subtotal: 500 },
-    });
-    expect(apply.status).toBe(200);
-    const data = (await getData(apply)) as { discount: number; freeShipping: boolean };
-    expect(data.discount).toBe(50);
-    expect(data.freeShipping).toBe(false);
-
-    const freeship = await callApi(POST, {
-      method: "POST",
-      body: { code: "FREESHIP", subtotal: 200 },
-    });
-    const fsData = (await getData(freeship)) as { freeShipping: boolean };
-    expect(fsData.freeShipping).toBe(true);
-  });
-
+  // 这条用例串了「建单 → 扣库存 → 重复支付 → 模拟支付 → 取消拦截 → 详情 → PDF 发票 → 申请退款 → 后台审批」
+  // 十余次往返，在外置卷的测试库上单跑就约 54s，贴着 vitest 默认 60s 上限；
+  // 全量运行时进程内 DB 争用更大，会被判超时（假失败）。此处按链路长度显式放宽。
   it("下单（锁库存）→ 模拟支付 → 发票 → 退款", async () => {
     const { POST: ordersPost } = await import("@/app/api/orders/route");
     const { POST: payPost } = await import("@/app/api/orders/[orderNumber]/pay/route");
@@ -179,7 +159,7 @@ describe("购物车与订单全链路", () => {
 
     const before = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
 
-    // 创建订单（用优惠券 SAVE50）
+    // 创建订单
     const create = await callApi(ordersPost, {
       method: "POST",
       cookies: cookiesOf(jar),
@@ -187,7 +167,6 @@ describe("购物车与订单全链路", () => {
         items: [{ productId, quantity: 2 }],
         addressId,
         shippingMethod: "standard",
-        couponCode: "",
       },
     });
     expect(create.status).toBe(200);
@@ -276,5 +255,5 @@ describe("购物车与订单全链路", () => {
       where: { orderNumber: created.order.orderNumber },
     });
     expect(finalOrder.status).toBe("REFUNDED");
-  });
+  }, 180_000);
 });

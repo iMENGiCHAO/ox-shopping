@@ -18,7 +18,7 @@ export const GET = apiHandler(async () => {
   const productMap = new Map(products.map((p) => [p.id, p]));
 
   return json({
-    data: rows.map((r) => ({
+    items: rows.map((r) => ({
       ...r,
       product: r.productId ? (productMap.get(r.productId) ?? null) : null,
     })),

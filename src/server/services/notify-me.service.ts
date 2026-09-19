@@ -36,7 +36,7 @@ export async function notifyRestock(productId: string): Promise<number> {
 
   const subs = await prisma.notifyMe.findMany({
     where: { productId, status: "draft" },
-    orderBy: { createdAt: "asc" },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     take: 200,
   });
   if (subs.length === 0) return 0;
@@ -93,6 +93,8 @@ export async function notifyRestock(productId: string): Promise<number> {
           ? { compareAtText: formatMoney(compareNum, env.CURRENCY) }
           : {}),
         productUrl: `${env.SITE_URL}/products/${product.slug}`,
+        // 预售商品上库存 → 邮件切换「预购开售」口径（商品配置了预售提示文案即视为预售）
+        isPresale: !!(product.presaleNoteZh || product.presaleNoteEn),
         // 按订阅时记录的用户语种发邮件（null/未记录 → 默认 en）
         lang: sub.lang === "zh" ? "zh" : "en",
       },

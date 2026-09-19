@@ -8,6 +8,9 @@ export const runtime = "nodejs";
 const faqSchema = z.object({
   question: z.string().trim().min(2).max(200),
   answer: z.string().trim().min(2),
+  /** 英文问答（可选；留空时英文站点回落到中文条目） */
+  questionEn: z.string().trim().max(200).optional().nullable(),
+  answerEn: z.string().trim().optional().nullable(),
   sortOrder: z.number().int().min(0).max(999).default(0),
   published: z.boolean().default(true),
 });

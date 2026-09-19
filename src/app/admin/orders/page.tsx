@@ -4,7 +4,7 @@ import * as React from "react";
 import { Download, Eye, Search } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
+import {apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -258,7 +258,14 @@ export default function AdminOrdersPage() {
                           <CellText value={productLine} title={productLine} />
                         </TableCell>
                         <TableCell className="w-24 text-right font-medium tabular-nums">
-                          {formatMoney(row.total)}
+                          <div>
+                            {formatMoney(row.total, row.currency || "USD")}
+                          </div>
+                          {row.currency && row.currency !== "CNY" ? (
+                            <div className="text-[10px] text-muted-foreground">
+                              {row.currency}
+                            </div>
+                          ) : null}
                         </TableCell>
                         <TableCell className="w-24">
                           <StatusBadge status={row.status} labelMap={{ ...ORDER_STATUS_LABELS }} />

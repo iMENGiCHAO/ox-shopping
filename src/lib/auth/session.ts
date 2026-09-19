@@ -5,14 +5,18 @@ import type { Role, User } from "@prisma/client";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 import { sha256 } from "@/lib/utils";
-import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
+import {
+  ACCESS_TOKEN_COOKIE,
+  LOGGED_IN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+} from "@/lib/constants";
 import {
   signAccessToken,
   signRefreshToken,
   verifyAccessToken,
   verifyRefreshToken,
 } from "@/lib/auth/jwt";
-import { ApiError, forbidden, unauthorized } from "@/lib/errors";
+import { ApiError, forbidden, replayDetected, unauthorized } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { SessionUser } from "@/types/api";
 
@@ -28,18 +32,23 @@ function cookieOptions(maxAge: number) {
   };
 }
 
-/** 为响应设置双 token Cookie */
+/** 为响应设置双 token Cookie（另附一个 JS 可读的登录态提示 cookie） */
 export function setAuthCookies(
   res: NextResponse,
   tokens: { accessToken: string; refreshToken: string },
 ): void {
   res.cookies.set(ACCESS_TOKEN_COOKIE, tokens.accessToken, cookieOptions(env.ACCESS_TOKEN_TTL));
   res.cookies.set(REFRESH_TOKEN_COOKIE, tokens.refreshToken, cookieOptions(env.REFRESH_TOKEN_TTL));
+  res.cookies.set(LOGGED_IN_COOKIE, "1", {
+    ...cookieOptions(env.REFRESH_TOKEN_TTL),
+    httpOnly: false,
+  });
 }
 
 export function clearAuthCookies(res: NextResponse): void {
   res.cookies.set(ACCESS_TOKEN_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
   res.cookies.set(REFRESH_TOKEN_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+  res.cookies.set(LOGGED_IN_COOKIE, "", { ...cookieOptions(0), httpOnly: false, maxAge: 0 });
 }
 
 export function toSessionUser(
@@ -116,9 +125,32 @@ export interface RotatedTokens {
 }
 
 /**
+ * refresh token 复用宽限期。
+ *
+ * 为什么必须有：`proxy.ts` 在 access token 失效时会对**每一个**请求调用
+ * `rotateSession`，而一个页面（尤其后台看板）会同时发出多个 API 请求，
+ * 它们带着**同一个** refresh token 并发到达：
+ *
+ *   请求 A：R1 → R2（事务内写 R2、标 R1.revokedAt=now / replacedBy=R2）
+ *   请求 B：R1 已被轮换 → 链未闭合 → 善意重试 → 吊销 R2、签发 R3
+ *   请求 C：R1 已被轮换，而 R2 已被 B 吊销 ⇒ 链已闭合 ⇒ **判定重放、吊销该用户全部会话**
+ *
+ * 即：只要并发 ≥3，正常用户就会被踢下线。实测证据：同一 userId 在 12 秒内
+ * 触发 12 次「refresh token 重放」，后台看板随即 401。
+ *
+ * 修法：旧 token 在**刚被轮换后的宽限期内**再次出现，一律按「同一客户端的
+ * 并发请求 / 响应丢失后的重试」处理，不再升级为窃取重放。
+ *
+ * 安全性权衡：真正的令牌窃取重放发生在被盗之后（远超数十秒），仍会命中
+ * 「链已闭合 **且** 超出宽限期」分支而被吊销全部会话。宽限期内的复用风险
+ * 与业界通行的 refresh-token grace period 一致，是安全与可用性的标准折中。
+ */
+const ROTATION_REUSE_GRACE_MS = 60_000;
+
+/**
  * refresh token 轮换(含重放检测)：
  * - 合法未用 token：作废旧记录、签发新记录与新 token 对
- * - 已使用/已吊销 token 再次出现 → 判定泄露，吊销该用户全部会话
+ * - 已使用/已吊销 token 再次出现 → 见下方「善意复用 / 真·重放」判定
  *
  * 关键不变量：必须保证"创建新 record"与"作废旧 record"原子性。
  * 旧实现里 issueSession 提前独立 commit，新 record 已入库；后续旧 record
@@ -127,34 +159,49 @@ export interface RotatedTokens {
  */
 export async function rotateSession(refreshToken: string): Promise<RotatedTokens> {
   const payload = await verifyRefreshToken(refreshToken);
-  if (!payload?.sub) throw unauthorized("登录已过期，请重新登录");
+  if (!payload?.sub) throw unauthorized("Your session has expired, please sign in again");
 
   const tokenHash = await sha256(refreshToken);
   const record = await prisma.refreshToken.findUnique({ where: { tokenHash } });
 
   // 重放检测：token 已被轮换/吊销却再次出现。
-  // 关键：区分「真·窃取重放」与「善意重试」。轮换过程是"先写新 record、再标旧 record
-  // replacedBy（同一事务）"；若客户端在事务提交后、尚未收到响应前断网（移动端弱网极常见），
-  // 浏览器仍持有旧 token 并重发它。此时旧 record 的 replacedBy 指向的后继 token 仍处于
-  // 「未使用」状态（未被再次轮换、未吊销、未过期）= 链未闭合，说明原客户端根本没拿到
-  // 新 token、只是本人重试 → 不应吊销全部会话，只需重建当前会话。
+  // 需区分「善意复用」与「真·窃取重放」，两种善意场景：
+  //   (a) 链未闭合：客户端在事务提交后、尚未收到响应前断网（移动端弱网常见），
+  //       仍持有旧 token 并重发 —— 其后继 token 仍处「未使用」状态，
+  //       说明原客户端根本没拿到新 token。
+  //   (b) 宽限期内：同一页面并发发出的多个请求携带同一个旧 token，
+  //       只有第一个能成功轮换，其余都在宽限期内到达（见 ROTATION_REUSE_GRACE_MS）。
   if (record && (record.revokedAt || record.replacedBy)) {
-    const benignRetry = record.replacedBy ? await isChainUnclosed(record.replacedBy) : false;
+    const chainUnclosed = record.replacedBy ? await isChainUnclosed(record.replacedBy) : false;
+    const withinGrace =
+      !!record.revokedAt && Date.now() - record.revokedAt.getTime() <= ROTATION_REUSE_GRACE_MS;
+    const benignReuse = chainUnclosed || withinGrace;
 
-    if (benignRetry) {
-      // 善意重试：吊销卡住的后继 token 并重建一条新会话，不殃及其它设备。
+    if (benignReuse) {
+      // 善意复用：重建一条新会话，不殃及其它设备。
       const retryUser = await prisma.user.findUnique({
         where: { id: payload.sub },
         select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
       });
-      if (!retryUser || retryUser.status !== "ACTIVE") throw unauthorized("账号已被禁用");
+      if (!retryUser || retryUser.status !== "ACTIVE") {
+        throw unauthorized("This account has been disabled");
+      }
 
-      await prisma.refreshToken.updateMany({
-        where: { tokenHash: record.replacedBy!, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+      // 只在「链未闭合」时回收那个后继 token —— 此时可确认原客户端从未收到它。
+      // 若只是宽限期内的并发复用（链已闭合），后继很可能已经被别的并发响应
+      // 写进了客户端 Cookie，回收它反而会让下一次请求拿着「已吊销且无后继」
+      // 的 token 直接命中重放分支 —— 又把人踢下线。
+      if (chainUnclosed && record.replacedBy) {
+        await prisma.refreshToken.updateMany({
+          where: { tokenHash: record.replacedBy, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
       const retried = await issueSession(retryUser);
-      logger.warn({ userId: record.userId }, "refresh token 善意重试（响应丢失后重发），重建会话而非吊销全部");
+      logger.warn(
+        { userId: record.userId, chainUnclosed, withinGrace },
+        "refresh token 复用（并发/重试），重建会话而非吊销全部",
+      );
       return {
         accessToken: retried.accessToken,
         refreshToken: retried.refreshToken,
@@ -164,18 +211,18 @@ export async function rotateSession(refreshToken: string): Promise<RotatedTokens
 
     await revokeAllUserTokens(record.userId);
     logger.warn({ userId: record.userId }, "refresh token 重放，已吊销该用户全部会话");
-    throw unauthorized("检测到异常登录，请重新登录");
+    throw replayDetected();
   }
 
   if (!record || record.expiresAt < new Date()) {
-    throw unauthorized("登录已过期，请重新登录");
+    throw unauthorized("Your session has expired, please sign in again");
   }
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
     select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
   });
-  if (!user || user.status !== "ACTIVE") throw unauthorized("账号已被禁用");
+  if (!user || user.status !== "ACTIVE") throw unauthorized("This account has been disabled");
 
   // 1) 预生成新 token 字符串（事务外，JWT 签名无副作用）
   const newRefreshToken = await signRefreshToken(user.id);
@@ -242,5 +289,5 @@ export async function cleanupExpiredTokens(): Promise<void> {
 
 /** 便捷：构造需要登录的错误(供刷新失败重定向) */
 export function refreshRequiredError(): ApiError {
-  return unauthorized("登录已过期，请重新登录");
+  return unauthorized("Your session has expired, please sign in again");
 }

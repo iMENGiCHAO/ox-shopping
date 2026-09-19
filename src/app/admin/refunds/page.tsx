@@ -4,7 +4,7 @@ import * as React from "react";
 import { RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
+import {apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { REFUND_STATUS_LABELS } from "@/lib/order-status";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -25,7 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { AdminListResult, AdminRefund, AdminRefundStatus } from "@/components/admin/types";
+import type { AdminListResult, AdminRefund} from "@/components/admin/types";
 
 import { useT } from "@/components/admin/lang-provider";
 const REFUND_TABS: { value: string; label: string }[] = [
@@ -44,7 +44,7 @@ export default function AdminRefundsPage() {
   const [rows, setRows] = React.useState<AdminRefund[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
-  const [total, setTotal] = React.useState(0);
+  const [, setTotal] = React.useState(0);
   const [totalPages, setTotalPages] = React.useState(1);
 
   const [statusTab, setStatusTab] = React.useState("all");
@@ -162,7 +162,7 @@ export default function AdminRefundsPage() {
                         />
                       </TableCell>
                       <TableCell className="text-right font-medium text-destructive">
-                        {formatMoney(refund.amount)}
+                        {formatMoney(refund.amount, refund.order?.currency || "USD")}
                       </TableCell>
                       <TableCell>
                         <CellText value={refund.reason ?? "-"} />

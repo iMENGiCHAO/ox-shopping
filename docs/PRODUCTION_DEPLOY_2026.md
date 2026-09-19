@@ -117,7 +117,7 @@ docker compose exec app npx prisma migrate deploy   # 应用数据库迁移（�
 docker compose exec app npm run db:seed             # 首次才需要（已有数据跳过）
 ```
 
-> 多实例扩展参考 `docs/RUNBOOK-multi-instance.md`（定时任务已用 PG 咨询锁做选主，库存扣减已用行锁，可直接横扩）。
+> 多实例扩展：定时任务已用 PG 咨询锁做选主，库存扣减已用行锁，可直接横扩。
 
 ---
 

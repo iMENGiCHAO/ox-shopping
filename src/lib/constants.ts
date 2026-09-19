@@ -2,6 +2,8 @@
 export const ACCESS_TOKEN_COOKIE = "access_token";
 export const REFRESH_TOKEN_COOKIE = "refresh_token";
 export const CSRF_COOKIE = "csrf_token";
+/** 登录态「提示」cookie（httpOnly=false）：仅供前端 JS 做 UI 分支；鉴权仍走 httpOnly 的 access_token */
+export const LOGGED_IN_COOKIE = "logged_in";
 export const CSRF_HEADER = "x-csrf-token";
 export const REQUEST_ID_HEADER = "x-request-id";
 
@@ -13,9 +15,14 @@ export const MAX_PAGE_SIZE = 100;
 export const MAX_CART_ITEM_QUANTITY = 99;
 export const MAX_CART_ITEMS = 50;
 
-/** Reviews */
-export const REVIEW_MIN_RATING = 1;
-export const REVIEW_MAX_RATING = 5;
+/**
+ * 搜索页价格筛选（基准币种金额，与 CURRENCY 挂钩）。
+ * 之前这两个魔数写在 search-sidebar-filters.tsx 里，
+ * 且货币符号被硬编码成 `€`（与基准币种 USD 冲突），一并收口到这里。
+ */
+export const PRICE_FILTER_SLIDER_MAX = 100;
+export const PRICE_FILTER_INPUT_MAX = 1000;
+
 
 /**
  * 订单/商业常量：直接读 process.env（与 src/lib/env.ts 的 zod 默认值保持一致）。

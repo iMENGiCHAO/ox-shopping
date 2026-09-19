@@ -3,7 +3,6 @@ import { conflict } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import { getProductById } from "@/server/services/product.service";
 import { notifyRestock } from "@/server/services/notify-me.service";
-import { onProductPriceDropped } from "@/server/services/price-alert.service";
 import { aggregateTrackedStock } from "@/server/services/spec-stock";
 import { serializeProduct } from "@/server/serializers";
 import { invalidateProductsCache } from "@/lib/cache";
@@ -16,12 +15,15 @@ import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-/** GET /api/admin/products/[id] */
+/** GET /api/admin/products/[id] — 商品详情 */
 export const GET = apiHandler(async (req, ctx) => {
   await requireStaff();
   const id = routeParam(ctx.params.id);
   const product = await getProductById(id);
-  return json({ product: serializeProduct(product) });
+
+  return json({
+    product: serializeProduct(product),
+  });
 });
 
 /** PUT /api/admin/products/[id] */
@@ -51,6 +53,7 @@ export const PUT = apiHandler(async (req, ctx) => {
     where: { id },
     data: {
       ...safeRest,
+      ...(input.nameEn !== undefined ? { nameEn: input.nameEn?.trim() || null } : {}),
       ...(summedStock !== undefined ? { stock: summedStock } : {}),
       ...(sizeChart !== undefined ? { sizeChart: sizeChart ?? Prisma.DbNull } : {}),
       ...(specStock !== undefined ? { specStock: specStock ?? Prisma.DbNull } : {}),
@@ -64,26 +67,6 @@ export const PUT = apiHandler(async (req, ctx) => {
     void notifyRestock(id);
   }
 
-  // 价格下降：触发降价通知（按 favoriteId 1:1 找所有订阅者，邮件 + 站内消息）
-  if (input.price !== undefined) {
-    const oldPrice = Number(existing.price);
-    const newPrice = Number(input.price);
-    if (newPrice < oldPrice && oldPrice > 0) {
-      const productImage = Array.isArray(product.images)
-        ? ((product.images[0] as string) ?? null)
-        : null;
-      void onProductPriceDropped({
-        productId: product.id,
-        productName: product.name,
-        productSlug: product.slug,
-        productImage,
-        oldPrice,
-        newPrice,
-        currency: "USD", // Product 表无 currency 字段，币种统一从 SiteSetting 拿（站内不展示）
-      });
-    }
-  }
-
   await invalidateProductsCache();
   await audit({
     userId: actor.id,
@@ -95,17 +78,16 @@ export const PUT = apiHandler(async (req, ctx) => {
   return json({ product: serializeProduct(product) });
 });
 
-/** DELETE /api/admin/products/[id] — 软删除(ARCHIVED) */
+/** DELETE /api/admin/products/[id] — 物理删除（从列表彻底移除）
+ *  订单历史安全：OrderItem 存有 name/image/sku/price 快照且 productId onDelete=SetNull，
+ *  删除后历史订单仍完整展示；CartItem/Review 为 Cascade 一并清理；NotifyMe 引用会保留但失联。 */
 export const DELETE = apiHandler(async (req, ctx) => {
   const actor = await requireStaff();
   const id = routeParam(ctx.params.id);
-  await getProductById(id);
+  const existing = await getProductById(id);
+  const name = existing.name;
 
-  const product = await prisma.product.update({
-    where: { id },
-    data: { status: "ARCHIVED" },
-    include: { category: true },
-  });
+  await prisma.product.delete({ where: { id } });
 
   await invalidateProductsCache();
   await audit({
@@ -113,8 +95,8 @@ export const DELETE = apiHandler(async (req, ctx) => {
     action: "ADMIN_PRODUCT_DELETE",
     entity: "Product",
     entityId: id,
-    meta: { name: product.name },
+    meta: { name },
     req,
   });
-  return json({ ok: true });
+  return json({ ok: true, name });
 });

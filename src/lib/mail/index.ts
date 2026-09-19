@@ -4,13 +4,15 @@ import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { env } from "@/lib/env";
+import { env, brandFallback, mailFrom } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import {
+  AccountDeletedEmail,
+  ContactMessageEmail,
   DataDeletionEmail,
+  DeletionRejectedEmail,
   OrderConfirmedEmail,
   OrderShippedEmail,
-  PriceDropEmail,
   RefundUpdateEmail,
   ResetPasswordEmail,
   RestockEmail,
@@ -76,6 +78,10 @@ export interface MailData {
     lang?: MailLang;
   };
   "data-deletion": { name: string; lang?: MailLang };
+  /** 注销处理完成（admin 确认注销，匿名化前发往原邮箱） */
+  "account-deleted": { name: string; lang?: MailLang };
+  /** 注销申请驳回（admin 驳回，note 为客服备注可选） */
+  "deletion-rejected": { name: string; note?: string; lang?: MailLang };
   restock: {
     name: string;
     productName: string;
@@ -87,17 +93,19 @@ export interface MailData {
     priceText: string;
     compareAtText?: string;
     productUrl: string;
+    /** 预售商品开售 → 邮件标题/正文切换为「预购开售」口径 */
+    isPresale?: boolean;
     lang?: MailLang;
   };
-  "price-drop": {
-    productName: string;
-    image?: string;
-    oldPrice: string;
-    newPrice: string;
-    currency: string;
-    percent: number;
-    productUrl: string;
-    unsubscribeUrl?: string;
+  /**
+   * 联系表单留言 → 发给**站点运营者**（不是顾客）。
+   * 收件地址由 `settings.contactEmail`（后台客服邮箱 / SUPPORT_EMAIL 兜底）决定。
+   */
+  "contact-message": {
+    name: string;
+    email: string;
+    message: string;
+    source: string;
     lang?: MailLang;
   };
 }
@@ -105,7 +113,8 @@ export interface MailData {
 export type MailTemplate = keyof MailData;
 
 interface TemplateMeta {
-  subject: (lang: MailLang) => string;
+  /** 主题行：品牌名取自 SiteSetting（多语），不写死 */
+  subject: (lang: MailLang, siteName: string) => string;
   // Each template renders with its own props (BaseProps + template-specific fields).
   // Using a generic renderer avoids having to enumerate every template's props here.
   // @react-email/render v1：render() 为异步
@@ -114,57 +123,61 @@ interface TemplateMeta {
 
 const siteNameFor = (lang: MailLang, names: { zh?: string; en?: string }) => {
   const fromSetting = lang === "zh" ? names.zh : names.en;
-  return fromSetting || "Ox Shopping";
+  return fromSetting || brandFallback;
 };
+
+/** 主题行统一格式：中文 `【品牌】正文`，英文 `[Brand] Body` */
+const subjectLine = (lang: MailLang, siteName: string, zh: string, en: string) =>
+  lang === "zh" ? `【${siteName}】${zh}` : `[${siteName}] ${en}`;
 
 const templates: Record<MailTemplate, TemplateMeta> = {
   "verify-email": {
-    subject: (lang) =>
-      lang === "zh"
-        ? "【Ox Shopping】请验证您的邮箱地址"
-        : "[Ox Shopping] Verify your email address",
+    subject: (lang, brand) => subjectLine(lang, brand, "请验证您的邮箱地址", "Verify your email address"),
     render: (data) => render(VerifyEmailEmail(data as never)),
   },
   "reset-password": {
-    subject: (lang) =>
-      lang === "zh" ? "【Ox Shopping】重置密码" : "[Ox Shopping] Reset your password",
+    subject: (lang, brand) => subjectLine(lang, brand, "重置密码", "Reset your password"),
     render: (data) => render(ResetPasswordEmail(data as never)),
   },
   "order-confirmed": {
-    subject: (lang) =>
-      lang === "zh" ? "【Ox Shopping】订单支付成功" : "[Ox Shopping] Order payment confirmed",
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "订单支付成功", "Order payment confirmed"),
     render: (data) => render(OrderConfirmedEmail(data as never)),
   },
   "order-shipped": {
-    subject: (lang) =>
-      lang === "zh" ? "【Ox Shopping】您的包裹已发货" : "[Ox Shopping] Your order has shipped",
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "您的包裹已发货", "Your order has shipped"),
     render: (data) => render(OrderShippedEmail(data as never)),
   },
   "refund-update": {
-    subject: (lang) =>
-      lang === "zh" ? "【Ox Shopping】退款进度更新" : "[Ox Shopping] Refund status update",
+    subject: (lang, brand) => subjectLine(lang, brand, "退款进度更新", "Refund status update"),
     render: (data) => render(RefundUpdateEmail(data as never)),
   },
   "data-deletion": {
-    subject: (lang) =>
-      lang === "zh"
-        ? "【Ox Shopping】数据删除请求已收到"
-        : "[Ox Shopping] Data deletion request received",
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "数据删除请求已收到", "Data deletion request received"),
     render: (data) => render(DataDeletionEmail(data as never)),
   },
+  "account-deleted": {
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "您的注销申请已处理完成", "Your account deletion is complete"),
+    render: (data) => render(AccountDeletedEmail(data as never)),
+  },
+  "deletion-rejected": {
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "您的注销申请未通过", "Your account deletion request was declined"),
+    render: (data) => render(DeletionRejectedEmail(data as never)),
+  },
   restock: {
-    subject: (lang) =>
-      lang === "zh"
-        ? "【Ox Shopping】您关注的商品已补货"
-        : "[Ox Shopping] Back in stock — the item you wanted",
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "您关注的商品已补货", "Back in stock — the item you wanted"),
     render: (data) => render(RestockEmail(data as never)),
   },
-  "price-drop": {
-    subject: (lang) =>
-      lang === "zh"
-        ? "【Ox Shopping】您关注的商品已降价"
-        : "[Ox Shopping] Price drop on an item you wanted",
-    render: (data) => render(PriceDropEmail(data as never)),
+  "contact-message": {
+    // 收件人是内部运营，主题行用运营侧语言（默认 zh），不随顾客语种变化
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "收到新的联系表单留言", "New contact form message"),
+    render: (data) => render(ContactMessageEmail(data as never)),
   },
 };
 
@@ -180,7 +193,7 @@ let smtpTransport: nodemailer.Transporter | null = null;
 async function sendViaResend(to: string, subject: string, html: string) {
   if (!resendClient) resendClient = new Resend(env.RESEND_API_KEY);
   const { error } = await resendClient.emails.send({
-    from: env.MAIL_FROM,
+    from: mailFrom,
     to,
     subject,
     html,
@@ -198,7 +211,7 @@ async function sendViaSmtp(to: string, subject: string, html: string) {
     });
   }
   await smtpTransport.sendMail({
-    from: env.MAIL_FROM,
+    from: mailFrom,
     to,
     subject,
     html,
@@ -235,7 +248,7 @@ export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>):
   const base = { siteUrl: env.SITE_URL, siteName: siteNameFor(lang, names) };
   const data = { ...base, ...(input.data as object) };
   const html = await meta.render(data);
-  const subject = meta.subject(lang);
+  const subject = meta.subject(lang, base.siteName);
   try {
     if (env.MAIL_PROVIDER === "resend" && env.RESEND_API_KEY) {
       await sendViaResend(input.to, subject, html);

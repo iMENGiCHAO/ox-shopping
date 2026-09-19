@@ -1,8 +1,10 @@
 "use client";
 
 import * as React from "react";
+import { Plus, Pencil, Trash2, Truck } from "lucide-react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -13,11 +15,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DataTableActions } from "@/components/admin/data-table-actions";
-import { toast } from "sonner";
-import { apiFetch } from "@/lib/fetch-client";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Badge } from "@/components/ui/badge";
+import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { ShippingMethodDialog } from "@/components/admin/shipping-method-dialog";
+import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
+import { formatMoney, cn } from "@/lib/utils";
 
 export interface ShippingOption {
   id: string;
@@ -33,281 +36,257 @@ export interface ShippingOption {
   etaEn: string | null;
   sortOrder: number;
   isActive: boolean;
+  /** 已被多少订单引用（决定删除时是物理删还是停用） */
+  orderCount?: number;
 }
 
 interface Props {
   initial: ShippingOption[];
+  /** 门店基础币种（服务端 `env.CURRENCY` 透传）—— 透传给创建对话框渲染预设金额 */
+  baseCurrency: string;
 }
 
-export function ShippingMethodsManager({ initial }: Props) {
+/** 结账页顾客看到的说明（与 checkout-flow 口径一致：description ?? etaZh） */
+function customerDesc(m: ShippingOption): string | null {
+  return m.description ?? m.etaZh ?? null;
+}
+
+/**
+ * 物流方式管理：
+ *  - 只读列表 + 对话框创建/编辑（shipping-method-dialog）
+ *  - 启用开关行内即时生效（乐观更新，失败回滚）
+ *  - 删除有订单引用时自动降级为停用（服务端行为，前端提示对应文案）
+ */
+export function ShippingMethodsManager({ initial, baseCurrency }: Props) {
   const [list, setList] = React.useState(initial);
-  const [editing, setEditing] = React.useState<Record<string, Partial<ShippingOption>>>({});
-  const [saving, setSaving] = React.useState<Record<string, boolean>>({});
-  const [creating, setCreating] = React.useState(false);
-  const [newMethod, setNewMethod] = React.useState<Partial<ShippingOption>>({
-    code: "",
-    name: "",
-    fee: 0,
-    freeOver: 0,
-    isCashOnDelivery: false,
-    sortOrder: 0,
-  });
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState<ShippingOption | null>(null);
+  const [deleting, setDeleting] = React.useState<ShippingOption | null>(null);
+  const [deleteLoading, setDeleteLoading] = React.useState(false);
+  const [togglingId, setTogglingId] = React.useState<string | null>(null);
 
-  const save = async (id: string) => {
-    const patch = editing[id];
-    if (!patch) return;
-    setSaving((s) => ({ ...s, [id]: true }));
+  const existingCodes = React.useMemo(() => list.map((m) => m.code), [list]);
+  const nextSortOrder = React.useMemo(
+    () => (list.length ? Math.max(...list.map((m) => m.sortOrder)) + 1 : 0),
+    [list],
+  );
+
+  const refresh = React.useCallback(async () => {
     try {
-      const res = await apiFetch<{ method: ShippingOption }>(
-        `/api/admin/shipping-methods/${id}`,
-        { method: "PUT", body: JSON.stringify(patch) },
+      const body = await apiFetchRaw<{ data: { methods: ShippingOption[] } }>(
+        "/api/admin/shipping-methods",
       );
-      setList((prev) => prev.map((m) => (m.id === id ? { ...m, ...res.method } : m)));
-      setEditing((e) => {
-        const next = { ...e };
-        delete next[id];
-        return next;
-      });
-      toast.success("已保存");
+      setList(body.data.methods);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
-    } finally {
-      setSaving((s) => ({ ...s, [id]: false }));
+      toast.error(err instanceof Error ? err.message : "刷新列表失败");
     }
+  }, []);
+
+  const openCreate = () => {
+    setEditing(null);
+    setDialogOpen(true);
   };
 
-  const remove = async (id: string) => {
-    if (!confirm("确定要禁用/删除该物流方式？")) return;
+  const openEdit = (m: ShippingOption) => {
+    setEditing(m);
+    setDialogOpen(true);
+  };
+
+  /** 启用/停用：乐观更新，失败回滚 */
+  const toggleActive = async (m: ShippingOption) => {
+    const next = !m.isActive;
+    setTogglingId(m.id);
+    setList((prev) => prev.map((x) => (x.id === m.id ? { ...x, isActive: next } : x)));
     try {
-      await apiFetch(`/api/admin/shipping-methods/${id}`, { method: "DELETE" });
-      // 重新拉
-      const res = await apiFetch<{ methods: ShippingOption[] }>("/api/admin/shipping-methods");
-      setList(res.methods);
-      toast.success("已处理");
+      await apiFetch(`/api/admin/shipping-methods/${m.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ isActive: next }),
+      });
+      toast.success(next ? `「${m.name}」已启用` : `「${m.name}」已停用，前台结账页不再显示`);
     } catch (err) {
+      setList((prev) => prev.map((x) => (x.id === m.id ? { ...x, isActive: m.isActive } : x)));
       toast.error(err instanceof Error ? err.message : "操作失败");
-    }
-  };
-
-  const create = async () => {
-    if (!newMethod.code || !newMethod.name) {
-      toast.error("请填写代号和名称");
-      return;
-    }
-    setCreating(true);
-    try {
-      await apiFetch("/api/admin/shipping-methods", {
-        method: "POST",
-        body: JSON.stringify(newMethod),
-      });
-      const res = await apiFetch<{ methods: ShippingOption[] }>("/api/admin/shipping-methods");
-      setList(res.methods);
-      setNewMethod({
-        code: "",
-        name: "",
-        fee: 0,
-        freeOver: 0,
-        isCashOnDelivery: false,
-        sortOrder: 0,
-      });
-      toast.success("已新建");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "新建失败");
     } finally {
-      setCreating(false);
+      setTogglingId(null);
     }
   };
 
-  const updateField = (id: string, key: keyof ShippingOption, value: unknown) => {
-    setList((prev) => prev.map((m) => (m.id === id ? { ...m, [key]: value } : m)));
-    setEditing((e) => ({ ...e, [id]: { ...e[id], [key]: value } }));
+  const confirmDelete = async () => {
+    if (!deleting) return;
+    setDeleteLoading(true);
+    try {
+      const body = await apiFetchRaw<{
+        data: { method?: ShippingOption; soft?: boolean; ok?: boolean };
+      }>(`/api/admin/shipping-methods/${deleting.id}`, { method: "DELETE" });
+      if (body.data.soft) {
+        toast.success(`「${deleting.name}」已被订单使用，已改为停用（历史订单保留）`);
+      } else {
+        toast.success(`「${deleting.name}」已删除`);
+      }
+      setDeleting(null);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败");
+    } finally {
+      setDeleteLoading(false);
+    }
   };
+
+  const deleteHint = deleting
+    ? deleting.orderCount && deleting.orderCount > 0
+      ? `「${deleting.name}」已被 ${deleting.orderCount} 个订单引用。删除后该方式将自动转为停用（历史订单数据保留）。`
+      : `确定删除「${deleting.name}」？该方式尚未被任何订单使用，将直接删除。`
+    : "";
 
   return (
-    <div className="space-y-6">
-      {/* 列表 */}
-      <Card>
-        <CardContent className="p-0">
-          <Table className="w-full">
-            <TableHeader>
-              <TableRow>
-                <TableHead className="sticky left-0 z-20 w-24 bg-card/95 backdrop-blur-sm">
-                  代号
-                </TableHead>
-                <TableHead className="min-w-[140px]">名称 (zh)</TableHead>
-                <TableHead className="hidden min-w-[140px] md:table-cell">名称 (en)</TableHead>
-                <TableHead className="w-24 text-right">运费</TableHead>
-                <TableHead className="hidden w-24 text-right md:table-cell">免邮门槛</TableHead>
-                <TableHead className="hidden w-24 text-center lg:table-cell">货到付款</TableHead>
-                <TableHead className="w-16 text-center">排序</TableHead>
-                <TableHead className="w-16 text-center">启用</TableHead>
-                <TableHead className="sticky right-0 z-20 w-20 bg-card/95 text-right backdrop-blur-sm">
-                  操作
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {list.map((m) => (
-                <TableRow key={m.id} className={cn(!m.isActive && "opacity-50")}>
-                  <TableCell className="sticky left-0 z-10 bg-card/95 font-mono text-xs backdrop-blur-sm">
-                    {m.code}
-                  </TableCell>
-                  <TableCell>
-                    <Input
-                      value={m.name}
-                      onChange={(e) => updateField(m.id, "name", e.target.value)}
-                      className="h-8 w-full min-w-[120px]"
-                    />
-                  </TableCell>
-                  <TableCell className="hidden md:table-cell">
-                    <Input
-                      value={m.nameEn ?? ""}
-                      onChange={(e) => updateField(m.id, "nameEn", e.target.value || null)}
-                      className="h-8 w-full min-w-[120px]"
-                      placeholder="Standard"
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={m.fee}
-                      onChange={(e) => updateField(m.id, "fee", Number(e.target.value))}
-                      className="h-8 w-full text-right tabular-nums"
-                    />
-                  </TableCell>
-                  <TableCell className="hidden text-right md:table-cell">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={m.freeOver}
-                      onChange={(e) => updateField(m.id, "freeOver", Number(e.target.value))}
-                      className="h-8 w-full text-right tabular-nums"
-                    />
-                  </TableCell>
-                  <TableCell className="hidden text-center lg:table-cell">
-                    <Switch
-                      checked={m.isCashOnDelivery}
-                      onCheckedChange={(v) => updateField(m.id, "isCashOnDelivery", v)}
-                    />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Input
-                      type="number"
-                      min="0"
-                      value={m.sortOrder}
-                      onChange={(e) => updateField(m.id, "sortOrder", Number(e.target.value))}
-                      className="h-8 w-full text-center tabular-nums"
-                    />
-                  </TableCell>
-                  <TableCell className="text-center">
-                    <Switch
-                      checked={m.isActive}
-                      onCheckedChange={(v) => updateField(m.id, "isActive", v)}
-                    />
-                  </TableCell>
-                  <TableCell className="sticky right-0 z-10 bg-card/95 backdrop-blur-sm">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 w-7 p-0"
-                        onClick={() => save(m.id)}
-                        disabled={!editing[m.id] || saving[m.id]}
-                        title="保存"
-                        aria-label="保存"
-                      >
-                        {saving[m.id] ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Save className="h-3 w-3" />
-                        )}
-                      </Button>
-                      <DataTableActions
-                        actions={[
-                          {
-                            label: "删除（已被订单使用则改为禁用）",
-                            icon: Trash2,
-                            onClick: () => remove(m.id),
-                            destructive: true,
-                          },
-                        ]}
-                      />
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {/* 新建 */}
-      <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4">
-        <h3 className="text-sm font-medium">新建物流方式</h3>
-        <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Input
-            placeholder="代号（英文/数字/短横线）"
-            value={newMethod.code ?? ""}
-            onChange={(e) => setNewMethod((p) => ({ ...p, code: e.target.value }))}
-          />
-          <Input
-            placeholder="中文名"
-            value={newMethod.name ?? ""}
-            onChange={(e) => setNewMethod((p) => ({ ...p, name: e.target.value }))}
-          />
-          <Input
-            placeholder="English name"
-            value={newMethod.nameEn ?? ""}
-            onChange={(e) => setNewMethod((p) => ({ ...p, nameEn: e.target.value }))}
-          />
-          <Input
-            type="number"
-            step="0.01"
-            placeholder="运费"
-            value={newMethod.fee ?? 0}
-            onChange={(e) => setNewMethod((p) => ({ ...p, fee: Number(e.target.value) }))}
-          />
-          <Input
-            type="number"
-            step="0.01"
-            placeholder="免邮门槛（0=不免）"
-            value={newMethod.freeOver ?? 0}
-            onChange={(e) => setNewMethod((p) => ({ ...p, freeOver: Number(e.target.value) }))}
-          />
-          <Input
-            type="number"
-            placeholder="排序"
-            value={newMethod.sortOrder ?? 0}
-            onChange={(e) => setNewMethod((p) => ({ ...p, sortOrder: Number(e.target.value) }))}
-          />
-          <Input
-            placeholder="ETA 中文（如 5-7 个工作日）"
-            value={newMethod.etaZh ?? ""}
-            onChange={(e) => setNewMethod((p) => ({ ...p, etaZh: e.target.value }))}
-          />
-          <Input
-            placeholder="ETA English"
-            value={newMethod.etaEn ?? ""}
-            onChange={(e) => setNewMethod((p) => ({ ...p, etaEn: e.target.value }))}
-          />
-        </div>
-        <div className="mt-3 flex items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <Switch
-              checked={!!newMethod.isCashOnDelivery}
-              onCheckedChange={(v) => setNewMethod((p) => ({ ...p, isCashOnDelivery: v }))}
-            />
-            货到付款
-          </label>
-          <Button onClick={create} disabled={creating} size="sm">
-            {creating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-            新建
-          </Button>
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-muted-foreground">
+          前台结账页按「排序」从小到大展示所有已启用方式；停用的方式保留在此，历史订单不受影响。
+        </p>
+        <Button onClick={openCreate} className="flex-shrink-0">
+          <Plus className="h-4 w-4" />
+          新建物流方式
+        </Button>
       </div>
+
+      {list.length === 0 ? (
+        <EmptyState
+          icon={<Truck className="h-6 w-6" />}
+          title="还没有物流方式"
+          description="创建第一个物流方式后，顾客结账时即可选择配送方案。可从快速模板一键开始。"
+          action={
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              创建第一个物流方式
+            </Button>
+          }
+        />
+      ) : (
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <Table className="w-full min-w-[880px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-14 text-center">排序</TableHead>
+                    <TableHead className="w-28">代号</TableHead>
+                    <TableHead className="min-w-[150px]">名称</TableHead>
+                    <TableHead className="hidden min-w-[180px] lg:table-cell">
+                      顾客看到的说明
+                    </TableHead>
+                    <TableHead className="w-24 text-right">运费</TableHead>
+                    <TableHead className="hidden w-28 text-right md:table-cell">免邮门槛</TableHead>
+                    <TableHead className="hidden w-20 text-center md:table-cell">
+                      订单引用
+                    </TableHead>
+                    <TableHead className="w-20 text-center">启用</TableHead>
+                    <TableHead className="min-w-[7rem] whitespace-nowrap text-right">
+                      操作
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {list.map((m) => (
+                    <TableRow key={m.id} className={cn(!m.isActive && "opacity-50")}>
+                      <TableCell className="text-center tabular-nums text-muted-foreground">
+                        {m.sortOrder}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{m.code}</TableCell>
+                      <TableCell>
+                        <span className="block font-medium">{m.name}</span>
+                        {m.nameEn ? (
+                          <span className="block text-xs text-muted-foreground">{m.nameEn}</span>
+                        ) : null}
+                        {m.isCashOnDelivery ? (
+                          <Badge variant="outline" className="mt-1 border-warning/40 text-warning">
+                            货到付款
+                          </Badge>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="hidden max-w-[220px] lg:table-cell">
+                        <span className="block truncate text-sm" title={customerDesc(m) ?? ""}>
+                          {customerDesc(m) ?? (
+                            <span className="text-muted-foreground">（未填写）</span>
+                          )}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {m.isCashOnDelivery ? (
+                          <span className="text-xs text-muted-foreground">到付</span>
+                        ) : m.fee === 0 ? (
+                          <span className="text-success">免邮</span>
+                        ) : (
+                          formatMoney(m.fee, baseCurrency)
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden text-right tabular-nums md:table-cell">
+                        {m.freeOver > 0 ? `满 ${formatMoney(m.freeOver, baseCurrency)}` : "—"}
+                      </TableCell>
+                      <TableCell className="hidden text-center tabular-nums text-muted-foreground md:table-cell">
+                        {m.orderCount ?? 0}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Switch
+                          checked={m.isActive}
+                          disabled={togglingId === m.id}
+                          onCheckedChange={() => toggleActive(m)}
+                          aria-label={`${m.isActive ? "停用" : "启用"} ${m.name}`}
+                        />
+                      </TableCell>
+                      <TableCell className="min-w-[7rem] whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 px-2"
+                            onClick={() => openEdit(m)}
+                            title="编辑"
+                            aria-label={`编辑 ${m.name}`}
+                          >
+                            <Pencil className="h-3 w-3" />
+                            编辑
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 gap-1 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setDeleting(m)}
+                            aria-label={`删除 ${m.name}`}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <ShippingMethodDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        method={editing}
+        existingCodes={existingCodes}
+        nextSortOrder={nextSortOrder}
+        baseCurrency={baseCurrency}
+        onSaved={() => void refresh()}
+      />
+
+      <ConfirmDialog
+        open={!!deleting}
+        onOpenChange={(v) => !v && setDeleting(null)}
+        title="删除物流方式"
+        description={deleteHint}
+        confirmText="删除"
+        destructive
+        loading={deleteLoading}
+        onConfirm={() => void confirmDelete()}
+      />
     </div>
   );
 }

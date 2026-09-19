@@ -19,12 +19,10 @@ const DICT: Dict = {
   Products: { zh: "商品" },
   Categories: { zh: "分类" },
   Banners: { zh: "页面横幅" },
-  Reviews: { zh: "评价" },
   "Notify Me": { zh: "到货通知" },
   Payments: { zh: "支付接口" },
   "Legal Pages": { zh: "法务页面" },
   Users: { zh: "用户" },
-  Coupons: { zh: "优惠券" },
   Refunds: { zh: "退款" },
   Orders: { zh: "订单" },
   "Audit Logs": { en: "Audit Logs", zh: "审计日志" },
@@ -44,6 +42,7 @@ const DICT: Dict = {
 
   /* ── Dashboard (admin/page.tsx) ────────────────────────────────── */
   "Total Revenue": { en: "Total Revenue", zh: "总营收" },
+  "Today's Revenue": { en: "Today's Revenue", zh: "今日营收" },
   "All-time Revenue": { en: "All-time Revenue", zh: "累计营收" },
   "Pending Shipments": { en: "Pending Shipments", zh: "待发货" },
   "Low Stock": { en: "Low Stock", zh: "低库存" },
@@ -98,6 +97,7 @@ const DICT: Dict = {
   Editing: { en: "Editing", zh: "正在编辑" },
   "Fields marked * are required": { en: "Fields marked * are required", zh: "带 * 的字段为必填项" },
   ProductName: { en: "Product Name", zh: "商品名称" },
+  "Product name (English)": { en: "Product name (English)", zh: "商品英文名" },
   "Price (amount)": { en: "Price (amount)", zh: "价格" },
   "Compare-at price (amount, optional)": {
     en: "Compare-at price (amount, optional)",
@@ -203,9 +203,6 @@ const DICT: Dict = {
   Cancelled: { zh: "已取消" },
   Refunded: { zh: "已退款" },
 
-  /* ── Reviews page ─────────────────────────────────────────────── */
-  Rating: { zh: "评分" },
-  "Review Content": { en: "Review Content", zh: "评价内容" },
   Approved: { zh: "已通过" },
   Approve: { zh: "通过" },
   Reject: { zh: "拒绝" },
@@ -217,21 +214,6 @@ const DICT: Dict = {
   "Edit User": { en: "Edit User", zh: "编辑用户" },
   "Delete User": { en: "Delete User", zh: "删除用户" },
   "Assign Role": { en: "Assign Role", zh: "分配角色" },
-
-  /* ── Coupons page ─────────────────────────────────────────────── */
-  "New Coupon": { en: "New Coupon", zh: "新增优惠券" },
-  "Edit Coupon": { en: "Edit Coupon", zh: "编辑优惠券" },
-  "Delete Coupon": { en: "Delete Coupon", zh: "删除优惠券" },
-  Code: { zh: "兑换码" },
-  "Discount Type": { en: "Discount Type", zh: "折扣类型" },
-  "Discount Value": { en: "Discount Value", zh: "折扣值" },
-  "Min Order Amount": { en: "Min Order Amount", zh: "最低订单金额" },
-  "Usage Limit": { en: "Usage Limit", zh: "使用上限" },
-  "Used Count": { en: "Used Count", zh: "已用次数" },
-  "Valid From": { en: "Valid From", zh: "生效日期" },
-  "Valid Until": { en: "Valid Until", zh: "失效日期" },
-  Percentage: { zh: "百分比" },
-  "Fixed Amount": { en: "Fixed Amount", zh: "固定金额" },
 
   /* ── Refunds page ─────────────────────────────────────────────── */
   "Refund #": { en: "Refund #", zh: "退款号" },
@@ -271,17 +253,9 @@ const DICT: Dict = {
     en: "View orders, advance status and ship",
     zh: "查看订单、推进状态和发货",
   },
-  "View and moderate customer product reviews": {
-    en: "View and moderate customer product reviews",
-    zh: "查看并审核顾客商品评价",
-  },
   "View user info, order history and account status": {
     en: "View user info, order history and account status",
     zh: "查看用户信息、订单历史及账户状态",
-  },
-  "Create and manage promotional coupons": {
-    en: "Create and manage promotional coupons",
-    zh: "创建和管理促销优惠券",
   },
   "Review customer refund requests and track progress": {
     en: "Review customer refund requests and track progress",
@@ -348,14 +322,10 @@ const DICT: Dict = {
   "Move up": { en: "Move up", zh: "上移" },
   "Move down": { en: "Move down", zh: "下移" },
   Sort: { en: "Sort", zh: "排序" },
+  "Home banner order": { en: "Home banner order", zh: "首页横幅次序" },
   "No categories yet": { en: "No categories yet", zh: "暂无分类" },
   "Category description": { en: "Category description", zh: "分类描述" },
   "Delete category": { en: "Delete category", zh: "删除分类" },
-  "Coupon updated": { en: "Coupon updated", zh: "优惠券已更新" },
-  "Coupon created": { en: "Coupon created", zh: "优惠券已创建" },
-  "Coupon deleted": { en: "Coupon deleted", zh: "优惠券已删除" },
-  "No coupons yet": { en: "No coupons yet", zh: "暂无优惠券" },
-  "Delete coupon": { en: "Delete coupon", zh: "删除优惠券" },
   Question: { en: "Question", zh: "问题" },
   Answer: { en: "Answer", zh: "回答" },
   "Search order # / recipient / email": {
@@ -388,6 +358,20 @@ const DICT: Dict = {
   "Rates updated": { en: "Rates updated", zh: "汇率已更新" },
   "Failed to refresh": { en: "Failed to refresh", zh: "刷新失败" },
   Currency: { en: "Currency", zh: "币种" },
+  "Sales by Currency": {
+    en: "Sales by Currency",
+    zh: "各币种销售汇总",
+  },
+  "Revenue (original currency)": {
+    en: "Revenue (original currency)",
+    zh: "营收（原币种）",
+  },
+  "CNY equivalent": { en: "CNY equivalent", zh: "折合人民币" },
+  "Revenue amounts use the exchange-rate snapshot captured at order time — paid orders never drift with live rates.":
+    {
+      en: "Revenue amounts use the exchange-rate snapshot captured at order time — paid orders never drift with live rates.",
+      zh: "营收金额按下单时的汇率快照折算，已支付订单不随实时汇率变动。",
+    },
   "Current rate": { en: "Current rate", zh: "当前汇率" },
   "Override rate (1 USD =)": { en: "Override rate (1 USD =)", zh: "手动覆写(1 美元 =)" },
   "Save overrides": { en: "Save overrides", zh: "保存覆写" },
@@ -408,16 +392,61 @@ const DICT: Dict = {
       zh: "独立编辑各法务文档——无障碍声明、隐私政策、服务条款、退款政策与 Cookie 政策。",
     },
   "Frontend path": { en: "Frontend path", zh: "前台路径" },
-  "Lightweight markup: ## headings, - lists, **bold**. Clear the text to restore the built-in default.":
+  "Each document is edited per language (Chinese / English) and linked to the storefront page and the footer — the storefront updates immediately after saving.":
     {
-      en: "Lightweight markup: ## headings, - lists, **bold**. Clear the text to restore the built-in default.",
-      zh: "轻量标记：## 标题、- 列表、**加粗**。清空文本即恢复内置默认。",
+      en: "Each document is edited per language (Chinese / English) and linked to the storefront page and the footer — the storefront updates immediately after saving.",
+      zh: "每份文档按语言（中文/英文）分别编辑，保存后即时关联到前台页面与页脚入口。",
+    },
+  "Chinese content": { en: "Chinese content", zh: "中文内容" },
+  "English content": { en: "English content", zh: "英文内容" },
+  "shown on the zh storefront": {
+    en: "shown on the zh storefront",
+    zh: "显示在中文前台",
+  },
+  "shown on the en storefront": {
+    en: "shown on the en storefront",
+    zh: "显示在英文前台",
+  },
+  "Lightweight markup: ## headings, - lists, **bold**. Clear a language's text to restore the built-in default for that language.":
+    {
+      en: "Lightweight markup: ## headings, - lists, **bold**. Clear a language's text to restore the built-in default for that language.",
+      zh: "轻量标记：## 标题、- 列表、**加粗**。清空某语言文本即恢复该语言的内置默认。",
     },
   "Saved. The storefront page updates immediately.": {
     en: "Saved. The storefront page updates immediately.",
     zh: "已保存，前台页面即时生效。",
   },
   "Failed to save": { en: "Failed to save", zh: "保存失败" },
+  "Unverified email": { en: "Unverified email", zh: "邮箱未验证" },
+  "Deletion requested": { en: "Deletion requested", zh: "注销申请中" },
+  "Confirm anonymized deletion? The account will be disabled and personal data erased. This cannot be undone.":
+    {
+      en: "Confirm anonymized deletion? The account will be disabled and personal data erased. This cannot be undone.",
+      zh: "确认匿名化删除？账户将被停用且个人数据被清除，此操作不可恢复。",
+    },
+  "Account deleted (anonymized)": {
+    en: "Account deleted (anonymized)",
+    zh: "账户已注销（匿名化删除）",
+  },
+  "Deletion request rejected": {
+    en: "Deletion request rejected",
+    zh: "注销申请已驳回",
+  },
+  "Handle deletion request": { en: "Handle deletion request", zh: "处理注销申请" },
+  "Approve to anonymize the account (personal data erased, orders kept anonymously); reject to clear the request and notify the customer by email.":
+    {
+      en: "Approve to anonymize the account (personal data erased, orders kept anonymously); reject to clear the request and notify the customer by email.",
+      zh: "确认注销=匿名化账户（个人数据清除、订单匿名保留）；驳回=清空申请并邮件告知客户。",
+    },
+  "Optional note sent to the customer on rejection": {
+    en: "Optional note sent to the customer on rejection",
+    zh: "驳回备注（可选，将随邮件发送给客户）",
+  },
+  "Approve deletion (anonymize)": {
+    en: "Approve deletion (anonymize)",
+    zh: "确认注销（匿名化删除）",
+  },
+  "Reject request": { en: "Reject request", zh: "驳回申请" },
   "Failed to load": { en: "Failed to load", zh: "加载失败" },
   "Brand logo": { en: "Brand logo", zh: "品牌 LOGO" },
   "Upload or replace the storefront logo": {
@@ -457,7 +486,8 @@ const DICT: Dict = {
   secret: { en: "secret", zh: "密钥" },
   "Save payment settings": { en: "Save payment settings", zh: "保存支付设置" },
   "Payment settings saved": { en: "Payment settings saved", zh: "支付设置已保存" },
-  "Ox Shopping": { en: "Ox Shopping", zh: "Ox Shopping 商城" },
+  // 注：原 "Ox Shopping" 词条（站名占位符）已移除 —— 站名输入框改为直接显示
+  // 当前生效品牌（LangProvider 注入的 siteName），不再需要写死品牌的示例词条。
   "Describe your store in one line": {
     en: "Describe your store in one line",
     zh: "一句话描述你的店铺",
@@ -488,6 +518,130 @@ const DICT: Dict = {
     en: "Password reset — this user must sign in again",
     zh: "密码已重置——该用户需重新登录",
   },
+
+  /* ── 游客结账 / 折扣码（与前台 shop-i18n 同名同义）───────────────── */
+  Guest: { en: "Guest", zh: "游客" },
+  "Contact email": { en: "Contact email", zh: "联系邮箱" },
+  "Discount code": { en: "Discount code", zh: "折扣码" },
+  "Discount codes": { en: "Discount codes", zh: "折扣码" },
+  Discount: { en: "Discount", zh: "折扣" },
+
+  /* ── 折扣码后台管理（/admin/coupons）───────────────────────────── */
+  Coupons: { en: "Coupons", zh: "折扣码" },
+  Coupon: { en: "Coupon", zh: "折扣码" },
+  "Create and manage discount codes": {
+    en: "Create and manage discount codes",
+    zh: "创建与管理促销折扣码",
+  },
+  "New Coupon": { en: "New Coupon", zh: "新建折扣码" },
+  "Edit Coupon": { en: "Edit Coupon", zh: "编辑折扣码" },
+  "Create coupon": { en: "Create coupon", zh: "创建折扣码" },
+  Code: { en: "Code", zh: "券码" },
+  "Coupon code": { en: "Coupon code", zh: "券码" },
+  "Search coupon code": { en: "Search coupon code", zh: "搜索券码" },
+  "Discount Type": { en: "Discount Type", zh: "折扣类型" },
+  "Discount Value": { en: "Discount Value", zh: "折扣值" },
+  "Min Order Amount": { en: "Min Order Amount", zh: "最低消费" },
+  "Max discount": { en: "Max discount", zh: "最大折扣" },
+  "Usage Limit": { en: "Usage Limit", zh: "总量上限" },
+  /** 列表表头用的短词：「已核销 / 上限」比「已核销 / 总量上限」窄一截，塞得进 134px 列 */
+  Limit: { en: "Limit", zh: "上限" },
+  "Used Count": { en: "Used Count", zh: "已核销" },
+  "Per-user limit": { en: "Per-user limit", zh: "每人限用" },
+  Redemptions: { en: "Redemptions", zh: "核销记录" },
+  "Valid From": { en: "Valid From", zh: "生效时间" },
+  "Valid Until": { en: "Valid Until", zh: "失效时间" },
+  Percentage: { en: "Percentage", zh: "百分比折扣" },
+  "Fixed amount": { en: "Fixed amount", zh: "固定金额" },
+  "Free shipping": { en: "Free shipping", zh: "免邮" },
+  Unlimited: { en: "Unlimited", zh: "不限" },
+  Public: { en: "Public", zh: "公开" },
+  "Show on coupon center": { en: "Show on coupon center", zh: "在领券中心展示" },
+  "Coupon title (Chinese)": { en: "Coupon title (Chinese)", zh: "券标题（中文）" },
+  "Coupon title (English)": { en: "Coupon title (English)", zh: "券标题（英文）" },
+  "Coupon description (Chinese)": {
+    en: "Coupon description (Chinese)",
+    zh: "券说明（中文）",
+  },
+  "Coupon description (English)": {
+    en: "Coupon description (English)",
+    zh: "券说明（英文）",
+  },
+  Expired: { en: "Expired", zh: "已过期" },
+  "Enable on create": { en: "Enable on create", zh: "创建后立即启用" },
+  "Coupon created": { en: "Coupon created", zh: "折扣码已创建" },
+  "Coupon updated": { en: "Coupon updated", zh: "折扣码已更新" },
+  "Coupon deleted": { en: "Coupon deleted", zh: "折扣码已删除" },
+  "Coupon enabled": { en: "Coupon enabled", zh: "已启用折扣码" },
+  "Coupon disabled": { en: "Coupon disabled", zh: "已停用折扣码" },
+  "No coupons yet": { en: "No coupons yet", zh: "暂无折扣码" },
+  "Delete coupon": { en: "Delete coupon", zh: "删除折扣码" },
+  "Failed to load coupons": { en: "Failed to load coupons", zh: "加载折扣码失败" },
+  "Failed to save coupon": { en: "Failed to save coupon", zh: "保存折扣码失败" },
+  "Failed to update coupon status": {
+    en: "Failed to update coupon status",
+    zh: "更新折扣码状态失败",
+  },
+  "Failed to delete coupon": { en: "Failed to delete coupon", zh: "删除折扣码失败" },
+  "Coupon code is required": { en: "Coupon code is required", zh: "请填写券码" },
+  "Coupon code must be at least 2 characters": {
+    en: "Coupon code must be at least 2 characters",
+    zh: "券码至少 2 个字符",
+  },
+  "Coupon code must be at most 64 characters": {
+    en: "Coupon code must be at most 64 characters",
+    zh: "券码最多 64 个字符",
+  },
+  "Coupon code may only contain letters, numbers, - and _": {
+    en: "Coupon code may only contain letters, numbers, - and _",
+    zh: "券码只能包含字母、数字、连字符与下划线",
+  },
+  "Discount value is required": { en: "Discount value is required", zh: "请填写折扣值" },
+  "Minimum spend is required": { en: "Minimum spend is required", zh: "请填写最低消费" },
+  "Start time is required": { en: "Start time is required", zh: "请选择生效时间" },
+  "End time is required": { en: "End time is required", zh: "请选择失效时间" },
+  "End time must be later than start time": {
+    en: "End time must be later than start time",
+    zh: "失效时间必须晚于生效时间",
+  },
+  "Percentage must be between 1 and 100": {
+    en: "Percentage must be between 1 and 100",
+    zh: "百分比折扣需在 1~100 之间",
+  },
+  "Fixed amount must be greater than 0": {
+    en: "Fixed amount must be greater than 0",
+    zh: "固定减免金额必须大于 0",
+  },
+  "Cap must be greater than 0": { en: "Cap must be greater than 0", zh: "封顶金额必须大于 0" },
+  "Usage limit must be a non-negative integer": {
+    en: "Usage limit must be a non-negative integer",
+    zh: "总量上限必须为非负整数",
+  },
+  "Per-user limit must be a non-negative integer": {
+    en: "Per-user limit must be a non-negative integer",
+    zh: "每人限用必须为非负整数",
+  },
+  "Public coupons need a title": {
+    en: "Public coupons need a title",
+    zh: "公开券必须填写标题（中文或英文至少一项）",
+  },
+
+  /* ── 补齐 2026-09-19 全量审计发现的漏词条键 ──────────────────────────
+     后台固定 zh 渲染，缺词条的后果是中文后台里静默漏出英文。
+     该不变量已固化为断言：tests/unit/i18n-keys.test.ts。 */
+  "Leave blank to reuse the entry above": {
+    en: "Leave blank to reuse the entry above",
+    zh: "留空则沿用上一条内容",
+  },
+  "Dark artwork detected — auto-inverted on the dark header, same as storefront": {
+    en: "Dark artwork detected — auto-inverted on the dark header, same as storefront",
+    zh: "检测到深色图形 —— 在深色页头会自动反色，与店面一致",
+  },
+  "Best with transparent background and light/white artwork for the dark header. If the artwork is dark, the storefront header auto-inverts it — clear to restore the built-in default.":
+    {
+      en: "Best with transparent background and light/white artwork for the dark header. If the artwork is dark, the storefront header auto-inverts it — clear to restore the built-in default.",
+      zh: "建议使用透明背景、浅色/白色图形以适配深色页头。若图形为深色，店面页头会自动反色 —— 清除即可恢复内置默认。",
+    },
 };
 
 /** Translate a key for a given lang.

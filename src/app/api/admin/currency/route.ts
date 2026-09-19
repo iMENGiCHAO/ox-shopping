@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { apiHandler, json, readJson } from "@/lib/api";
 import { audit } from "@/lib/audit";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { CURRENCIES } from "@/components/shop/currency";
 import {
   getRateSnapshot,
@@ -11,8 +12,9 @@ import {
 
 export const runtime = "nodejs";
 
-/** GET /api/admin/currency — 汇率快照 + 币种定义 + 手动覆写 */
+/** GET /api/admin/currency — 汇率快照 + 币种定义 + 手动覆写（仅 staff） */
 export const GET = apiHandler(async () => {
+  await requireStaff();
   const [snapshot, overrides] = await Promise.all([getRateSnapshot(), loadOverrides()]);
   return json({
     snapshot,
@@ -34,6 +36,7 @@ const overridesSchema = z.object({
 
 /** PUT /api/admin/currency — 保存手动覆写(仅 ADMIN) */
 export const PUT = apiHandler(async (req) => {
+  const actor = await requireAdmin();
   const input = await readJson(req, overridesSchema);
 
   const known = new Set(CURRENCIES.map((c) => c.code));
@@ -47,6 +50,7 @@ export const PUT = apiHandler(async (req) => {
   invalidateRateCache();
 
   await audit({
+    userId: actor.id,
     action: "CURRENCY_OVERRIDES_UPDATE",
     meta: { overrides: clean },
     req,

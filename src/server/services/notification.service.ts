@@ -11,13 +11,17 @@ import { prisma } from "@/lib/prisma";
  *
  * 设计：
  *  - title/body 双语（zh fallback），按用户 lang 选语种
- *  - type 标准化：order / refund / price_alert / system
+ *  - type 标准化：order / refund / system
  *  - link 跳转到 /orders/[n] /account/refunds /products/[slug] 等
  */
-export type NotificationType = "order" | "refund" | "price_alert" | "system";
+export type NotificationType = "order" | "refund" | "system";
 
 export interface NotificationInput {
-  userId: string;
+  /**
+   * 收件用户。null = 没有账号可归属（如游客订单），createNotification 会静默跳过。
+   * 之所以允许 null 而不是让每个调用点自己判空：漏判会让整条下单流程 500。
+   */
+  userId: string | null;
   type: NotificationType;
   /** zh fallback（必填） */
   title: string;
@@ -46,8 +50,9 @@ export interface NotificationRecord {
   createdAt: Date;
 }
 
-/** 写一条消息 */
+/** 写一条消息。userId 为 null（游客订单等无账号场景）时静默跳过——没有用户就没有消息中心。 */
 export async function createNotification(input: NotificationInput): Promise<void> {
+  if (!input.userId) return;
   await prisma.notification.create({
     data: {
       userId: input.userId,
@@ -62,10 +67,13 @@ export async function createNotification(input: NotificationInput): Promise<void
   });
 }
 
-/** 批量写（同一用户多条） */
+/** 批量写（同一用户多条）。无账号可归属的条目（游客订单）直接丢弃。 */
 export async function createNotifications(inputs: NotificationInput[]): Promise<number> {
-  if (inputs.length === 0) return 0;
-  const data = inputs.map((i) => ({
+  const deliverable = inputs.filter(
+    (i): i is NotificationInput & { userId: string } => !!i.userId,
+  );
+  if (deliverable.length === 0) return 0;
+  const data = deliverable.map((i) => ({
     userId: i.userId,
     type: i.type,
     title: i.title,
@@ -103,7 +111,7 @@ export async function listForUser(
   const limit = Math.min(Math.max(opts.limit ?? 30, 1), 100);
   const rows = await prisma.notification.findMany({
     where: { userId },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
     take: limit,
   });
   return rows.map((r) => ({

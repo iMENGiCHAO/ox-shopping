@@ -47,7 +47,7 @@ docs/                      本文档及验收/审计/运行手册
 
 ### 2.0.2 商业优化规划（P0–P2）与既有文档
 
-- 完整计划文档：`docs/COMMERCIAL_AUDIT_2026-08.md`、`COMMERCIAL_AUDIT_DEEP_2026-08.md`、`COMMERCIAL_READINESS.md`、`PRODUCTION_CHECKLIST.md`、`RUNBOOK-multi-instance.md`、`ACCEPTANCE.md`、`DESIGN.md`、`I18N_MIGRATION.md`、`SESSION_SUMMARY.md`、`CLONE-BACKLOG.md`。
+- 现存文档：`PRODUCTION_CHECKLIST.md`、`DESIGN.md`、`PRODUCTION_DEPLOY_2026.md`、`QUICKSTART_2026-09.md`（历史审计/会话文档已归档清理）。
 - 已落地的基础设施（早于本迭代，仍在使用）：
   - **备份脚本**、**速率限制**（login/API 等）、**降级策略**（DB 故障回落内置默认，站点不 500）、**GDPR 数据导出**、**i18n 100% 覆盖**（audit 脚本守护）、**PaymentLog 支付审计**、**CSP nonce**、**负载测试工具**、**多实例运行手册**。
 
@@ -61,8 +61,8 @@ docs/                      本文档及验收/审计/运行手册
 
 ### 2.0.5 既有功能全景（本窗口内未大改，仍在线）
 
-- 前台：登录/注册（邮箱验证、忘记密码）、购物车（规格选择快照）、结算（Mock 支付 + 支付日志）、订单状态机与退款、到货通知（Notify me，按规格匹配回货）、优惠券、收藏、多币种（9 币种 + 汇率缓存/单飞/SWR）、搜索（Sort by/Price/Availability/Pages tab）、政策与 FAQ 页、尺寸对照表、灯箱/放大镜。
-- 后台：Dashboard、商品/分类/横幅/法务/货币/支付管理、订单（筛选/导出 CSV/详情抽屉）、退款、到货通知、用户、优惠券、审计日志、设置；角色 ADMIN/SUPPORT，API 统一 `requireStaff/requireAdmin`。
+- 前台：登录/注册（邮箱验证、忘记密码）、购物车（规格选择快照）、结算（Mock 支付 + 支付日志）、订单状态机与退款、到货通知（Notify me，按规格匹配回货）、多币种（9 币种 + 汇率缓存/单飞/SWR）、搜索（Sort by/Price/Availability/Pages tab）、政策与 FAQ 页、尺寸对照表、灯箱/放大镜。
+- 后台：Dashboard、商品/分类/横幅/法务/货币/支付管理、订单（筛选/导出 CSV/详情抽屉）、退款、到货通知、用户、审计日志、设置；角色 ADMIN/SUPPORT，API 统一 `requireStaff/requireAdmin`。
 
 ## 2. 本次迭代交付清单（e620d1c → 4d97e6f）
 
@@ -188,7 +188,7 @@ docs/                      本文档及验收/审计/运行手册
 
 1. **真实支付接入**：凭证在 `/admin/payments` 就绪后，将 Stripe Checkout / 支付宝 / 微信 provider 接到结算路由（当前 Mock 分支处），并打通 webhook 验签（`/api/webhooks/stripe` 已存在）。
 2. **PDP 图册**：官方首图为 4 张候选（大图+缩略图+轮播），当前 Gallery 缩略图列逻辑已就绪，可继续对齐灯箱/放大镜细节。
-3. **生产部署**：JWT 密钥、Stripe 密钥、S3 存储驱动、邮件服务均走 .env；`next build && next start` 前先过密钥守卫；多实例运行见 `docs/RUNBOOK-multi-instance.md`。
+3. **生产部署**：JWT 密钥、Stripe 密钥、S3 存储驱动、邮件服务均走 .env；`next build && next start` 前先过密钥守卫；多实例运行依赖 PG 咨询锁选主 + 库存行锁。
 4. **汇率上游**：open.er-api.com 免费源日更一次，商用建议切换付费/自建源（`currency-server.ts` RATE_API 一处配置）。
 5. **旧数据目录**：老 ecommerce datadir 从未找到（集群 8-21 后为空），当前目录为重建演示数据；如用户找到旧 datadir 可恢复。
 6. **i18n 前台**：词典已 100% 覆盖，但 `getLang` 固定 en——若未来需要 zh 前台，恢复 cookie/浏览器语言逻辑即可（词典已备）。

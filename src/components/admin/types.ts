@@ -9,7 +9,6 @@ export type AdminUserStatus = "ACTIVE" | "DISABLED";
 export type AdminProductStatus = "DRAFT" | "ACTIVE" | "ARCHIVED";
 export type AdminOrderStatus =
   "PENDING_PAYMENT" | "PAID" | "PROCESSING" | "SHIPPED" | "DELIVERED" | "CANCELLED" | "REFUNDED";
-export type AdminCouponType = "PERCENTAGE" | "FIXED" | "FREE_SHIPPING";
 export type AdminRefundStatus = "REQUESTED" | "APPROVED" | "REJECTED" | "REFUNDED";
 
 export interface AdminPagination {
@@ -29,6 +28,7 @@ export interface AdminListResult<T> {
 export interface AdminCategoryOption {
   id: string;
   name: string;
+  nameEn?: string | null;
   parentId: string | null;
   children?: AdminCategoryOption[];
 }
@@ -38,7 +38,11 @@ export interface AdminCategory extends AdminCategoryOption {
   description: string | null;
   image: string | null;
   bannerImage?: string | null;
+  /** `/collections` 集合卡片图（为空时前端回落到 `image`） */
+  cardImage?: string | null;
   sortOrder: number;
+  /** 首页横幅次序（1=左，2=右）；null = 不出现在首页横幅 */
+  homeSortOrder?: number | null;
   isActive: boolean;
   /** 商品数(接口可能以 _count.products 或 productCount 返回) */
   productCount?: number;
@@ -56,6 +60,7 @@ export interface AdminCategoryFlat {
 export interface AdminProduct {
   id: string;
   name: string;
+  nameEn?: string | null;
   slug: string;
   sku: string;
   price: string | number;
@@ -138,33 +143,16 @@ export interface AdminUser {
   emailVerified?: boolean;
   _count?: { orders?: number };
   orders?: AdminOrder[];
-}
-
-export interface AdminCoupon {
-  id: string;
-  code: string;
-  type: AdminCouponType;
-  value: string | number;
-  minSpend: string | number;
-  maxDiscount: string | number | null;
-  startsAt: string;
-  endsAt: string;
-  usageLimit: number;
-  usedCount: number;
-  isActive: boolean;
-}
-
-export interface AdminReview {
-  id: string;
-  rating: number;
-  title: string | null;
-  comment: string;
-  isHidden: boolean;
-  isVerifiedPurchase: boolean;
-  images: string[];
-  createdAt: string;
-  user: { id?: string; name: string; email: string };
-  product: { id: string; name: string; images?: string[] };
+  /** 有效消费订单数（已支付且非取消/退款） */
+  paidOrderCount?: number;
+  /** 累计消费（多币种按各订单汇率快照折算 CNY，与仪表盘同口径） */
+  paidCny?: number;
+  /** 最近一次下单时间（任意状态） */
+  lastOrderAt?: string | null;
+  /** 该邮箱的到货提醒订阅总数（详情接口返回） */
+  notifyMeCount?: number;
+  /** 注销申请时间（有值=申请处理中，admin 需处理：确认注销/驳回） */
+  deletionRequestedAt?: string | null;
 }
 
 export interface AdminRefund {
@@ -176,7 +164,7 @@ export interface AdminRefund {
   status: AdminRefundStatus;
   adminNote: string | null;
   createdAt: string;
-  order?: { orderNumber: string; total?: string | number };
+  order?: { orderNumber: string; total?: string | number; currency?: string };
   user?: { id?: string; name: string; email: string };
 }
 
@@ -213,4 +201,41 @@ export interface AdminUploadPresignResult {
 export interface AdminUploadResult {
   url?: string;
   publicUrl?: string;
+}
+
+/** 折扣码类型（与 Prisma CouponType 一致） */
+export type AdminCouponType = "PERCENTAGE" | "FIXED" | "FREE_SHIPPING";
+
+/**
+ * 后台折扣码行。
+ *
+ * 金额字段（value / minSpend / maxDiscount）是**基础币种 USD** 的数值——
+ * 服务端 serializeCoupon 已把 Prisma Decimal 转成 number，后台不做币种换算，
+ * 与 coupon.service 的计算口径保持一致。
+ */
+export interface AdminCoupon {
+  id: string;
+  code: string;
+  type: AdminCouponType;
+  value: number;
+  minSpend: number;
+  maxDiscount: number | null;
+  startsAt: string;
+  endsAt: string;
+  /** 0 = 不限量 */
+  usageLimit: number;
+  usedCount: number;
+  /** 0 = 不限 */
+  perUserLimit: number;
+  /** 是否在公开领券中心露出 */
+  isPublic: boolean;
+  title: string | null;
+  titleEn: string | null;
+  description: string | null;
+  descriptionEn: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  /** 服务端附带的核销笔数（列表页展示用） */
+  redemptionCount?: number;
 }

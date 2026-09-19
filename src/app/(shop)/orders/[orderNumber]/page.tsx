@@ -1,15 +1,18 @@
 import { notFound, redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { Download, ExternalLink, MapPin, Package, Receipt, Truck } from "lucide-react";
+import type { RefundStatus } from "@prisma/client";
+import { Download, MapPin, Package, Receipt, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
-import { REFUNDABLE_STATUSES, ORDER_STATUS_LABELS } from "@/lib/order-status";
-import { formatPrice } from "@/components/shop/currency-server";
-import { formatSpecs } from "@/components/shop/types";
+import { REFUNDABLE_STATUSES } from "@/lib/order-status";
+import { isOrderTokenValid } from "@/server/services/order.service";
+import { orderApiUrl } from "@/lib/order-api";
+import {formatOrderAmount } from "@/components/shop/currency-server";
+import { formatSpecValues } from "@/components/shop/types";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { OrderActions } from "@/components/shop/order-actions";
 import { OrderStatusTimeline } from "@/components/shop/order-status-timeline";
@@ -20,35 +23,8 @@ export const dynamic = "force-dynamic";
 
 interface OrderDetailPageProps {
   params: Promise<{ orderNumber: string }>;
-}
-
-/** 常见承运商 → 物流查询 URL（自动按承运商名匹配） */
-function getTrackingUrl(company: string | null, number: string): string {
-  const c = (company ?? "").toLowerCase();
-  if (/sf|顺丰|shunfeng/.test(c)) {
-    return `https://www.sf-express.com/track?nums=${encodeURIComponent(number)}`;
-  }
-  if (/yto|圆通|yuantong/.test(c)) {
-    return `https://www.yto.net.cn/query?waybillNo=${encodeURIComponent(number)}`;
-  }
-  if (/zto|中通|zhongtong/.test(c)) {
-    return `https://www.zto.com/track?billno=${encodeURIComponent(number)}`;
-  }
-  if (/sto|申通|shentong/.test(c)) {
-    return `https://www.sto.cn/track?waybillNo=${encodeURIComponent(number)}`;
-  }
-  if (/yd|韵达|yunda/.test(c)) {
-    return `https://www.yundaex.com/track?waybillNo=${encodeURIComponent(number)}`;
-  }
-  if (/j&j|京东|jd\.com/.test(c)) {
-    return `https://www.jdl.com/track?waybillCodes=${encodeURIComponent(number)}`;
-  }
-  if (/usps|ups|fedex|dhl|tnt|ems/.test(c)) {
-    // 国际通用
-    return `https://www.17track.net/zh-cn/?nums=${encodeURIComponent(number)}`;
-  }
-  // 兜底 17track（万能查单）
-  return `https://www.17track.net/zh-cn/?nums=${encodeURIComponent(number)}`;
+  /** 游客订单凭 `?token=` 访问（令牌来自订单确认信里的链接） */
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export async function generateMetadata(props: OrderDetailPageProps): Promise<Metadata> {
@@ -66,19 +42,31 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
     ? params.orderNumber[0]
     : params.orderNumber;
   const user = await getSessionUser();
-  if (!user) redirect(`/auth/login?next=/orders/${orderNumber}`);
-  // redirect() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
-  if (!user) throw new Error("unreachable");
   const t = await getT();
-  const lang = t("__lang__") === "zh" ? "zh" : "en";
+  const sp = await props.searchParams;
+  const rawToken = sp.token;
+  const token = typeof rawToken === "string" ? rawToken : null;
 
   const order = await prisma.order.findUnique({
     where: { orderNumber },
     include: { items: true },
   });
-  if (!order || order.userId !== user.id) notFound();
+  if (!order) notFound();
   // notFound() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
   if (!order) throw new Error("order not found");
+
+  // 访问鉴权（与 /api/orders/* 同口径，见 @/server/services/order-access）：
+  //  - 登录单：必须本人；未登录先去登录，登录后自动回到本页
+  //  - 游客单：必须携带匹配的查询令牌；缺失或不匹配一律 notFound()，
+  //    不暴露「订单是否存在」的差异（否则可枚举有效订单号）
+  if (order.userId) {
+    if (!user) redirect(`/auth/login?next=${encodeURIComponent(`/orders/${orderNumber}`)}`);
+    if (order.userId !== user.id) notFound();
+  } else if (!isOrderTokenValid(order, token)) {
+    notFound();
+  }
+  // 游客单：把令牌透传给客户端组件（取消/支付/退款/发票等子接口都要带它）
+  const orderToken = order.userId ? null : token;
 
   const address = order.addressSnapshot as {
     recipientName?: string;
@@ -90,15 +78,25 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
   } | null;
 
   const refundable = REFUNDABLE_STATUSES.includes(order.status);
+  // 活跃退款（审核中 / 已通过待打款）→ 回传前端展示状态，禁止重复申请
+  const refunds = await prisma.refund.findMany({
+    where: { orderId: order.id },
+    orderBy: { createdAt: "desc" },
+  });
+  const activeRefund = refunds.find((r) => r.status === "REQUESTED" || r.status === "APPROVED") ?? null;
   const canDownloadInvoice = order.status !== "PENDING_PAYMENT" && order.status !== "CANCELLED";
-  const [subtotalText, discountText, shippingText, taxText, totalText, itemSubtotals] =
+  // 使用订单创建时的币种与汇率快照，而非当前用户币种
+  const orderCurrency = order.currency ?? "USD";
+  const orderRate = Number(order.exchangeRate) || 1;
+  const [subtotalText, shippingText, taxText, totalText, itemSubtotals] =
     await Promise.all([
-      formatPrice(Number(order.subtotal)),
-      formatPrice(Number(order.discount)),
-      formatPrice(Number(order.shippingFee)),
-      formatPrice(Number(order.tax)),
-      formatPrice(Number(order.total)),
-      Promise.all(order.items.map((item) => formatPrice(Number(item.subtotal)))),
+      Promise.resolve(formatOrderAmount(Number(order.subtotal), orderCurrency, orderRate)),
+      Promise.resolve(formatOrderAmount(Number(order.shippingFee), orderCurrency, orderRate)),
+      Promise.resolve(formatOrderAmount(Number(order.tax), orderCurrency, orderRate)),
+      Promise.resolve(formatOrderAmount(Number(order.total), orderCurrency, orderRate)),
+      Promise.all(order.items.map((item) =>
+        Promise.resolve(formatOrderAmount(Number(item.subtotal), orderCurrency, orderRate)),
+      )),
     ]);
 
   return (
@@ -114,11 +112,15 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
         </div>
         <StatusBadge
           status={order.status}
-          labelMap={
-            Object.fromEntries(
-              Object.entries(ORDER_STATUS_LABELS).map(([k, v]) => [k, t(v)]),
-            ) as Record<string, string>
-          }
+          labelMap={{
+            PENDING_PAYMENT: t("Payment pending"),
+            PAID: t("Paid"),
+            PROCESSING: t("Processing"),
+            SHIPPED: t("Shipped"),
+            DELIVERED: t("Delivered"),
+            CANCELLED: t("Cancelled"),
+            REFUNDED: t("Refunded"),
+          }}
         />
       </div>
 
@@ -150,6 +152,7 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
             <OrderActions
               orderNumber={order.orderNumber}
               status={order.status}
+              token={orderToken}
               className="flex flex-col gap-2"
             />
             {order.status === "PENDING_PAYMENT" ? (
@@ -162,7 +165,7 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
             {canDownloadInvoice ? (
               <Button asChild variant="outline" size="sm" className="w-full">
                 <a
-                  href={`/api/orders/${order.orderNumber}/invoice`}
+                  href={orderApiUrl(order.orderNumber, orderToken, "/invoice")}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -173,8 +176,12 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
             ) : null}
             <RefundEntry
               orderNumber={order.orderNumber}
+              token={orderToken}
               total={Number(order.total)}
               refundable={refundable}
+              currency={order.currency}
+              exchangeRate={Number(order.exchangeRate)}
+              activeRefundStatus={(activeRefund?.status as RefundStatus | undefined) ?? null}
             />
           </CardContent>
         </Card>
@@ -208,7 +215,7 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
                 {Array.isArray(item.attributes) &&
                 (item.attributes as { name: string; value: string }[]).length > 0 ? (
                   <p className="text-xs text-muted-foreground">
-                    {formatSpecs(item.attributes as { name: string; value: string }[])}
+                    {formatSpecValues(item.attributes as { name: string; value: string }[])}
                   </p>
                 ) : null}
               </div>
@@ -267,17 +274,6 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
                     {order.trackingNumber ?? "-"}
                   </span>
                 </p>
-                {order.trackingNumber ? (
-                  <a
-                    href={getTrackingUrl(order.trackingCompany, order.trackingNumber)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                    {lang === "zh" ? "查询物流轨迹" : "Track shipment"}
-                  </a>
-                ) : null}
               </>
             ) : (
               <p className="text-muted-foreground">
@@ -304,12 +300,6 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
               <dt className="text-muted-foreground">{t("Subtotal")}</dt>
               <dd>{subtotalText}</dd>
             </div>
-            {Number(order.discount) > 0 ? (
-              <div className="flex justify-between text-success">
-                <dt>{t("Discount")}</dt>
-                <dd>-{discountText}</dd>
-              </div>
-            ) : null}
             <div className="flex justify-between">
               <dt className="text-muted-foreground">{t("Shipping")}</dt>
               <dd>{Number(order.shippingFee) === 0 ? t("Free shipping") : shippingText}</dd>

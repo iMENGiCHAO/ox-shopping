@@ -40,9 +40,9 @@ export function QuantityInput({
         disabled={disabled || value <= min}
         onClick={() => onChange(clamp(value - 1))}
         aria-label={t("Decrease quantity")}
-        className="h-9 w-9 rounded-none border-r border-input"
+        className="h-[46px] w-[46px] rounded-none border-r border-input"
       >
-        <Minus className="h-3.5 w-3.5" />
+        <Minus className="h-4 w-4" />
       </Button>
       <input
         type="number"
@@ -52,7 +52,7 @@ export function QuantityInput({
           const parsed = Number(e.target.value);
           onChange(Number.isNaN(parsed) ? min : clamp(parsed));
         }}
-        className="h-9 w-12 bg-transparent text-center text-sm font-normal outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="h-[46px] w-14 bg-transparent text-center text-sm font-normal outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label={t("Quantity")}
       />
       <Button
@@ -62,9 +62,9 @@ export function QuantityInput({
         disabled={disabled || value >= max}
         onClick={() => onChange(clamp(value + 1))}
         aria-label={t("Increase quantity")}
-        className="h-9 w-9 rounded-none border-l border-input"
+        className="h-[46px] w-[46px] rounded-none border-l border-input"
       >
-        <Plus className="h-3.5 w-3.5" />
+        <Plus className="h-4 w-4" />
       </Button>
     </div>
   );

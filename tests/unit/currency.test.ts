@@ -11,7 +11,7 @@ import {
 } from "@/components/shop/currency";
 
 describe("货币换算（多币种功能）", () => {
-  it("前台面向欧美客户：默认美元，内置汇率覆盖全部支持币种", () => {
+  it("前台默认展示美元（与官方商店一致），内置汇率覆盖全部支持币种", () => {
     expect(DEFAULT_CURRENCY).toBe("USD");
     for (const c of CURRENCIES) {
       expect(FALLBACK_RATES[c.code]).toBeGreaterThan(0);
@@ -31,7 +31,7 @@ describe("货币换算（多币种功能）", () => {
     expect(formatAmount(23.57, "JPY")).toMatch(/[¥￥]/);
   });
 
-  it("parseCurrencyCode 未知币种回退默认美元", () => {
+  it("parseCurrencyCode 未知币种回退默认币种", () => {
     expect(parseCurrencyCode("usd")).toBe("USD");
     expect(parseCurrencyCode("BTC")).toBe(DEFAULT_CURRENCY);
     expect(parseCurrencyCode(undefined)).toBe(DEFAULT_CURRENCY);

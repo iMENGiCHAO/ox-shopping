@@ -21,14 +21,14 @@ export const POST = apiHandler(async (req) => {
   if (!rl.ok) throw rateLimited();
 
   const payload = await verifyEmailToken(input.token, "reset-password");
-  if (!payload) throw badRequest("重置链接无效或已过期");
+  if (!payload) throw badRequest("This reset link is invalid or has expired");
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
-  if (!user) throw badRequest("重置链接无效或已过期");
+  if (!user) throw badRequest("This reset link is invalid or has expired");
 
   // 密码指纹校验：密码已变更过则旧重置链接失效
   if (payload.fp && payload.fp !== (await sha256(user.passwordHash)).slice(0, 16)) {
-    throw badRequest("重置链接已失效，请重新申请");
+    throw badRequest("This reset link has expired. Please request a new one");
   }
 
   const passwordHash = await hashPassword(input.password);

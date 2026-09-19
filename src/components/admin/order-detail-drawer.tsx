@@ -73,7 +73,13 @@ export function OrderDetailDrawer({
   };
 
   const address = current?.addressSnapshot;
-  const nextStatuses = current ? (ORDER_STATUS_FLOW[current.status] ?? []) : [];
+  const currency = current?.currency || "USD";
+  // 管理员不能直接标记为已送达，DELIVERED 只能由购物者确认收货
+  // 所以 SHIPPED 状态的可推进状态只显示 REFUNDED
+  const rawNextStatuses = current ? (ORDER_STATUS_FLOW[current.status] ?? []) : [];
+  const nextStatuses = current?.status === "SHIPPED"
+    ? rawNextStatuses.filter((s) => s !== "DELIVERED")
+    : rawNextStatuses;
   // Paid/processing can ship; shipped can edit shipping info
   const canShip = Boolean(
     current && (current.status === "PAID" || current.status === "PROCESSING"),
@@ -162,9 +168,9 @@ export function OrderDetailDrawer({
                         {item.productName}
                         <span className="block text-xs text-muted-foreground">{item.sku}</span>
                       </TableCell>
-                      <TableCell>{formatMoney(item.price)}</TableCell>
+                      <TableCell>{formatMoney(item.price, currency)}</TableCell>
                       <TableCell>×{item.quantity}</TableCell>
-                      <TableCell className="text-right">{formatMoney(item.subtotal)}</TableCell>
+                      <TableCell className="text-right">{formatMoney(item.subtotal, currency)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -177,23 +183,19 @@ export function OrderDetailDrawer({
               <div className="space-y-1 rounded-md border bg-muted/30 p-4 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">商品小计</span>
-                  <span>{formatMoney(current.subtotal)}</span>
+                  <span>{formatMoney(current.subtotal, currency)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">运费</span>
-                  <span>{formatMoney(current.shippingFee)}</span>
+                  <span>{formatMoney(current.shippingFee, currency)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">税费</span>
-                  <span>{formatMoney(current.tax)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">优惠券</span>
-                  <span>-{formatMoney(current.discount)}</span>
+                  <span>{formatMoney(current.tax, currency)}</span>
                 </div>
                 <div className="flex justify-between border-t pt-1 font-semibold">
                   <span>实付金额</span>
-                  <span>{formatMoney(current.total)}</span>
+                  <span>{formatMoney(current.total, currency)}</span>
                 </div>
               </div>
             </section>
@@ -226,7 +228,11 @@ export function OrderDetailDrawer({
               onValueChange={(v) => void changeStatus(v as AdminOrderStatus)}
             >
               <SelectTrigger className="w-36" disabled={statusLoading}>
-                <SelectValue />
+                {/* value 是"当前状态"，但选项只列"下一可推进状态"，
+                    Radix 匹配不到对应 SelectItem 会显示空白 → 用 placeholder 兜底当前状态文案 */}
+                <SelectValue
+                  placeholder={ORDER_STATUS_LABELS[current.status] ?? current.status}
+                />
               </SelectTrigger>
               <SelectContent>
                 {nextStatuses.length > 0 ? (

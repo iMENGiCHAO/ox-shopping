@@ -60,7 +60,7 @@ export function CurrencySelect({
         <ul
           role="listbox"
           className={cn(
-            "currency-sheet absolute z-50 max-h-80 w-56 overflow-auto border border-border bg-card text-foreground shadow-lg",
+            "currency-sheet absolute z-50 max-h-80 w-56 overflow-auto border border-white/10 bg-ink text-ink-foreground shadow-lg",
             direction === "up" ? "bottom-full mb-2" : "top-full mt-2",
             align === "right" && "right-0",
             align === "left" && "left-0",
@@ -77,14 +77,18 @@ export function CurrencySelect({
                   setCode(c.code);
                   setOpen(false);
                 }}
-                className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-secondary ${
-                  c.code === code ? "font-semibold text-foreground" : "text-foreground/70"
+                // 黑底菜单：文字用白色(ink-foreground)，不能用 text-foreground(正文黑字→黑底黑字看不见)；
+                // hover 用白色半透明而非 bg-secondary(避免突变)
+                className={`flex w-full items-center justify-between px-4 py-2.5 text-left text-sm transition-colors hover:bg-white/10 ${
+                  c.code === code
+                    ? "font-semibold text-ink-foreground"
+                    : "text-ink-foreground/70"
                 }`}
               >
                 <span>
                   {c.country} ({c.code} {c.symbol})
                 </span>
-                {c.code === code ? <span className="text-foreground">✓</span> : null}
+                {c.code === code ? <span className="text-ink-foreground">✓</span> : null}
               </button>
             </li>
           ))}

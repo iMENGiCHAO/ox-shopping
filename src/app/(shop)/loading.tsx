@@ -1,19 +1,9 @@
 /**
- * 商城路由通用 Loading 骨架 — x.com 式灰底脉冲：标题条 + 4 列卡片网格。
+ * 商城路由通用 Loading —— 按原站口径**不渲染骨架**。
+ *
+ * 大爷 2026-09-20 指正：刷新时会出现「四格带阴影的卡片占位」，而 shop.x.com 没有
+ * 这种骨架闪烁（服务端直出真实内容）。骨架反而放大了慢卷上的首屏抖动，故移除。
  */
 export default function ShopLoading() {
-  return (
-    <div className="container py-12">
-      <div className="mx-auto mb-10 h-8 w-56 animate-pulse bg-muted" />
-      <div className="grid grid-cols-2 gap-x-4 gap-y-8 lg:grid-cols-4 lg:gap-x-6 lg:gap-y-16">
-        {Array.from({ length: 8 }, (_, i) => (
-          <div key={i}>
-            <div className="aspect-square w-full animate-pulse bg-muted" />
-            <div className="mt-3 h-4 w-3/4 animate-pulse bg-muted" />
-            <div className="mt-2 h-4 w-1/3 animate-pulse bg-muted" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return null;
 }

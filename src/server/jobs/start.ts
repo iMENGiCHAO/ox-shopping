@@ -1,5 +1,4 @@
 import { logger } from "@/lib/logger";
-import { runScheduledJobs } from "@/server/jobs/scheduler";
 
 /**
  * 进程内定时任务调度器（由 prisma 单例首次初始化时拉起，仅 Node 服务端）。
@@ -19,9 +18,23 @@ export function startScheduler(): void {
 
   logger.info({ intervalMs }, "[cron] 调度器已启动");
   const timer = setInterval(() => {
-    runScheduledJobs().catch((err) => {
-      logger.error({ err }, "[cron] 心跳执行失败");
-    });
+    /**
+     * 心跳里**重新 import**，而不是在注册时静态捕获 `runScheduledJobs`。
+     *
+     * 原因：`__cronStarted` 守卫是「只注册一次」，而它保护的定时器比模块实例活得久。
+     * 一旦模块实例被替换（dev HMR 重载 `scheduler.ts`、或测试环境按文件重建模块图），
+     * 旧定时器持有的仍是**上一个实例**的导出，于是每一跳都抛
+     * `runScheduledJobs is not a function` —— 且因为守卫拦着不会重注册，
+     * **定时任务就永久静默失效了**（订单超时取消、Token 清理、掉单对账全部停摆）。
+     *
+     * 每次心跳重新解析模块即可始终拿到当前实例。频率是 60s 一次，
+     * 动态 import 走模块缓存，代价可忽略。
+     */
+    void import("@/server/jobs/scheduler")
+      .then((m) => m.runScheduledJobs())
+      .catch((err) => {
+        logger.error({ err }, "[cron] 心跳执行失败");
+      });
   }, intervalMs);
   timer.unref?.();
 }

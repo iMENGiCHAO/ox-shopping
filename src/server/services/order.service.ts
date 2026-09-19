@@ -1,12 +1,12 @@
 import "server-only";
+import { cookies } from "next/headers";
 import { Prisma } from "@prisma/client";
-import type { Order, OrderItem, OrderStatus, User } from "@prisma/client";
+import type { Order, OrderItem, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { env } from "@/lib/env";
-import {
-  ORDER_EXPIRE_SECONDS,
-  TAX_RATE,
-} from "@/lib/constants";
+import { env, brandFallback } from "@/lib/env";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
+import { getLang } from "@/lib/shop-i18n-server";
+import { ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
 import { generateOrderNumber, toCents, formatMoney } from "@/lib/utils";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
 import { assertTransition, canTransition } from "@/lib/order-status";
@@ -14,15 +14,35 @@ import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { createNotification, notifyAdmins } from "@/server/services/notification.service";
 import { logger } from "@/lib/logger";
-import { createCheckoutSession, createStripeRefund } from "@/lib/payment/stripe";
+import {
+  createCheckoutSession,
+  createStripeRefund,
+  retrieveCheckoutSession,
+} from "@/lib/payment/stripe";
 import { createMockPaymentUrl } from "@/lib/payment/mock";
+import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
+import { getProvider } from "@/lib/payment/providers";
+import { str } from "@/lib/payment/provider";
 import { effectivePaymentMode } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
+import { notifyRestock } from "@/server/services/notify-me.service";
 import { logPayment } from "@/server/services/payment-log.service";
 import { sanitizePlainText } from "@/lib/sanitize";
 import { assertValidSpecs } from "@/server/services/cart.service";
 import type { SpecSelection } from "@/server/services/cart.service";
 import { calculateShippingFee } from "@/server/services/shipping.service";
+import { getRateSnapshot } from "@/components/shop/currency-server";
+import { CURRENCY_COOKIE, DEFAULT_CURRENCY, parseCurrencyCode } from "@/components/shop/currency";
+import {
+  lockCouponInTx,
+  commitCouponRedemptionInTx,
+  restoreCouponInTx,
+  evaluateCoupon,
+  CouponRejectError,
+  normalizeCouponCode,
+  normalizeEmail,
+} from "@/server/services/coupon.service";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
  * 订单服务：下单(事务锁库存防超卖)、支付、状态机流转、退款。
@@ -35,16 +55,186 @@ export interface OrderItemInput {
   attributes?: SpecSelection[];
 }
 
+/**
+ * 结账页内联填写的收货地址（字段与原站结账页一致）。
+ * 无账号时地址无法落 addresses 表（无归属），仅快照进订单；
+ * 已登录时也可用一次性新地址下单，同样只进快照。
+ */
+export interface CheckoutAddressInput {
+  country: string;
+  firstName: string;
+  lastName: string;
+  line1: string;
+  line2?: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  phone?: string | null;
+}
+
 export interface CreateOrderInput {
-  userId: string;
+  /** 下单用户；游客结账为 null（此时必须提供 contactEmail，并二选一提供地址） */
+  userId: string | null;
+  /**
+   * 订单联系邮箱。登录单缺省时取用户邮箱；游客单必填。
+   * 该字段是订单确认/发货/退款邮件的收件人，也是游客单「每人限次券」的统计口径。
+   */
+  contactEmail?: string | null;
   items: OrderItemInput[];
-  addressId: string;
-  couponCode?: string | null;
+  /** 已保存地址 id（登录单）。与 shippingAddress 二选一，同时提供时以本字段优先。 */
+  addressId?: string | null;
+  /** 结账页内联地址。与 addressId 二选一。 */
+  shippingAddress?: CheckoutAddressInput | null;
   shippingMethod: string;
   note?: string | null;
+  /** 支付渠道 code（payment_channels.code）；缺省走现有 stripe/mock 自动模式 */
+  channelCode?: string | null;
+  /** 折扣码（券码）。null/空 = 不使用折扣。 */
+  couponCode?: string | null;
 }
 
 export type OrderWithItems = Order & { items: OrderItem[] };
+
+/**
+ * 生成游客订单查询令牌。
+ * 32 字节随机数 → base64url（≈43 字符），不可猜测；订单详情页凭此免登录查看。
+ */
+function generateOrderAccessToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+/**
+ * 订单详情链接（邮件与站内消息统一使用）。
+ * 登录单直接给路径（用户登录后可访问）；**游客单必须附带查询令牌**——
+ * 游客没有账号，不带令牌点开就是登录页，等于订单确认信里的链接不可用。
+ */
+export function orderUrlFor(order: Pick<Order, "orderNumber" | "accessToken">): string {
+  const base = `${env.SITE_URL}/orders/${order.orderNumber}`;
+  return order.accessToken ? `${base}?token=${encodeURIComponent(order.accessToken)}` : base;
+}
+
+/**
+ * 邮件称呼：优先账号姓名，其次订单收货人姓名（游客单只有这个），
+ * 都没有时回落到中性称呼，避免出现 "Hi undefined"。
+ */
+export function greetingName(
+  userName: string | null | undefined,
+  order: { addressSnapshot: unknown },
+): string {
+  const recipient = (order.addressSnapshot as { recipientName?: string } | null)?.recipientName;
+  return userName?.trim() || recipient?.trim() || "there";
+}
+
+/** 订单金额明细（全部为**基础币种 USD**；换算成结算币种由调用方负责） */
+export interface OrderAmountBreakdown {
+  subtotalUsd: number;
+  shippingFeeUsd: number;
+  taxUsd: number;
+  discountUsd: number;
+  totalUsd: number;
+}
+
+/**
+ * 订单金额计算 —— **单一事实来源**。
+ *
+ * 恒等式：`total = subtotal + shippingFee + tax − discount`
+ *
+ * 下单（createOrder，事务内锁定后的最新价）与折扣码试算（/api/coupons/apply）
+ * 必须走同一个函数。此前两边各自手写一遍公式，一旦改动只改一处就会出现
+ * 「结算页一个价、实际扣款另一个价」——这是最伤客诉的一类缺陷。
+ *
+ * 税费口径：TAX_RATE=0 表示「价格含税（VAT included，对齐 shop.x.com 欧盟站）」，
+ * 此时 tax 恒为 0，前端结算页也不显示 Tax 行，前后端一致。
+ * ⚠️ 若未来启用 TAX_RATE>0，必须同步给结算页补充 Tax 行。
+ */
+export function computeOrderAmounts(input: {
+  subtotalUsd: number;
+  shippingFeeUsd: number;
+  /** 券减免额（USD）；无券传 0。FREE_SHIPPING 券传的即本单运费。 */
+  couponDiscountUsd?: number;
+}): OrderAmountBreakdown {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const subtotalUsd = r2(Math.max(0, input.subtotalUsd));
+  const shippingFeeUsd = r2(Math.max(0, input.shippingFeeUsd));
+  const taxUsd = r2(subtotalUsd * TAX_RATE);
+  // 减免不得超过「小计 + 运费」，否则 total 会变成负数（免邮券 + 已免邮就是这种边界）
+  const ceiling = r2(subtotalUsd + shippingFeeUsd);
+  const discountUsd = Math.min(Math.max(input.couponDiscountUsd ?? 0, 0), ceiling);
+  const totalUsd = r2(subtotalUsd + shippingFeeUsd + taxUsd - discountUsd);
+  return { subtotalUsd, shippingFeeUsd, taxUsd, discountUsd, totalUsd };
+}
+
+/** 折扣码试算结果（全部为 USD 基础币种） */
+export interface OrderQuote extends OrderAmountBreakdown {
+  /** 命中的券；无券为 null */
+  coupon: { code: string; freeShipping: boolean } | null;
+}
+
+/**
+ * 购物车试算（只读，不下单）。
+ *
+ * 金额一律按 DB 现价重算，**不接受前端传入的金额**——否则可被篡改。
+ * 券校验失败抛 CouponRejectError，由路由翻成本地化文案返回。
+ */
+export async function quoteOrderAmounts(input: {
+  items: OrderItemInput[];
+  shippingMethod: string;
+  couponCode?: string | null;
+  userId?: string | null;
+  email?: string | null;
+}): Promise<OrderQuote> {
+  const ids = [...new Set(input.items.map((i) => i.productId))];
+  const products = await prisma.product.findMany({ where: { id: { in: ids } } });
+  const byId = new Map(products.map((p) => [p.id, p]));
+
+  let subtotalUsd = 0;
+  for (const item of input.items) {
+    const p = byId.get(item.productId);
+    if (!p || p.status !== "ACTIVE") {
+      throw badRequest(`"${p?.name ?? "Item"}" is no longer available`);
+    }
+    subtotalUsd += Number(p.price) * item.quantity;
+  }
+  subtotalUsd = Math.round(subtotalUsd * 100) / 100;
+
+  const shipping = await calculateShippingFee(input.shippingMethod, subtotalUsd);
+  const shippingFeeUsd = shipping.fee;
+
+  let couponResult: { code: string; freeShipping: boolean; discountUsd: number } | null = null;
+  const code = input.couponCode?.trim();
+  if (code) {
+    const evaluated = await evaluateCoupon(
+      code,
+      { subtotalUsd, shippingFeeUsd },
+      { userId: input.userId ?? null, email: input.email ?? null },
+    );
+    if (!evaluated.ok || !evaluated.coupon) {
+      throw new CouponRejectError(
+        evaluated.reason ?? "NOT_APPLICABLE",
+        code,
+        evaluated.shortfallUsd,
+      );
+    }
+    couponResult = {
+      code: evaluated.coupon.code,
+      freeShipping: evaluated.freeShipping,
+      discountUsd: evaluated.discountUsd,
+    };
+  }
+
+  const amounts = computeOrderAmounts({
+    subtotalUsd,
+    shippingFeeUsd,
+    couponDiscountUsd: couponResult?.discountUsd ?? 0,
+  });
+
+  return {
+    ...amounts,
+    coupon: couponResult
+      ? { code: couponResult.code, freeShipping: couponResult.freeShipping }
+      : null,
+  };
+}
 
 function d(n: number): Prisma.Decimal {
   return new Prisma.Decimal(n.toFixed(2));
@@ -54,66 +244,115 @@ function round2(n: Prisma.Decimal): number {
   return Math.round(n.toNumber() * 100) / 100;
 }
 
-/** Discount券折扣计算(不落库，供校验与下单共用) */
-export function computeCouponDiscount(
-  coupon: {
-    type: string;
-    value: Prisma.Decimal | number;
-    minSpend: Prisma.Decimal | number;
-    maxDiscount: Prisma.Decimal | number | null;
-  },
-  subtotal: number,
-  shippingFee: number,
-): { discount: number; freeShipping: boolean } {
-  const value = Number(coupon.value);
-  const maxDiscount = coupon.maxDiscount ? Number(coupon.maxDiscount) : null;
-
-  if (subtotal < Number(coupon.minSpend)) {
-    throw badRequest(`该Discount券需满 ${Number(coupon.minSpend)} 元可用`);
-  }
-
-  if (coupon.type === "PERCENTAGE") {
-    let amount = Math.round(subtotal * (value / 100) * 100) / 100;
-    if (maxDiscount !== null) amount = Math.min(amount, maxDiscount);
-    return { discount: Math.min(amount, subtotal), freeShipping: false };
-  }
-  if (coupon.type === "FIXED") {
-    return { discount: Math.min(value, subtotal), freeShipping: false };
-  }
-  // FREE_SHIPPING
-  return { discount: 0, freeShipping: true };
+/**
+ * 订单收货地址快照（与 Order.addressSnapshot 的 JSON 结构一一对应）。
+ *
+ * 两条下单入口最终都收敛到这份结构：
+ *   - 地址簿（Address 表，国内式字段）→ 映射进来
+ *   - 结账页内联表单（原站西式字段）→ 映射进来
+ * 下游（后台订单详情 / 发票 / 导出）只认这一种结构。
+ * country / postalCode 是后加字段：历史订单快照缺这两个键，渲染时按空串处理。
+ */
+interface AddressSnapshot {
+  /** 收件人姓名（结账页把姓名拆成两栏，此处合并回一个字段） */
+  recipientName: string;
+  /** 联系电话；原站仅部分国家/地区要求，可能为空串 */
+  phone: string;
+  /** 国家/地区 ISO alpha-2 */
+  country: string;
+  /** 州/省 */
+  province: string;
+  city: string;
+  /** 区/县（国内式地址使用；结账页西式表单留空） */
+  district: string;
+  /** 邮编 */
+  postalCode: string;
+  /** 街道地址（第一行；有第二行时以换行拼接，面单按多行渲染） */
+  detail: string;
 }
 
-export async function findUsableCoupon(code: string, userId: string) {
-  const now = new Date();
-  const coupon = await prisma.coupon.findUnique({ where: { code: code.toUpperCase() } });
-  if (!coupon) throw badRequest("Discount券不存在");
-  if (!coupon.isActive) throw badRequest("Discount券已停用");
-  if (coupon.startsAt > now || coupon.endsAt < now) throw badRequest("Discount券不在有效期内");
-  if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
-    throw badRequest("Discount券已被领完");
+/**
+ * 解析收货地址快照。
+ * - 登录单：按 addressId 取**本人**的已保存地址（带 userId 过滤，防越权引用他人地址）
+ * - 游客单：直接采用结账页内联填写的地址，不落 addresses 表（无账号可归属）
+ */
+async function resolveAddressSnapshot(input: CreateOrderInput): Promise<AddressSnapshot> {
+  if (input.addressId) {
+    if (!input.userId) throw badRequest("Shipping address not found");
+    const address = await prisma.address.findFirst({
+      where: { id: input.addressId, userId: input.userId },
+    });
+    if (!address) throw badRequest("Shipping address not found");
+    return {
+      recipientName: address.recipientName,
+      phone: address.phone,
+      country: address.country ?? "",
+      province: address.province,
+      city: address.city,
+      district: address.district,
+      postalCode: address.postalCode ?? "",
+      // 地址簿把「公寓/单元号」存在 line2；快照合并进 detail（面单按多行渲染）
+      detail: [address.detail, address.line2].filter((s) => !!s && s.trim() !== "").join("\n"),
+    };
   }
-  return coupon;
+  const g = input.shippingAddress;
+  if (!g) throw badRequest("Shipping address not found");
+  return {
+    // 原站把姓名拆成 First name / Last name 两栏，快照合并回一个收件人字段，
+    // 与地址簿（Address.recipientName）及后台订单详情/发票的展示口径保持一致。
+    recipientName: `${g.firstName} ${g.lastName}`.trim(),
+    phone: g.phone?.trim() ?? "",
+    country: g.country,
+    province: g.state,
+    city: g.city,
+    // 结账页表单没有「区/县」字段（西式地址结构），留空；
+    // 走地址簿入口的订单才会带 district。
+    district: "",
+    postalCode: g.postalCode,
+    detail: [g.line1, g.line2].filter((s) => !!s && s.trim() !== "").join("\n"),
+  };
+}
+
+/**
+ * 解析订单联系邮箱（订单确认/发货/退款邮件的唯一收件人来源）。
+ * - 登录单：显式传入优先，否则取账号邮箱
+ * - 游客单：必填（同时也是游客单查询订单、每人限次券的凭据）
+ */
+async function resolveContactEmail(input: CreateOrderInput): Promise<string | null> {
+  const explicit = input.contactEmail?.trim();
+  if (explicit) return normalizeEmail(explicit);
+  if (!input.userId) throw badRequest("Please enter your email");
+  const user = await prisma.user.findUnique({
+    where: { id: input.userId },
+    select: { email: true },
+  });
+  return user ? normalizeEmail(user.email) : null;
 }
 
 /**
  * 创建订单(事务)：
  * - 原子扣减库存(UPDATE ... WHERE stock >= qty)，杜绝超卖
- * - 校验并计算Discount券/Shipping/税费
+ * - 校验并计算Shipping/税费/折扣（折扣券在同事务内行锁核销）
  * - 快照收货地址、生成订单条目
- * - 清空Shopping Bag中已下单商品
+ * - 清空Shopping Bag中已下单商品（游客单无购物袋，跳过）
+ * - 游客单生成订单查询令牌
  */
 export async function createOrder(input: CreateOrderInput): Promise<OrderWithItems> {
   // 商品与地址校验(事务外)
+  // 注意：items 可能含同一商品的多条规格行（如同款 Size S + Size M），
+  // 必须用去重后的 productId 数量与查询结果比较，否则会误判"部分商品不存在"。
+  const uniqueProductIds = [...new Set(input.items.map((i) => i.productId))];
   const products = await prisma.product.findMany({
-    where: { id: { in: input.items.map((i) => i.productId) } },
+    where: { id: { in: uniqueProductIds } },
   });
-  if (products.length !== input.items.length) throw badRequest("部分商品不存在");
+  if (products.length !== uniqueProductIds.length)
+    throw badRequest("Some items in your cart are no longer available");
   for (const p of products) {
-    if (p.status !== "ACTIVE") throw badRequest(`商品「${p.name}」已下架`);
-    // 规格白名单校验：杜绝攻击者携带任意 name/value 走完整下单链路
-    const matched = input.items.find((i) => i.productId === p.id);
-    if (matched) assertValidSpecs(p.attributes, matched.attributes);
+    if (p.status !== "ACTIVE") throw badRequest(`"${p.name}" is no longer available`);
+    // 规格白名单校验：逐条校验该商品的所有规格行（杜绝攻击者携带任意 name/value 走完整下单链路）
+    for (const item of input.items.filter((i) => i.productId === p.id)) {
+      assertValidSpecs(p.attributes, item.attributes);
+    }
   }
   const productById = new Map(products.map((p) => [p.id, p]));
 
@@ -123,18 +362,23 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     input.note = cleaned.trim().slice(0, 300) || null;
   }
 
-  const address = await prisma.address.findFirst({
-    where: { id: input.addressId, userId: input.userId },
-  });
-  if (!address) throw badRequest("收货地址不存在");
-
-  // 券预校验（事务外快速失败；事务内会再次锁行校验占用与最新状态）
-  let coupon: Awaited<ReturnType<typeof findUsableCoupon>> | null = null;
-  if (input.couponCode) {
-    coupon = await findUsableCoupon(input.couponCode, input.userId);
-  }
+  const address = await resolveAddressSnapshot(input);
+  const contactEmail = await resolveContactEmail(input);
+  // 游客单：生成不可猜测的一次性查询令牌（登录单为 null，走账号鉴权）
+  const accessToken = input.userId ? null : generateOrderAccessToken();
+  const couponCode = input.couponCode?.trim() ? normalizeCouponCode(input.couponCode) : null;
 
   const orderNumber = generateOrderNumber();
+
+  // 多币种结算：读取用户选择的币种和当前汇率快照
+  // 汇率快照存储在订单中，确保已结算订单金额不再随汇率变动
+  const cookieStore = await cookies();
+  const userCurrency =
+    parseCurrencyCode(cookieStore.get(CURRENCY_COOKIE)?.value) || DEFAULT_CURRENCY;
+  const rateSnap = await getRateSnapshot();
+  const exchangeRate = rateSnap.rates[userCurrency] ?? 1;
+  // 基础货币为 USD，用户币种金额 = USD 金额 × 汇率
+  const toUserCurrency = (amountUsd: number) => Math.round(amountUsd * exchangeRate * 100) / 100;
 
   const order = await prisma.$transaction(async (tx) => {
     const ids = [...new Set(input.items.map((i) => i.productId))];
@@ -148,64 +392,49 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     for (const item of input.items) {
       const fresh = freshById.get(item.productId);
       if (!fresh || fresh.status !== "ACTIVE") {
-        throw badRequest(`「${productById.get(item.productId)?.name ?? "商品"}」已下架`);
+        throw badRequest(
+          `"${productById.get(item.productId)?.name ?? "Item"}" is no longer available`,
+        );
       }
       subtotal += Number(fresh.price) * item.quantity;
     }
     subtotal = Number(d(subtotal));
 
-    // 0b. Discount券：锁行 + 限额校验（已支付 usedCount + 待支付占用均计入）
-    let discount = 0;
-    let freeShipping = false;
-    let couponId: string | null = null;
-    if (coupon) {
-      await tx.$queryRaw`SELECT id FROM coupons WHERE id = ${coupon.id} FOR UPDATE`;
-      const lockedCoupon = await tx.coupon.findUnique({ where: { id: coupon.id } });
-      if (!lockedCoupon || !lockedCoupon.isActive) throw badRequest("Discount券已停用");
-      const now = new Date();
-      if (lockedCoupon.startsAt > now || lockedCoupon.endsAt < now) {
-        throw badRequest("Discount券不在有效期内");
-      }
-      const pendingCount = await tx.couponRedemption.count({
-        where: { couponId: lockedCoupon.id, order: { status: "PENDING_PAYMENT" } },
+    // 0c. Shipping 与税费（基于最新小计 + DB 物流配置）
+    const shippingCalc = await calculateShippingFee(input.shippingMethod, subtotal);
+    const shippingFee = shippingCalc.fee;
+    const isCOD = shippingCalc.isCashOnDelivery;
+    const shippingMethodId = shippingCalc.method.id;
+    // 0d. 折扣码：在事务内对 coupons 行加锁后**重新**校验并算价，
+    //     杜绝「结算页预览时可用、下单瞬间已被抢完/已过期」的竞态。
+    let coupon: { couponId: string; couponCode: string; discountUsd: number } | null = null;
+    if (couponCode) {
+      coupon = await lockCouponInTx(tx, {
+        code: couponCode,
+        amounts: { subtotalUsd: subtotal, shippingFeeUsd: shippingFee },
+        holder: { userId: input.userId, email: contactEmail },
       });
-      if (
-        lockedCoupon.usageLimit > 0 &&
-        lockedCoupon.usedCount + pendingCount >= lockedCoupon.usageLimit
-      ) {
-        throw badRequest("Discount券已被领完");
-      }
-      // 物流费根据实际选的方式从 DB 算（事务内根据最新小计算）
-      const shippingCalc = await calculateShippingFee(input.shippingMethod, subtotal);
-      const baseShipping = shippingCalc.fee;
-      const result = computeCouponDiscount(lockedCoupon, subtotal, baseShipping);
-      discount = result.discount;
-      freeShipping = result.freeShipping;
-      couponId = lockedCoupon.id;
     }
 
-    // 0c. Shipping 与税费（基于最新小计 + DB 物流配置）
-    // 不用券的场景：算一次 shipping；用券的场景：上面算的 baseShipping 直接用
-    let shippingFee = 0;
-    let isCOD = false;
-    let shippingMethodId: string | null = null;
-    if (!coupon) {
-      const shippingCalc = await calculateShippingFee(input.shippingMethod, subtotal);
-      shippingFee = shippingCalc.fee;
-      isCOD = shippingCalc.isCashOnDelivery;
-      shippingMethodId = shippingCalc.method.id;
-    } else {
-      // 用了券：复用上面算的 baseShipping（券可能免邮）
-      const shippingCalc = await calculateShippingFee(input.shippingMethod, subtotal);
-      shippingFee = freeShipping ? 0 : shippingCalc.fee;
-      isCOD = shippingCalc.isCashOnDelivery;
-      shippingMethodId = shippingCalc.method.id;
-    }
-    const tax = round2(d(Math.round((subtotal - discount) * TAX_RATE * 100) / 100));
-    const total = round2(
-      new Prisma.Decimal(0).add(d(subtotal)).sub(d(discount)).add(d(shippingFee)).add(d(tax)),
-    );
-    if (total < 0) throw badRequest("订单金额异常");
+    // 0e. 税费与总额：走 computeOrderAmounts —— 与试算接口同一函数，口径不可能漂移。
+    //     恒等式：total = subtotal + shippingFee + tax − discount
+    const amounts = computeOrderAmounts({
+      subtotalUsd: subtotal,
+      shippingFeeUsd: shippingFee,
+      couponDiscountUsd: coupon?.discountUsd ?? 0,
+    });
+    const tax = amounts.taxUsd;
+    const discount = amounts.discountUsd;
+    const total = amounts.totalUsd;
+    if (total < 0) throw badRequest("Order total is invalid");
+
+    // 多币种结算：将 USD 基础金额转换为用户选择的币种
+    // 转换后所有明细之和等于总金额，确保财务一致性
+    const subtotalUser = toUserCurrency(subtotal);
+    const shippingFeeUser = toUserCurrency(shippingFee);
+    const taxUser = toUserCurrency(tax);
+    const discountUser = toUserCurrency(discount);
+    const totalUser = toUserCurrency(total);
 
     // 1. 库存扣减（商品级 + 规格级；普通单不足即失败，预售允许缺口并记录实际扣减量）
     interface ItemDeduction {
@@ -217,7 +446,8 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       const item = input.items[i]!;
       const fresh = freshById.get(item.productId)!;
       const snapshot = productById.get(item.productId)!;
-      if (!fresh || fresh.status !== "ACTIVE") throw badRequest(`「${snapshot.name}」已下架`);
+      if (!fresh || fresh.status !== "ACTIVE")
+        throw badRequest(`"${snapshot.name}" is no longer available`);
 
       // 规格级校验与扣减计划（未追踪的组/值视为可用）
       const plan = planSpecDeduction(
@@ -227,8 +457,11 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         fresh.isPresale,
       );
       if (!plan.ok && plan.shortage) {
+        const s = plan.shortage;
+        // 英文源串 + ERROR_ZH 本地化（原先在此写中英双语三元表达式，
+        // 同一条文案维护两处必然漂移）
         throw badRequest(
-          `「${snapshot.name}」规格 ${plan.shortage.group}:${plan.shortage.value} 库存不足，仅剩 ${plan.shortage.available} 件`,
+          `"${snapshot.name}" variant ${s.group}:${s.value} is out of stock — only ${s.available} left`,
         );
       }
 
@@ -248,7 +481,7 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
           },
         });
         if (updated.count === 0) {
-          throw badRequest(`「${snapshot.name}」库存不足，仅剩 ${fresh.stock} 件`);
+          throw badRequest(`"${snapshot.name}" is out of stock — only ${fresh.stock} left`);
         }
       }
 
@@ -263,18 +496,28 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       plans.push({ stockDeducted, specDeducted: plan.deducted });
     }
 
-    // 2. 创建订单
+    // 2. 创建订单（存储用户币种金额 + 汇率快照）
     const created = await tx.order.create({
       data: {
         orderNumber,
         userId: input.userId,
+        // 订单联系邮箱：游客单的唯一联系方式，也是游客查单与「每人限次券」的凭据
+        contactEmail,
+        // 游客订单查询令牌（登录单为 null，走账号鉴权）
+        accessToken,
         status: "PENDING_PAYMENT",
-        subtotal: d(subtotal),
-        shippingFee: d(shippingFee),
-        tax: d(tax),
-        discount: d(discount),
-        total: d(total),
-        currency: env.CURRENCY,
+        // 多币种结算：存储用户选择的币种金额
+        subtotal: d(subtotalUser),
+        shippingFee: d(shippingFeeUser),
+        tax: d(taxUser),
+        discount: d(discountUser),
+        total: d(totalUser),
+        currency: userCurrency,
+        // 折扣码快照：券被改/删后仍可还原当时的优惠
+        couponId: coupon?.couponId ?? null,
+        couponCode: coupon?.couponCode ?? null,
+        // 汇率快照：1 USD 兑用户币种的汇率，确保已结算订单金额不再随汇率变动
+        exchangeRate: new Prisma.Decimal(exchangeRate.toFixed(6)),
         note: input.note,
         // 物流方式（DB 配置；后台可改）
         shippingMethodId,
@@ -285,25 +528,29 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         addressSnapshot: {
           recipientName: address.recipientName,
           phone: address.phone,
+          country: address.country ?? "",
           province: address.province,
           city: address.city,
           district: address.district,
+          postalCode: address.postalCode ?? "",
           detail: address.detail,
         },
-        paymentProvider: effectivePaymentMode,
+        paymentProvider: input.channelCode ?? effectivePaymentMode,
         items: {
           create: input.items.map((item, idx) => {
             const p = productById.get(item.productId)!;
             const plan = plans[idx]!;
-            const price = Number(freshById.get(item.productId)!.price);
+            const priceUsd = Number(freshById.get(item.productId)!.price);
+            // 订单条目价格也转换为用户币种，确保订单详情页显示一致
+            const priceUser = toUserCurrency(priceUsd);
             return {
               productId: p.id,
               productName: p.name,
               productImage: Array.isArray(p.images) ? ((p.images[0] as string) ?? null) : null,
               sku: p.sku,
-              price: d(price),
+              price: d(priceUser),
               quantity: item.quantity,
-              subtotal: d(Math.round(price * item.quantity * 100) / 100),
+              subtotal: d(Math.round(priceUser * item.quantity * 100) / 100),
               // 实际扣减记录（取消订单时精确回补的依据）
               stockDeducted: plan.stockDeducted,
               specDeducted:
@@ -321,22 +568,23 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       include: { items: true },
     });
 
-    // 3. Discount券兑换记录
-    if (couponId) {
-      await tx.couponRedemption.create({
-        data: {
-          couponId,
-          userId: input.userId,
-          orderId: created.id,
-          discountAmount: d(discount),
-        },
+    // 3. 折扣码核销落库（与订单同一事务：订单回滚则券不消耗，不会「券没了单也没成」）
+    if (coupon) {
+      await commitCouponRedemptionInTx(tx, {
+        couponId: coupon.couponId,
+        userId: input.userId,
+        email: contactEmail,
+        orderId: created.id,
+        discountUsd: coupon.discountUsd,
       });
     }
 
-    // 4. 从Shopping BagRemove已下单商品
-    await tx.cartItem.deleteMany({
-      where: { userId: input.userId, productId: { in: input.items.map((i) => i.productId) } },
-    });
+    // 4. 从Shopping BagRemove已下单商品（游客单无购物袋，跳过）
+    if (input.userId) {
+      await tx.cartItem.deleteMany({
+        where: { userId: input.userId, productId: { in: input.items.map((i) => i.productId) } },
+      });
+    }
 
     return created;
   });
@@ -368,15 +616,148 @@ export async function createPaymentUrl(
   order: OrderWithItems,
   customerEmail: string,
 ): Promise<string> {
-  if (order.status !== "PENDING_PAYMENT") throw badRequest("订单当前状态不可支付");
+  if (order.status !== "PENDING_PAYMENT")
+    throw badRequest("This order cannot be paid in its current state");
+
+  // 收银台展示用的品牌名与订单摘要 —— 统一从站点设置取，不写死字面量。
+  // 摘要按当前语言生成：英文站不该在 Stripe/PayPal 账单上出现中文。
+  const settings = await getSiteSettings();
+  const lang = await getLang();
+  const brandName = pickLang(settings.siteName, lang).trim() || brandFallback;
+  const subject =
+    lang === "zh"
+      ? `${brandName} 订单 ${order.orderNumber}`
+      : `${brandName} Order ${order.orderNumber}`;
+
+  const providerKey = order.paymentProvider ?? undefined;
+
+  // 渠道分发（payment_channels）：mock / alipay / wechat / bankcard / paypal
+  if (providerKey && providerKey !== "stripe") {
+    const channel = await getChannelRuntimeByCode(providerKey);
+    // mock 渠道无需任何配置：即使没有渠道记录（未跑 migrate:payment-channels 的环境），
+    // 也保持旧行为直接给站内模拟支付页，避免开发/演示下单被中断。
+    if (!channel && providerKey === "mock") {
+      return createMockPaymentUrl(order.orderNumber, order.accessToken);
+    }
+    if (!channel || !channel.enabled) {
+      throw badRequest("This payment method is not available yet, please choose another one");
+    }
+    const provider = getProvider(channel.provider);
+    if (!provider.isConfigured(channel.config)) {
+      throw badRequest("This payment method is not configured, please choose another one");
+    }
+    // 币种兜底校验（防绕过前端置灰直接提交）：国内网关仅支持 CNY，
+    // 订单币种不匹配时按原币种金额传给网关必然金额错乱/被拒——直接拒绝。
+    const supported = provider.supportedCurrencies;
+    if (supported && !supported.includes(order.currency.toUpperCase())) {
+      throw badRequest("This payment method does not support your checkout currency — switch currency or choose another one");
+    }
+    const result = await provider.createPayment(
+      {
+        orderNumber: order.orderNumber,
+        total: Number(order.total),
+        currency: order.currency,
+        subject,
+        customerEmail,
+        brandName,
+      },
+      channel.config,
+    );
+    void logPayment({
+      orderId: order.id,
+      provider: channel.provider,
+      event: "checkout_created",
+      amount: Number(order.total),
+      gatewayId: result.transactionId ?? null,
+    });
+    return result.url;
+  }
+
+  // 渠道化 Stripe：后台配置并启用了「支付渠道 → Stripe」时，按渠道配置的密钥收款；
+  // 未配置渠道则保持 legacy env 路径（见下方 effectivePaymentMode 分支，既有订单不受影响）。
+  if (providerKey === "stripe") {
+    const channel = await getChannelRuntimeByCode("stripe");
+    if (channel && channel.enabled) {
+      const provider = getProvider(channel.provider);
+      if (!provider.isConfigured(channel.config)) {
+        throw badRequest("This payment method is not configured, please choose another one");
+      }
+      // 币种兜底校验（与前台置灰同口径；stripe 未声明币种 = 全币种放行）
+      const supported = provider.supportedCurrencies;
+      if (supported && !supported.includes(order.currency.toUpperCase())) {
+        throw badRequest("This payment method does not support your checkout currency — switch currency or choose another one");
+      }
+      const keys = {
+        secretKey: str(channel.config, "secretKey") || undefined,
+        webhookSecret: str(channel.config, "webhookSecret") || undefined,
+      };
+      // 并发安全：若订单已有未过期的 Checkout Session，直接复用（与 legacy 路径一致）
+      if (order.paymentSessionId) {
+        const existing = await retrieveCheckoutSession(order.paymentSessionId, keys);
+        if (existing && existing.status === "open" && existing.url) {
+          void logPayment({
+            orderId: order.id,
+            provider: "stripe",
+            event: "checkout_reused",
+            amount: Number(order.total),
+            gatewayId: existing.id,
+          });
+          return existing.url;
+        }
+      }
+      const result = await provider.createPayment(
+        {
+          orderNumber: order.orderNumber,
+          total: Number(order.total),
+          currency: order.currency,
+          subject,
+          customerEmail,
+          brandName,
+        },
+        channel.config,
+      );
+      // 会话 ID 落库：掉单对账定时任务据此核对网关侧真实状态（渠道密钥）
+      const sessionId = result.transactionId ?? null;
+      if (sessionId) {
+        await prisma.order
+          .update({ where: { id: order.id }, data: { paymentSessionId: sessionId } })
+          .catch(() => {});
+      }
+      void logPayment({
+        orderId: order.id,
+        provider: "stripe",
+        event: "checkout_created",
+        amount: Number(order.total),
+        gatewayId: sessionId,
+      });
+      return result.url;
+    }
+  }
 
   if (effectivePaymentMode === "stripe") {
+    // 并发安全：若订单已有未过期的 Checkout Session，直接复用（防双击支付创建多个 Session）
+    if (order.paymentSessionId) {
+      const existing = await retrieveCheckoutSession(order.paymentSessionId);
+      if (existing && existing.status === "open" && existing.url) {
+        void logPayment({
+          orderId: order.id,
+          provider: "stripe",
+          event: "checkout_reused",
+          amount: Number(order.total),
+          gatewayId: existing.id,
+        });
+        return existing.url;
+      }
+    }
+
     const { url, sessionId } = await createCheckoutSession(
       {
         orderNumber: order.orderNumber,
         currency: order.currency,
         total: Number(order.total),
         customerEmail,
+        // 游客单回跳结果页后要能继续查看订单
+        accessToken: order.accessToken,
       },
       order.items.map((i) => ({
         name: i.productName,
@@ -398,13 +779,14 @@ export async function createPaymentUrl(
     });
     return url;
   }
-  return createMockPaymentUrl(order.orderNumber);
+  return createMockPaymentUrl(order.orderNumber, order.accessToken);
 }
 
 /**
  * 标记订单已支付(Webhook / 模拟支付 / 掉单对账共用)。
  * 幂等与并发安全：先条件更新原子"认领"，只有 PENDING_PAYMENT→PAID 成功的那一个调用
- * 才继续执行券计数/发信等副作用，重复回调与并发双击均安全。
+ * 才继续执行副作用（资金流水 / 订单确认信 / 审计 / 管理员站内通知），
+ * 重复回调与并发双击均安全。
  */
 export async function markOrderPaid(
   orderNumber: string,
@@ -414,7 +796,7 @@ export async function markOrderPaid(
     where: { orderNumber },
     include: { items: true },
   });
-  if (!order) throw notFound("订单不存在");
+  if (!order) throw notFound("Order not found");
   if (order.status !== "PENDING_PAYMENT") return order;
 
   // 原子认领：并发场景只有一个调用方能把状态推进到 PAID
@@ -432,50 +814,32 @@ export async function markOrderPaid(
   // 资金流水：支付成功（webhook / mock / 对账补记共用此函数）
   void logPayment({
     orderId: order.id,
-    provider: effectivePaymentMode,
+    provider: order.paymentProvider ?? effectivePaymentMode,
     event: "paid",
     amount: Number(order.total),
     gatewayId: paymentId ?? null,
   });
-
-  // 券使用量 +1（事务内行锁 + 限额校验：并发支付不会超发）
-  const redemptions = await prisma.couponRedemption.findMany({ where: { orderId: order.id } });
-  for (const r of redemptions) {
-    const claimed = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM coupons WHERE id = ${r.couponId} FOR UPDATE`;
-      const coupon = await tx.coupon.findUnique({ where: { id: r.couponId } });
-      if (!coupon) return false;
-      if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) return false;
-      await tx.coupon.update({
-        where: { id: coupon.id },
-        data: { usedCount: { increment: 1 } },
-      });
-      return true;
-    });
-    if (!claimed) {
-      logger.warn(
-        { couponId: r.couponId, orderNumber },
-        "[coupon] 券已达领取上限，使用量不再累加（需人工核对订单抵扣）",
-      );
-    }
-  }
 
   const updated = await prisma.order.findUnique({
     where: { orderNumber },
     include: { items: true },
   });
 
-  const user = await prisma.user.findUnique({ where: { id: order.userId } });
-  if (user) {
+  // 邮件收件人：优先订单联系邮箱（游客单只有这个），登录单兜底账号邮箱
+  const user = order.userId
+    ? await prisma.user.findUnique({ where: { id: order.userId } })
+    : null;
+  const mailTo = order.contactEmail ?? user?.email ?? null;
+  if (mailTo) {
     void sendMail({
-      to: user.email,
+      to: mailTo,
       template: "order-confirmed",
       data: {
-        name: user.name,
+        name: greetingName(user?.name, order),
         orderNumber: order.orderNumber,
         total: `${order.currency} ${Number(order.total).toFixed(2)}`,
         items: order.items.map((i) => ({ name: i.productName, quantity: i.quantity })),
-        orderUrl: `${env.SITE_URL}/orders/${order.orderNumber}`,
+        orderUrl: orderUrlFor(order),
       },
     });
   }
@@ -488,17 +852,19 @@ export async function markOrderPaid(
     meta: { orderNumber, paymentId },
   });
 
-  // 站内消息：支付成功
-  void createNotification({
-    userId: order.userId,
-    type: "order",
-    title: "订单已支付",
-    titleEn: "Order paid",
-    body: `订单 ${order.orderNumber} 已收到付款，我们会尽快为您发货。`,
-    bodyEn: `Order ${order.orderNumber} payment received. We will ship as soon as possible.`,
-    link: `/orders/${order.orderNumber}`,
-    meta: { orderNumber: order.orderNumber, status: "PAID" },
-  });
+  // 站内消息：支付成功（游客单无账号、无消息中心，跳过——其通知渠道是邮件）
+  if (order.userId) {
+    void createNotification({
+      userId: order.userId,
+      type: "order",
+      title: "订单已支付",
+      titleEn: "Order paid",
+      body: `订单 ${order.orderNumber} 已收到付款，我们会尽快为您发货。`,
+      bodyEn: `Order ${order.orderNumber} payment received. We will ship as soon as possible.`,
+      link: `/orders/${order.orderNumber}`,
+      meta: { orderNumber: order.orderNumber, status: "PAID" },
+    });
+  }
 
   // 站内消息：通知管理员订单已付款，可以发货（不静默）
   void notifyAdmins({
@@ -520,19 +886,19 @@ export async function markOrderPaid(
 /** 取消订单(按下单时的实际扣减记录精确恢复库存) */
 export async function cancelOrder(order: Order, byUserId?: string | null): Promise<Order> {
   if (order.status !== "PENDING_PAYMENT") {
-    throw badRequest("当前状态不可取消");
+    throw badRequest("This order cannot be cancelled in its current state");
   }
+  // 本次回补了库存的商品 id，事务提交后触发补货通知（若从售罄变有货）
+  const restockedProductIds: string[] = [];
   const updated = await prisma.$transaction(async (tx) => {
     // 条件更新做并发认领：只有仍是 PENDING_PAYMENT 的订单才会被取消并回补
     const claimed = await tx.order.updateMany({
       where: { id: order.id, status: "PENDING_PAYMENT" },
       data: { status: "CANCELLED", cancelledAt: new Date() },
     });
-    if (claimed.count === 0) throw badRequest("当前状态不可取消");
+    if (claimed.count === 0)
+      throw badRequest("This order cannot be cancelled in its current state");
     const o = (await tx.order.findUnique({ where: { id: order.id }, include: { items: true } }))!;
-
-    // 释放该订单占用的优惠券额度（未支付订单取消 = 未消费，用户可再次使用该券）
-    await tx.couponRedemption.deleteMany({ where: { orderId: order.id } });
 
     const ids = [...new Set(o.items.map((it) => it.productId).filter((v): v is string => !!v))];
     if (ids.length > 0) {
@@ -564,6 +930,7 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
             soldCount: { decrement: item.quantity },
           },
         });
+        restockedProductIds.push(item.productId);
       } else {
         await tx.product.update({
           where: { id: item.productId },
@@ -582,8 +949,17 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
         });
       }
     }
+    // 折扣码回补：取消即把券还给客户（usedCount − 1 并删除核销记录），
+    // 与库存回补同一事务，避免「库存回来了、券却没回来」。
+    await restoreCouponInTx(tx, { id: o.id, couponId: o.couponId });
     return o;
   });
+
+  // 取消回补库存后：若商品从售罄变回有货，通知等待「到货提醒」的客户（notifyRestock 内部判断 stock>0 才发）
+  for (const pid of restockedProductIds) {
+    void notifyRestock(pid);
+  }
+
   await audit({
     userId: byUserId ?? order.userId,
     action: "ORDER_CANCEL",
@@ -592,17 +968,19 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
     meta: { orderNumber: order.orderNumber },
   });
 
-  // 站内消息：订单已取消
-  void createNotification({
-    userId: order.userId,
-    type: "order",
-    title: "订单已取消",
-    titleEn: "Order cancelled",
-    body: `订单 ${order.orderNumber} 已取消。`,
-    bodyEn: `Order ${order.orderNumber} has been cancelled.`,
-    link: `/orders/${order.orderNumber}`,
-    meta: { orderNumber: order.orderNumber, status: "CANCELLED" },
-  });
+  // 站内消息：订单已取消（游客单无账号，跳过）
+  if (order.userId) {
+    void createNotification({
+      userId: order.userId,
+      type: "order",
+      title: "订单已取消",
+      titleEn: "Order cancelled",
+      body: `订单 ${order.orderNumber} 已取消。`,
+      bodyEn: `Order ${order.orderNumber} has been cancelled.`,
+      link: `/orders/${order.orderNumber}`,
+      meta: { orderNumber: order.orderNumber, status: "CANCELLED" },
+    });
+  }
 
   return updated;
 }
@@ -632,32 +1010,57 @@ export async function updateOrderStatus(
   to: OrderStatus,
   actor: { id: string; name: string } | null,
   extra?: { trackingCompany?: string; trackingNumber?: string },
+  /** skipGatewayRefund：调用方已自行完成网关退款（如「退款审核」路径），仅需本地记账 */
+  opts?: { skipGatewayRefund?: boolean },
 ): Promise<Order> {
   if (!canTransition(order.status, to)) {
-    throw new ApiError(400, "BAD_REQUEST", `不允许从「${order.status}」变更为「${to}」`);
+    throw new ApiError(
+      400,
+      "BAD_REQUEST",
+      `Cannot change order status from "${order.status}" to "${to}"`,
+    );
   }
 
   // 取消/退款的统一处理：自动回补库存 + 走网关退款 + 发邮件。
   // 防止 admin 在后台改状态时漏掉资金链路（避免「订单已退款但用户未收到钱」）。
   if (to === "CANCELLED") {
     if (order.status !== "PENDING_PAYMENT") {
-      throw new ApiError(400, "BAD_REQUEST", "已支付订单请使用 REFUNDED 流程");
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        "Paid orders must go through the refund flow instead of being cancelled",
+      );
     }
     const cancelled = await cancelOrder(order, actor?.id ?? null);
     return cancelled;
   }
   if (to === "REFUNDED") {
     if (!["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)) {
-      throw new ApiError(400, "BAD_REQUEST", `当前状态「${order.status}」不可直接置为已退款`);
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        `Order in status "${order.status}" cannot be marked as refunded directly`,
+      );
     }
-    return await refundEntireOrder(order, actor?.id ?? null);
+    return await refundEntireOrder(order, actor?.id ?? null, opts);
   }
 
   const data: Prisma.OrderUpdateInput = { status: to };
   if (to === "SHIPPED") {
+    // 发货必填物流信息：防止后台漏填导致用户无法追踪
+    if (!extra?.trackingCompany || !extra?.trackingCompany.trim()) {
+      throw new ApiError(400, "BAD_REQUEST", "Carrier is required when marking an order as shipped");
+    }
+    if (!extra?.trackingNumber || !extra?.trackingNumber.trim()) {
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        "Tracking number is required when marking an order as shipped",
+      );
+    }
     data.shippedAt = new Date();
-    data.trackingCompany = extra?.trackingCompany ?? null;
-    data.trackingNumber = extra?.trackingNumber ?? null;
+    data.trackingCompany = extra.trackingCompany.trim();
+    data.trackingNumber = extra.trackingNumber.trim();
   }
   if (to === "DELIVERED") data.deliveredAt = new Date();
   if (to === "PAID") data.paidAt = new Date();
@@ -668,19 +1071,22 @@ export async function updateOrderStatus(
     include: { items: true },
   });
 
-  // 发货通知
+  // 发货通知：优先订单联系邮箱（游客单只有这个），登录单兜底账号邮箱
   if (to === "SHIPPED") {
-    const user = await prisma.user.findUnique({ where: { id: order.userId } });
-    if (user) {
+    const user = order.userId
+      ? await prisma.user.findUnique({ where: { id: order.userId } })
+      : null;
+    const shippedMailTo = order.contactEmail ?? user?.email ?? null;
+    if (shippedMailTo) {
       void sendMail({
-        to: user.email,
+        to: shippedMailTo,
         template: "order-shipped",
         data: {
-          name: user.name,
+          name: greetingName(user?.name, order),
           orderNumber: order.orderNumber,
           trackingCompany: extra?.trackingCompany ?? "",
           trackingNumber: extra?.trackingNumber ?? "",
-          orderUrl: `${env.SITE_URL}/orders/${order.orderNumber}`,
+          orderUrl: orderUrlFor(order),
         },
       });
     }
@@ -696,7 +1102,8 @@ export async function updateOrderStatus(
 
   // 站内消息：状态变更（仅关键节点）
   // 注：to === "CANCELLED" / "REFUNDED" 在函数顶部 early return，不需在此处理
-  if (to === "SHIPPED") {
+  // 注：游客单无账号、无消息中心，`order.userId` 为 null 时整段跳过（其通知渠道是邮件）
+  if (order.userId && to === "SHIPPED") {
     const tracking = extra?.trackingNumber
       ? `（${extra.trackingCompany ?? ""} ${extra.trackingNumber}）`
       : "";
@@ -715,7 +1122,7 @@ export async function updateOrderStatus(
         trackingNumber: extra?.trackingNumber ?? null,
       },
     });
-  } else if (to === "DELIVERED") {
+  } else if (order.userId && to === "DELIVERED") {
     void createNotification({
       userId: order.userId,
       type: "order",
@@ -734,28 +1141,39 @@ export async function updateOrderStatus(
 /**
  * 整单退款：admin 在后台把已支付订单直接置为 REFUNDED 时的统一入口。
  * 行为：
- *   1) 行锁订单 + 状态机校验（必须是已支付类）
- *   2) 发起 Stripe 退款（mock 模式跳过）
- *   3) 释放库存 + 销量回退
- *   4) 落库 Refund 记录（status=REFUNDED, gatewayRefundId 留痕）
+ *   1) 幂等检查：已是 REFUNDED 直接返回
+ *   2) 事务内行锁订单 + 条件更新状态（并发安全）+ 库存回补 + 落库 Refund 记录
+ *   3) 事务提交后再发起 Stripe 网关退款（杜绝"事务回滚但钱已退"和"重复调用重复退款"）
+ *   4) 网关退款成功后回写 gatewayRefundId；失败则记录严重错误（订单已标退款但钱未退，需人工介入）
  *   5) 资金流水 / 审计 / 邮件
  */
-async function refundEntireOrder(order: OrderWithItems, actorId: string | null): Promise<Order> {
-  // 网关侧退款（Stripe 模式）
-  let gatewayRefundId: string | null = null;
-  if (effectivePaymentMode === "stripe" && order.paymentId) {
-    try {
-      const r = await createStripeRefund(order.paymentId, Number(order.total));
-      gatewayRefundId = r.id;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "未知错误";
-      throw new ApiError(502, "REFUND_FAILED", `网关退款失败：${msg}`);
-    }
+async function refundEntireOrder(
+  order: OrderWithItems,
+  actorId: string | null,
+  opts?: { skipGatewayRefund?: boolean },
+): Promise<Order> {
+  // 幂等：已是终态直接返回（防止重复调用重复发起网关退款）
+  if (order.status === "REFUNDED" || order.status === "CANCELLED") {
+    return order;
   }
 
-  // 行锁 + 库存回补 + 落库 refund 记录 + 改订单状态
+  let refundRecordId: string | null = null;
+  const restockedProductIds: string[] = [];
+
+  // Step 1: 事务内先完成状态变更 + 库存回补 + 退款记录（gatewayRefundId 暂空）
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
+
+    // 事务内二次校验状态（防并发：两个请求同时通过外层幂等检查）
+    const fresh = await tx.order.findUnique({ where: { id: order.id } });
+    if (!fresh || !["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(fresh.status)) {
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        `Order in status "${fresh?.status ?? "unknown"}" cannot be marked as refunded directly`,
+      );
+    }
+
     // 条件更新：仅在原状态仍是可退款的中间态时推进
     const claimed = await tx.order.updateMany({
       where: {
@@ -765,11 +1183,17 @@ async function refundEntireOrder(order: OrderWithItems, actorId: string | null):
       data: { status: "REFUNDED", refundedAt: new Date() },
     });
     if (claimed.count === 0) {
-      throw new ApiError(400, "BAD_REQUEST", "订单状态已变更，请刷新后重试");
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        "Order status has changed, please refresh and try again",
+      );
     }
 
     // 库存回补（按扣减记录精确恢复）
-    const productIds = [...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v))];
+    const productIds = [
+      ...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v)),
+    ];
     if (productIds.length > 0) {
       await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) FOR UPDATE`;
       const products = await tx.product.findMany({
@@ -791,6 +1215,7 @@ async function refundEntireOrder(order: OrderWithItems, actorId: string | null):
               soldCount: { decrement: item.quantity },
             },
           });
+          restockedProductIds.push(item.productId);
         } else if (item.quantity > 0) {
           await tx.product.update({
             where: { id: item.productId },
@@ -810,12 +1235,15 @@ async function refundEntireOrder(order: OrderWithItems, actorId: string | null):
       }
     }
 
+    // 折扣码回补：整单退款同样把券还给客户（与库存回补同一事务）
+    await restoreCouponInTx(tx, { id: order.id, couponId: order.couponId });
+
     // 落 refund 记录（如果用户未单独走 /api/orders/[orderNumber]/refund，则补一条）
     const existing = await tx.refund.findFirst({
       where: { orderId: order.id, status: { in: ["REQUESTED", "APPROVED", "REFUNDED"] } },
     });
     if (!existing) {
-      await tx.refund.create({
+      const refund = await tx.refund.create({
         data: {
           orderId: order.id,
           userId: order.userId,
@@ -823,35 +1251,133 @@ async function refundEntireOrder(order: OrderWithItems, actorId: string | null):
           amount: new Prisma.Decimal(Number(order.total).toFixed(2)),
           status: "REFUNDED",
           adminNote: actorId ? `actor=${actorId}` : null,
-          gatewayRefundId,
+          // gatewayRefundId 暂空，事务提交后发起网关退款再回写
+          gatewayRefundId: null,
         },
       });
+      refundRecordId = refund.id;
+    } else {
+      // 已有退款记录（如用户申请后 admin 直接改状态），确保状态推进到 REFUNDED
+      if (existing.status !== "REFUNDED") {
+        await tx.refund.update({ where: { id: existing.id }, data: { status: "REFUNDED" } });
+      }
+      refundRecordId = existing.id;
     }
 
     return tx.order.findUnique({ where: { id: order.id }, include: { items: true } });
   });
 
+  // 退款回补库存后：若商品从售罄变回有货，通知等待「到货提醒」的客户
+  for (const pid of restockedProductIds) {
+    void notifyRestock(pid);
+  }
+
+  // Step 2: 事务提交成功后再发起网关退款（此时订单状态已确定为 REFUNDED，
+  // 重复调用会在外层幂等检查或事务内条件更新处被拦截，不会重复退款）
+  let gatewayRefundId: string | null = null;
+  const refundProviderKey = order.paymentProvider ?? effectivePaymentMode;
+
+  // 网关退款失败：订单已标退款但钱未退，必须告警人工介入
+  const failRefund = (providerLabel: string, msg: string, bodyZh: string, bodyEn: string) => {
+    logger.error(
+      { err: msg, orderId: order.id, orderNumber: order.orderNumber, refundRecordId },
+      "[refund] 订单已标记退款但网关退款失败，需人工处理",
+    );
+    void notifyAdmins({
+      type: "system",
+      title: "退款异常需人工处理",
+      titleEn: "Refund failed - manual action required",
+      body: bodyZh,
+      bodyEn,
+      link: "/admin/orders",
+      meta: { orderNumber: order.orderNumber, provider: providerLabel, error: msg },
+    });
+  };
+
+  // skipGatewayRefund：调用方（退款审核路径）已完成网关退款，此处只做本地记账，避免重复退款
+  if (!opts?.skipGatewayRefund && refundProviderKey === "stripe" && order.paymentId) {
+    try {
+      // 渠道化 Stripe：后台配置了 stripe 渠道时按渠道密钥退款；否则回落 env 密钥
+      const stripeChannel = await getChannelRuntimeByCode("stripe");
+      const stripeKeys =
+        stripeChannel?.enabled && str(stripeChannel.config, "secretKey")
+          ? { secretKey: str(stripeChannel.config, "secretKey") }
+          : undefined;
+      const r = await createStripeRefund(order.paymentId, Number(order.total), stripeKeys);
+      gatewayRefundId = r.id;
+      // 回写网关退款 ID 到退款记录
+      if (refundRecordId) {
+        await prisma.refund.update({
+          where: { id: refundRecordId },
+          data: { gatewayRefundId },
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      failRefund(
+        "stripe",
+        msg,
+        `订单 ${order.orderNumber} 已标记为退款，但 Stripe 网关退款失败：${msg}。请登录 Stripe 后台手动退款并核对。`,
+        `Order ${order.orderNumber} marked REFUNDED but Stripe refund failed: ${msg}. Please refund manually in Stripe dashboard.`,
+      );
+    }
+  } else if (!opts?.skipGatewayRefund && refundProviderKey && refundProviderKey !== "mock") {
+    // 真实渠道（alipay / wechat）走 Provider.refund；mock 无网关退款（保持现状）
+    try {
+      const channel = await getChannelRuntimeByCode(refundProviderKey);
+      if (!channel || !channel.enabled) throw new Error("This payment channel is not enabled");
+      const provider = getProvider(channel.provider);
+      const paid = await provider.refund(
+        {
+          orderNumber: order.orderNumber,
+          amount: Number(order.total),
+          gatewayId: order.paymentId ?? null,
+          currency: order.currency,
+        },
+        channel.config,
+      );
+      gatewayRefundId = paid.gatewayRefundId;
+      if (refundRecordId) {
+        await prisma.refund.update({
+          where: { id: refundRecordId },
+          data: { gatewayRefundId },
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      failRefund(
+        refundProviderKey,
+        msg,
+        `订单 ${order.orderNumber} 已标记为退款，但支付渠道退款失败：${msg}。请人工核对并退款。`,
+        `Order ${order.orderNumber} marked REFUNDED but channel refund failed: ${msg}. Please refund manually.`,
+      );
+    }
+  }
+
   void logPayment({
     orderId: order.id,
-    provider: effectivePaymentMode,
+    provider: refundProviderKey,
     event: "refunded",
     amount: Number(order.total),
     gatewayId: gatewayRefundId,
     payload: { source: "admin_status_change" },
   });
 
-  // 邮件通知用户
-  const user = await prisma.user.findUnique({ where: { id: order.userId } });
-  if (user) {
+  // 邮件通知客户：优先订单联系邮箱（游客单只有这个），登录单兜底账号邮箱
+  const user = order.userId
+    ? await prisma.user.findUnique({ where: { id: order.userId } })
+    : null;
+  const refundMailTo = order.contactEmail ?? user?.email ?? null;
+  if (refundMailTo) {
     void sendMail({
-      to: user.email,
+      to: refundMailTo,
       template: "refund-update",
       data: {
-        name: user.name,
+        name: greetingName(user?.name, order),
         orderNumber: order.orderNumber,
         statusText: "已退款（管理员操作）",
         amount: formatMoney(Number(order.total), order.currency),
-        orderUrl: `${env.SITE_URL}/orders/${order.orderNumber}`,
+        orderUrl: orderUrlFor(order),
       },
     });
   }
@@ -867,24 +1393,194 @@ async function refundEntireOrder(order: OrderWithItems, actorId: string | null):
   return updated!;
 }
 
+/**
+ * 由网关回调（charge.refunded）触发的订单退款标记：
+ * 不发起网关退款（退款已在网关侧发生），仅更新本地订单状态 + 库存回补 + 退款记录。
+ * 用于 Stripe 后台手动退款或部分退款累计达全额后的状态同步。
+ */
+export async function markOrderRefundedByGateway(
+  order: OrderWithItems,
+  gatewayRefundId?: string | null,
+): Promise<Order> {
+  if (order.status === "REFUNDED") return order;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
+    const fresh = await tx.order.findUnique({ where: { id: order.id } });
+    if (!fresh || fresh.status === "REFUNDED") return fresh;
+    if (!["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(fresh.status)) {
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        `Order in status "${fresh.status}" cannot be marked as refunded`,
+      );
+    }
+
+    await tx.order.update({
+      where: { id: order.id },
+      data: { status: "REFUNDED", refundedAt: new Date() },
+    });
+
+    // 库存回补
+    const productIds = [
+      ...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v)),
+    ];
+    if (productIds.length > 0) {
+      await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) FOR UPDATE`;
+      const products = await tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, isPresale: true, specStock: true },
+      });
+      const map = new Map(products.map((p) => [p.id, p]));
+      for (const item of order.items) {
+        if (!item.productId) continue;
+        const p = map.get(item.productId);
+        const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
+        const restoreQty =
+          !hasRecord && p?.isPresale ? 0 : hasRecord ? item.stockDeducted : item.quantity;
+        if (restoreQty > 0) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { stock: { increment: restoreQty }, soldCount: { decrement: item.quantity } },
+          });
+        } else if (item.quantity > 0) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { soldCount: { decrement: item.quantity } },
+          });
+        }
+        const restoredSpec = applySpecRestock(
+          p?.specStock,
+          item.specDeducted as Record<string, number> | null,
+        );
+        if (restoredSpec) {
+          await tx.product.update({
+            where: { id: item.productId },
+            data: { specStock: restoredSpec as unknown as Prisma.InputJsonValue },
+          });
+        }
+      }
+    }
+
+    // 折扣码回补：网关侧退款同样把券还给客户
+    await restoreCouponInTx(tx, { id: order.id, couponId: order.couponId });
+
+    // 补退款记录（网关侧已退款，本地可能无记录）
+    const existing = await tx.refund.findFirst({
+      where: { orderId: order.id, status: { in: ["REQUESTED", "APPROVED", "REFUNDED"] } },
+    });
+    if (!existing) {
+      await tx.refund.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          reason: "网关侧退款（Stripe webhook charge.refunded）",
+          amount: new Prisma.Decimal(Number(order.total).toFixed(2)),
+          status: "REFUNDED",
+          gatewayRefundId: gatewayRefundId ?? null,
+        },
+      });
+    } else if (gatewayRefundId && !existing.gatewayRefundId) {
+      await tx.refund.update({ where: { id: existing.id }, data: { gatewayRefundId } });
+    }
+
+    return tx.order.findUnique({ where: { id: order.id }, include: { items: true } });
+  });
+
+  void logPayment({
+    orderId: order.id,
+    provider: "stripe",
+    event: "refunded",
+    amount: Number(order.total),
+    gatewayId: gatewayRefundId ?? null,
+    payload: { source: "stripe_webhook" },
+  });
+
+  await audit({
+    userId: order.userId,
+    action: "ORDER_REFUND_BY_GATEWAY",
+    entity: "Order",
+    entityId: order.id,
+    meta: { orderNumber: order.orderNumber, gatewayRefundId },
+  });
+
+  return updated!;
+}
+
 export async function getOrderByNumber(orderNumber: string): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({
     where: { orderNumber },
     include: { items: true },
   });
-  if (!order) throw notFound("订单不存在");
+  if (!order) throw notFound("Order not found");
   return order;
 }
 
 export async function getOrderById(id: string): Promise<OrderWithItems> {
   const order = await prisma.order.findUnique({ where: { id }, include: { items: true } });
-  if (!order) throw notFound("订单不存在");
+  if (!order) throw notFound("Order not found");
   return order;
 }
 
-/** 用户订单所有权校验 */
+/**
+ * 订单访问鉴权（登录单与游客单统一入口）。
+ * - 登录单：必须本人
+ * - 游客单：必须携带与该订单匹配的 accessToken（订单确认信里的链接自带）
+ *
+ * 两种失败一律抛同一个 403 文案，不区分「订单不存在」与「无权访问」，
+ * 避免攻击者用错误差异探测有效订单号。
+ *
+ * 文案必须是**英文源串**：本函数被顾客侧路由（`/api/orders/[orderNumber]/*`）使用，
+ * 中文由 `ERROR_ZH` 按请求语言提供。
+ */
 export function assertOrderOwner(order: Order, userId: string): void {
-  if (order.userId !== userId) throw new ApiError(403, "FORBIDDEN", "无权访问该订单");
+  if (order.userId !== userId) {
+    throw new ApiError(403, "FORBIDDEN", "You don't have access to this order");
+  }
+}
+
+/**
+ * 订单访问鉴权（登录单与游客单统一入口）。
+ * - 登录单：必须本人
+ * - 游客单：必须携带与该订单匹配的 accessToken（订单确认信里的链接自带）
+ *
+ * 两种失败一律抛同一个 403 文案，不区分「订单不存在」与「无权访问」，
+ * 避免攻击者用错误差异探测有效订单号。
+ */
+export function assertOrderAccess(
+  order: Pick<Order, "userId" | "accessToken">,
+  viewer: { userId?: string | null; token?: string | null },
+): void {
+  if (order.userId) {
+    if (!viewer.userId || viewer.userId !== order.userId) {
+      throw new ApiError(403, "FORBIDDEN", "You don't have access to this order");
+    }
+    return;
+  }
+  const expected = order.accessToken;
+  if (!expected || !viewer.token || !timingSafeEqualStr(viewer.token, expected)) {
+    throw new ApiError(403, "FORBIDDEN", "You don't have access to this order");
+  }
+}
+
+/** 常量时间比较，避免通过响应时间差逐字节猜出查询令牌 */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
+/**
+ * 校验游客订单查询令牌是否匹配（常量时间比较）。
+ * 订单未签发令牌（登录单）或未携带令牌时一律返回 false。
+ */
+export function isOrderTokenValid(
+  order: Pick<Order, "accessToken">,
+  token: string | null | undefined,
+): boolean {
+  if (!order.accessToken || !token) return false;
+  return timingSafeEqualStr(token, order.accessToken);
 }
 
 export { assertTransition, toCents };

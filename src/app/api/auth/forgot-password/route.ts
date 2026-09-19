@@ -24,7 +24,7 @@ export const POST = apiHandler(async (req) => {
     limit: 3,
     windowSeconds: 3600,
   });
-  if (!rlEmail.ok) throw rateLimited("发送过于频繁，请稍后再试");
+  if (!rlEmail.ok) throw rateLimited("Too many requests, please try again later");
 
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   if (user) {

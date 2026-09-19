@@ -41,23 +41,35 @@ function readCookie(): string {
 }
 
 /**
- * CNY ↔ zh 联动：选 CNY 时自动写 shop-lang=zh；选非 CNY 时强制刷回 en。
+ * CNY ↔ zh 联动：选 CNY 时自动写 shop-lang=zh；选非 CNY 时**删除** shop-lang cookie，
+ * 让服务端根据 currency cookie 推断语言（CNY→zh，其他→en）。
  *
- * 关键：必须 **同时** 清 cookie + 清 localStorage。
- * 只清 cookie 没用 — ShopLangProvider 挂载时从 localStorage 读 langState
- * 又会回写 cookie 强制切回中文。
+ * 关键：必须删除而不是覆盖 shop-lang cookie。
+ * 原因：router.refresh() 触发 RSC 重跑时，浏览器 cookie 可能还未更新，
+ * 导致服务端读到旧的 shop-lang=zh，语言切换不回来。
+ * 删除后服务端会回退到 currency cookie 推断，始终正确。
+ *
+ * 同时清 localStorage（旧版本残留，避免 ShopLangProvider 读到旧值）。
  */
 function syncLangCookie(currency: string) {
   if (typeof document === "undefined") return;
   const isCNY = currency.toUpperCase() === "CNY";
-  const targetLang = isCNY ? "zh" : "en";
-  // 1) 写 cookie：下次 RSC 读到一致值
-  document.cookie = `${SHOP_LANG_KEY}=${targetLang}; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
-  // 2) 同步写 localStorage：避免 ShopLangProvider useEffect 读到旧值再回滚
-  try {
-    localStorage.setItem(SHOP_LANG_KEY, targetLang);
-  } catch {
-    /* localStorage 不可用时（隐私模式）静默 */
+  if (isCNY) {
+    // CNY：显式设置 shop-lang=zh
+    document.cookie = `${SHOP_LANG_KEY}=zh; path=/; max-age=${60 * 60 * 24 * 365}; samesite=lax`;
+    try {
+      localStorage.setItem(SHOP_LANG_KEY, "zh");
+    } catch {
+      /* localStorage 不可用时静默 */
+    }
+  } else {
+    // 非 CNY：删除 shop-lang cookie，让服务端根据 currency 推断为 en
+    document.cookie = `${SHOP_LANG_KEY}=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; samesite=lax`;
+    try {
+      localStorage.removeItem(SHOP_LANG_KEY);
+    } catch {
+      /* localStorage 不可用时静默 */
+    }
   }
 }
 
@@ -90,7 +102,26 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       if (typeof document !== "undefined") {
         document.cookie = `${CURRENCY_COOKIE}=${valid}; path=/; max-age=31536000`;
         syncLangCookie(valid);
+        // 同步 URL 语言前缀：CNY → 补 /zh；非 CNY → 去掉 /zh|/en 前缀。
+        // 否则停留在 /zh 页面切 USD 时，URL 仍粘着 /zh，路由级 x-lang 会持续注入 zh。
+        const path = window.location.pathname;
+        const suffix = window.location.search + window.location.hash;
+        const wantsZh = valid.toUpperCase() === "CNY";
+        const hasZh = /^\/zh(?=\/|$)/.test(path);
+        const hasPrefix = /^\/(zh|en)(?=\/|$)/.test(path);
+        const strip = () => path.replace(/^\/(zh|en)(?=\/|$)/, "") || "/";
+        if (wantsZh) {
+          if (!hasZh) {
+            const base = strip();
+            router.replace(`${base === "/" ? "/zh" : `/zh${base}`}${suffix}`);
+          }
+        } else if (hasPrefix) {
+          router.replace(`${strip()}${suffix}`);
+        }
       }
+      // 无论是否变更 URL 前缀，都再 refresh 一次：
+      // replace 到「经 proxy rewrite 后同一路由」的 URL 时，客户端路由缓存可能复用旧 RSC，
+      // 导致语言/价格仍是旧值（需硬刷新才生效）。refresh 强制按新 cookie 重新拉取服务端渲染。
       router.refresh();
     },
     [router],

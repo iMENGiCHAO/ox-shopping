@@ -26,23 +26,29 @@ export interface ShippingOption {
   etaEn: string | null;
   sortOrder: number;
   isActive: boolean;
+  /** 已被多少订单引用（仅后台列表返回；决定能否物理删除） */
+  orderCount?: number;
 }
 
 /** 取所有启用的物流方式（前台 checkout 选项） */
 export async function listActiveShippingMethods(): Promise<ShippingOption[]> {
   const rows = await prisma.shippingMethod.findMany({
     where: { isActive: true },
-    orderBy: { sortOrder: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
   });
   return rows.map(serializeShippingMethod);
 }
 
-/** 后台：取所有方式（含禁用） */
+/** 后台：取所有方式（含禁用，附订单引用数） */
 export async function listAllShippingMethods(): Promise<ShippingOption[]> {
   const rows = await prisma.shippingMethod.findMany({
-    orderBy: { sortOrder: "asc" },
+    orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+    include: { _count: { select: { orders: true } } },
   });
-  return rows.map(serializeShippingMethod);
+  return rows.map((m) => ({
+    ...serializeShippingMethod(m),
+    orderCount: m._count.orders,
+  }));
 }
 
 /** 按 code 查方式；找不到时兜底到 "standard" */
@@ -57,9 +63,7 @@ export async function findShippingMethodByCode(
 }
 
 /** 订单关联：按 id 查 */
-export async function findShippingMethodById(
-  id: string,
-): Promise<ShippingOption | null> {
+export async function findShippingMethodById(id: string): Promise<ShippingOption | null> {
   const row = await prisma.shippingMethod.findUnique({ where: { id } });
   return row ? serializeShippingMethod(row) : null;
 }

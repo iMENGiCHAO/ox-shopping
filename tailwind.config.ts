@@ -4,11 +4,17 @@ const config = {
   darkMode: ["class"],
   content: ["./src/**/*.{ts,tsx}"],
   theme: {
+    /* 版式栅格 —— 对齐 shop.x.com 实测值（见 docs/PARITY_AUDIT §二之四）：
+       移动端 20px 内边距，≥700px 起 48px；容器不做断点级封顶，
+       仅由 globals.css 的 [data-shop-root] 规则在 1600px 以上收敛。 */
     container: {
       center: true,
-      padding: "1.25rem",
+      padding: {
+        DEFAULT: "1.25rem",
+        sm: "3rem",
+      },
       screens: {
-        "2xl": "1360px",
+        "2xl": "1600px",
       },
     },
     extend: {
@@ -68,6 +74,13 @@ const config = {
         ink: {
           DEFAULT: "hsl(var(--ink))",
           foreground: "hsl(var(--ink-foreground))",
+        },
+        /* 商品图底色 —— 原站实测 rgb(217,217,217)，不是 --muted(#EFEFEF) */
+        ground: "hsl(var(--ground))",
+        /* 次级页面底色（集合页）—— 原站实测 rgb(239,239,239) */
+        surface: {
+          DEFAULT: "hsl(var(--surface))",
+          subtle: "hsl(var(--surface-subtle))",
         },
         popover: {
           DEFAULT: "hsl(var(--popover))",

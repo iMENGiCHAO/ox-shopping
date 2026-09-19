@@ -79,7 +79,7 @@ export function RefundReviewDialog({
                 {refund.user?.name ?? "-"}({refund.user?.email ?? "-"})
               </div>
               <div className="text-muted-foreground">退款金额</div>
-              <div className="font-semibold text-destructive">{formatMoney(refund.amount)}</div>
+              <div className="font-semibold text-destructive">{formatMoney(refund.amount, refund.order?.currency || "USD")}</div>
               <div className="text-muted-foreground">当前状态</div>
               <div>
                 <StatusBadge status={refund.status} labelMap={{ ...REFUND_STATUS_LABELS }} />

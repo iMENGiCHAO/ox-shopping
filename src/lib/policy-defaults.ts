@@ -67,7 +67,6 @@ We provide product browsing, purchasing, payment, shipping, and after-sales serv
 
 ## 3. Orders & Payment
 - Placing an order indicates your intent to purchase; please complete payment promptly.
-- Prices are as shown on the checkout page; promotions and coupons follow their stated rules.
 - Orders left unpaid may be automatically cancelled by the system.
 
 ## 4. Shipping & Inspection
@@ -93,7 +92,6 @@ const TERMS_ZH = `## 1. 服务说明
 
 ## 3. 订单与支付
 - 下单即表示购买意愿，请及时完成支付。
-- 价格以结算页显示为准；促销活动与优惠券遵循其各自规则。
 - 超过支付时限的订单系统可能自动取消。
 
 ## 4. 配送与验收
@@ -189,12 +187,51 @@ const ACCESSIBILITY_ZH = `我们致力于让所有人（包括残障人士）都
 
 如果您在访问或使用本商店时遇到困难，请与我们联系并附上问题页面地址。我们认真对待每一条反馈，将尽力通过其他方式向您提供所需内容。`;
 
+const DATA_SHARING_EN = `## Your rights
+Depending on where you live, you may have the right to opt out of the "sale" or "sharing" of your personal information for targeted advertising, and to limit the use of sensitive personal information.
+
+## What we share
+We do not sell your personal information for money. We may share limited identifiers and device information with advertising and analytics partners so we can measure and improve our marketing. You can stop this sharing at any time using the controls below.
+
+## How to opt out
+- Submit the form on this page, or
+- Email our support address with the subject "Do Not Sell or Share My Personal Information", or
+- Use the "Your Privacy Choices" link in the footer of any page.
+
+We will confirm your request within 15 business days. Opting out will not change the price you pay or the quality of service you receive.
+
+## Authorized agents
+You may designate an authorized agent to submit a request on your behalf. We may ask for proof that the agent is authorized to act for you.
+
+## Verification
+To protect your data, we may ask you to verify your identity before we act on a request. We only ask for the minimum information needed to match your request to our records.`;
+
+const DATA_SHARING_ZH = `## 您的权利
+根据您所在地区的法律，您有权选择退出个人信息的「出售」或「共享」（用于定向广告），并有权限制敏感个人信息的使用。
+
+## 我们共享了什么
+我们不会为换取金钱而出售您的个人信息。我们可能与广告与分析合作伙伴共享有限的标识符与设备信息，用于衡量和改进我们的营销效果。您可以随时通过下方控件停止此类共享。
+
+## 如何选择退出
+- 提交本页表单；或
+- 向我们的客服邮箱发送邮件，标题为「请勿出售或共享我的个人信息」；或
+- 使用任意页面页脚中的「您的隐私选择」链接。
+
+我们将在 15 个工作日内确认您的请求。选择退出不会改变您支付的价格，也不会影响您获得的服务质量。
+
+## 授权代理
+您可以指定授权代理代您提交请求。我们可能要求提供该代理已获授权的证明。
+
+## 身份核验
+为保护您的数据，我们可能在处理请求前要求核验您的身份。我们只收集将请求与记录匹配所需的最少信息。`;
+
 export const POLICY_DEFAULTS = {
   accessibility: { zh: ACCESSIBILITY_ZH, en: ACCESSIBILITY_EN },
   privacy: { zh: PRIVACY_ZH, en: PRIVACY_EN },
   terms: { zh: TERMS_ZH, en: TERMS_EN },
   refund: { zh: REFUND_ZH, en: REFUND_EN },
   cookies: { zh: COOKIES_ZH, en: COOKIES_EN },
+  dataSharingOptOut: { zh: DATA_SHARING_ZH, en: DATA_SHARING_EN },
 } as const;
 
 export type PolicyKey = keyof typeof POLICY_DEFAULTS;
@@ -205,6 +242,7 @@ export const POLICY_TITLES: Record<PolicyKey, { zh: string; en: string }> = {
   terms: { zh: "服务条款", en: "Terms of Service" },
   refund: { zh: "退款政策", en: "Refund Policy" },
   cookies: { zh: "Cookie 政策", en: "Cookie Policy" },
+  dataSharingOptOut: { zh: "您的隐私选择", en: "Your Privacy Choices" },
 };
 
 /** Get the policy text for the current language. */

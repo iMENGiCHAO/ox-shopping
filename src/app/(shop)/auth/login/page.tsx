@@ -1,12 +1,18 @@
 import type { Metadata } from "next";
 import { LoginForm } from "@/components/shop/login-form";
-import { getT } from "@/lib/shop-i18n-server";
+import { getT, getLang } from "@/lib/shop-i18n-server";
+import { getSiteSettings, pickLang } from "@/server/services/settings.service";
+import { brandFallback } from "@/lib/env";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
+  // 描述按当前语言 + 站点品牌生成，不写死英文与品牌名
+  const lang = await getLang();
+  const settings = await getSiteSettings();
+  const brand = pickLang(settings.siteName, lang).trim() || brandFallback;
   return {
     title: t("Login"),
-    description: "Log in to your Ox Shopping account",
+    description: t("Sign in to your {brand} account", { brand }),
     robots: { index: false, follow: false },
   };
 }

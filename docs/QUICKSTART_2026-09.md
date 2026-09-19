@@ -43,7 +43,7 @@ ecommerce/
 │   ├── DESIGN.md / I18N_MIGRATION.md / ...
 ├── prisma/
 │   ├── schema.prisma              # DB schema
-│   └── seed.ts                    # seed 脚本（30 商品 / 2 分类 / 3 优惠券 / 3 用户）
+│   └── seed.ts                    # seed 脚本（30 商品 / 2 分类 / 3 用户）
 ├── src/
 │   ├── app/
 │   │   ├── (shop)/                # 前台 route group
@@ -112,7 +112,6 @@ bash scripts/restart-dev.sh
 | **Category** | 分类 | slug, name, isFeatured |
 | **Order** | 订单 | orderNumber, status, addressSnapshot (JsonValue), currency |
 | **Refund** | 退款 | orderId, reason, status, amount |
-| **Coupon** | 优惠券 | type, value, scope, minSubtotal |
 | **SiteSetting** | 站点设置 | key/value JsonValue（presaleNote / announcement / siteName / policyXxx） |
 | **AuditLog** | 审计 | actorId, action, entity, before/after JsonValue |
 | **PaymentLog** | 支付流水 | orderId, gateway, status, rawPayload |

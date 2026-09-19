@@ -4,7 +4,7 @@ import * as React from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Globe, Info, Loader2, Save } from "lucide-react";
+import { Globe, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
@@ -16,11 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { useT } from "@/components/admin/lang-provider";
+import { useT, useSiteName } from "@/components/admin/lang-provider";
 const settingsFormSchema = z.object({
   siteName: z.string().trim().min(1, "请填写站点名称").max(60),
   siteDescription: z.string().max(200).default(""),
@@ -33,8 +32,6 @@ const settingsFormSchema = z.object({
   contactPhone: z.string().max(30).default(""),
   icp: z.string().max(64).default(""),
   seoKeywords: z.string().max(200).default(""),
-  announcementEnabled: z.boolean().default(false),
-  announcement: z.string().max(200).default(""),
   // Policy content — stored as the canonical (language-neutral) text. The service
   // layer wraps it as { zh, en } on read for the policy pages, which fall back to
   // the value when a language-specific entry is missing.
@@ -49,8 +46,6 @@ const DEFAULT_VALUES: SettingsFormValues = {
   contactPhone: "",
   icp: "",
   seoKeywords: "",
-  announcementEnabled: false,
-  announcement: "",
 };
 
 /** safely get a string value from arbitrary API key-value pairs (handles i18n objects). */
@@ -69,6 +64,8 @@ function pickString(settings: Record<string, unknown> | null | undefined, key: s
 
 export default function AdminSettingsPage() {
   const t = useT();
+  // 当前生效的品牌名（服务端注入）——用作站名输入的占位示例，避免写死字面量
+  const siteName = useSiteName();
 
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
@@ -83,9 +80,10 @@ export default function AdminSettingsPage() {
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ settings: Record<string, unknown> } | null>(
-        "/api/admin/settings",
-      );
+      const res = await apiFetch<{
+        settings: Record<string, unknown>;
+        envStatus?: { mailProvider: string; storageDriver: string; currency: string };
+      } | null>("/api/admin/settings");
       const settings = res?.settings && typeof res.settings === "object" ? res.settings : null;
       setSiteLogoUrl(typeof settings?.siteLogoUrl === "string" ? settings.siteLogoUrl : "");
       setSiteLogoDarkArtwork(settings?.siteLogoDarkArtwork === true);
@@ -96,10 +94,6 @@ export default function AdminSettingsPage() {
         contactPhone: pickString(settings, "contactPhone"),
         icp: pickString(settings, "icp"),
         seoKeywords: pickString(settings, "seoKeywords"),
-        announcementEnabled:
-          settings?.announcementEnabled === true ||
-          settings?.announcementEnabled === "true",
-        announcement: pickString(settings, "announcement"),
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载站点设置失败");
@@ -169,7 +163,7 @@ export default function AdminSettingsPage() {
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="st-name">{t('Site Name')} *</Label>
-              <Input id="st-name" placeholder={t("Ox Shopping")} {...form.register("siteName")} />
+              <Input id="st-name" placeholder={siteName} {...form.register("siteName")} />
               {form.formState.errors.siteName ? (
                 <p className="text-xs text-destructive">{form.formState.errors.siteName.message}</p>
               ) : null}
@@ -179,7 +173,7 @@ export default function AdminSettingsPage() {
               <Input
                 id="st-email"
                 type="email"
-                placeholder="contact@example.com"
+                placeholder="support@your-domain.com"
                 {...form.register("contactEmail")}
               />
               {form.formState.errors.contactEmail ? (
@@ -190,7 +184,7 @@ export default function AdminSettingsPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="st-phone">{t('Contact Phone')}</Label>
-              <Input id="st-phone" placeholder="400-000-0000" {...form.register("contactPhone")} />
+              <Input id="st-phone" placeholder="+1 555 010 0000" {...form.register("contactPhone")} />
               {form.formState.errors.contactPhone ? (
                 <p className="text-xs text-destructive">
                   {form.formState.errors.contactPhone.message}
@@ -217,39 +211,6 @@ export default function AdminSettingsPage() {
                 <p className="text-xs text-destructive">
                   {form.formState.errors.siteDescription.message}
                 </p>
-              ) : null}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* 公告栏 —— 开关+文案直达前台头部 */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">全站公告</CardTitle>
-            <CardDescription>开启后文案将显示在前台页头下方的公告栏，适合促销与重要通知。</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
-              <Label htmlFor="st-ann-switch" className="cursor-pointer text-sm font-normal">
-                在前台展示公告栏
-              </Label>
-              <Switch
-                id="st-ann-switch"
-                checked={form.watch("announcementEnabled")}
-                onCheckedChange={(checked) => form.setValue("announcementEnabled", checked, { shouldDirty: true })}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="st-ann">公告文案</Label>
-              <Textarea
-                id="st-ann"
-                rows={2}
-                maxLength={200}
-                placeholder="例：全场满 299 元顺丰包邮 · 新客立减 30 元"
-                {...form.register("announcement")}
-              />
-              {form.formState.errors.announcement ? (
-                <p className="text-xs text-destructive">{form.formState.errors.announcement.message}</p>
               ) : null}
             </div>
           </CardContent>
@@ -302,27 +263,6 @@ export default function AdminSettingsPage() {
             <CurrencyManager />
           </CardContent>
         </Card>
-
-        {/* Environment variable notice */}
-        <Card className="border-dashed">
-          <CardContent className="flex items-start gap-3 p-4">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div className="text-sm text-muted-foreground">
-              <p className="font-medium text-foreground">{t('Payment / email / storage sensitive config')}</p>
-              <p className="mt-1">
-                支付密钥（Stripe）、邮件服务（Resend/SMTP）、对象存储（S3）等敏感配置均通过环境变量（.env）管理，
-                在此处不可编辑——如需修改请联系运维直接修改 .env 文件。
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex justify-end">
-          <Button type="submit" disabled={saving}>
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {t("Save Changes")}
-          </Button>
-        </div>
       </form>
 
       {/* My account: display name / password */}

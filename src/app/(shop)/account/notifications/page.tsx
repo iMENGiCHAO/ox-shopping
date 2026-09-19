@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Bell, Check, CheckCheck, Package, RefreshCw, Tag, Trash2, Wallet } from "lucide-react";
+import { Bell, Check, CheckCheck, Package, RefreshCw, Trash2, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { useT, useShopLang } from "@/components/shop/lang-provider";
 import { apiFetch } from "@/lib/fetch-client";
 
 interface NotificationRow {
   id: string;
-  type: "order" | "refund" | "price_alert" | "system";
+  type: "order" | "refund" | "system";
   title: string;
   titleEn: string | null;
   body: string;
@@ -25,7 +25,6 @@ const TYPE_META: Record<
 > = {
   order: { icon: <Package className="h-4 w-4" />, color: "text-primary" },
   refund: { icon: <Wallet className="h-4 w-4" />, color: "text-warning" },
-  price_alert: { icon: <Tag className="h-4 w-4" />, color: "text-success" },
   system: { icon: <Bell className="h-4 w-4" />, color: "text-muted-foreground" },
 };
 

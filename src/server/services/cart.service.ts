@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MAX_CART_ITEM_QUANTITY, MAX_CART_ITEMS } from "@/lib/constants";
-import { ApiError, badRequest, notFound } from "@/lib/errors";
+import {badRequest, notFound } from "@/lib/errors";
 import type { SpecSelection } from "@/components/shop/types";
 
 /** Shopping Bag服务：游客本地Shopping Bag → 登录后合并到服务端 */
@@ -68,8 +68,8 @@ export function assertValidSpecs(
   const selectable = selectableSpecs(productAttributes);
   for (const s of attributes) {
     const values = selectable.get(s.name.trim());
-    if (!values) throw badRequest(`规格「${s.name}」不是该商品的可选规格`);
-    if (!values.has(s.value)) throw badRequest(`规格「${s.name}」的值「${s.value}」无效`);
+    if (!values) throw badRequest(`Option "${s.name}" is not available for this product`);
+    if (!values.has(s.value)) throw badRequest(`Option "${s.name}" value "${s.value}" is invalid`);
   }
 }
 
@@ -79,7 +79,7 @@ export async function getCart(
   const items = await prisma.cartItem.findMany({
     where: { userId },
     include: { product: true },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
   });
 
   const lines: CartLine[] = [];
@@ -120,7 +120,7 @@ export async function addToCart(
   attributes?: SpecSelection[],
 ): Promise<void> {
   const product = await prisma.product.findUnique({ where: { id: productId } });
-  if (!product || product.status !== "ACTIVE") throw notFound("商品不存在或已下架");
+  if (!product || product.status !== "ACTIVE") throw notFound("Product not found or no longer available");
   assertValidSpecs(product.attributes, attributes);
 
   const key = specKey(attributes);
@@ -132,14 +132,14 @@ export async function addToCart(
   const newQuantity = Math.min((existing?.quantity ?? 0) + quantity, MAX_CART_ITEM_QUANTITY);
   // 预售商品允许 0 库存下单(Pre-Order)；普通商品仍按库存校验
   if (!product.isPresale && newQuantity > product.stock) {
-    throw badRequest(`库存不足，当前仅剩 ${product.stock} 件`);
+    throw badRequest(`Not enough stock — only ${product.stock} left`);
   }
 
   if (existing) {
     await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: newQuantity } });
   } else {
     const count = await prisma.cartItem.count({ where: { userId } });
-    if (count >= MAX_CART_ITEMS) throw badRequest(`Shopping Bag最多 ${MAX_CART_ITEMS} 种商品`);
+    if (count >= MAX_CART_ITEMS) throw badRequest(`Your Shopping Bag can hold at most ${MAX_CART_ITEMS} different items`);
     await prisma.cartItem.create({
       data: {
         userId,
@@ -161,18 +161,18 @@ export async function updateCartItem(
   quantity: number,
 ): Promise<void> {
   const item = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
-  if (!item) throw notFound("Shopping Bag条目不存在");
+  if (!item) throw notFound("Shopping Bag item not found");
   const product = await prisma.product.findUnique({ where: { id: item.productId } });
   // 预售商品不受库存上限约束(Pre-Order)
   if (!product?.isPresale && quantity > (product?.stock ?? 0)) {
-    throw badRequest(`库存不足，当前仅剩 ${product?.stock ?? 0} 件`);
+    throw badRequest(`Not enough stock — only ${product?.stock ?? 0} left`);
   }
   await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } });
 }
 
 export async function removeCartItem(userId: string, cartItemId: string): Promise<void> {
   const item = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
-  if (!item) throw notFound("Shopping Bag条目不存在");
+  if (!item) throw notFound("Shopping Bag item not found");
   await prisma.cartItem.delete({ where: { id: item.id } });
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
@@ -94,6 +94,11 @@ export default function AdminProductsPage() {
 
   const [stockEditId, setStockEditId] = React.useState<string | null>(null);
   const [stockValue, setStockValue] = React.useState("");
+  // 多规格商品的规格明细库存内联编辑状态
+  const [specEditId, setSpecEditId] = React.useState<string | null>(null);
+  const [specEditValue, setSpecEditValue] = React.useState<Record<string, Record<string, string>>>(
+    {},
+  );
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -169,6 +174,33 @@ export default function AdminProductsPage() {
     }
   };
 
+  /** 批量删除（物理删除，与原站后台一致的强操作：二次确认 + 明示数量） */
+  const batchDelete = async () => {
+    if (selected.size === 0) return;
+    const n = selected.size;
+    if (
+      !window.confirm(
+        `确认删除选中的 ${n} 个商品？\n\n删除后不可恢复（购物车中的对应商品会一并清理，历史订单保留快照）。`,
+      )
+    ) {
+      return;
+    }
+    setBatchLoading(true);
+    try {
+      const res = await apiFetch<{ deleted: number }>("/api/admin/products/batch-delete", {
+        method: "POST",
+        body: JSON.stringify({ ids: [...selected] }),
+      });
+      toast.success(`已删除 ${res.deleted ?? n} 个商品`);
+      setSelected(new Set());
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "批量删除失败");
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
   const changeStatus = async (product: AdminProduct, status: AdminProductStatus) => {
     try {
       await apiFetch(`/api/admin/products/${product.id}/status`, {
@@ -203,6 +235,59 @@ export default function AdminProductsPage() {
       void load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "更新库存失败");
+    }
+  };
+
+  // ── 多规格商品：规格明细库存（颜色/尺码逐项）──
+  const hasSpecStock = (product: AdminProduct) =>
+    !!product.specStock &&
+    typeof product.specStock === "object" &&
+    Object.keys(product.specStock as object).length > 0;
+
+  /** 解析规格组：以 specStock 的组为准，值优先取 attributes 里的完整值列表 */
+  const specGroupsOf = (product: AdminProduct): { name: string; values: string[] }[] => {
+    const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
+    if (!spec || typeof spec !== "object") return [];
+    const attrMap = new Map<string, string[]>();
+    for (const a of product.attributes ?? []) {
+      if (a.name && Array.isArray(a.values)) attrMap.set(a.name, a.values);
+    }
+    return Object.entries(spec)
+      .map(([name, m]) => ({ name, values: attrMap.get(name) ?? Object.keys(m ?? {}) }))
+      .filter((g) => g.values.length > 0);
+  };
+
+  const startSpecEdit = (product: AdminProduct) => {
+    const spec = product.specStock as Record<string, Record<string, number>> | null;
+    const init: Record<string, Record<string, string>> = {};
+    for (const g of specGroupsOf(product)) {
+      init[g.name] = {};
+      for (const v of g.values) init[g.name]![v] = String(spec?.[g.name]?.[v] ?? 0);
+    }
+    setSpecEditValue(init);
+    setSpecEditId(product.id);
+  };
+
+  const saveSpecStock = async (product: AdminProduct) => {
+    const specStock: Record<string, Record<string, number>> = {};
+    for (const [name, m] of Object.entries(specEditValue)) {
+      specStock[name] = {};
+      for (const [v, str] of Object.entries(m)) {
+        const n = Number(str);
+        specStock[name]![v] = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+      }
+    }
+    try {
+      // 走商品复用 PUT：服务端会用 aggregateTrackedStock 重算总库存，保持 stock 与规格明细一致
+      await apiFetch(`/api/admin/products/${product.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ specStock, attributes: product.attributes ?? [] }),
+      });
+      toast.success("规格库存已更新");
+      setSpecEditId(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "更新规格库存失败");
     }
   };
 
@@ -338,6 +423,12 @@ export default function AdminProductsPage() {
             onClick: () => void batchStatus("ARCHIVED"),
             loading: batchLoading,
           },
+          {
+            label: "删除",
+            onClick: () => void batchDelete(),
+            loading: batchLoading,
+            destructive: true,
+          },
         ]}
       />
 
@@ -351,9 +442,9 @@ export default function AdminProductsPage() {
                   <Checkbox
                     checked={allChecked}
                     ref={(el) => {
-                      if (el) (el as unknown as HTMLButtonElement).dataset.indeterminate = String(
-                        someChecked,
-                      );
+                      if (el)
+                        (el as unknown as HTMLButtonElement).dataset.indeterminate =
+                          String(someChecked);
                     }}
                     onCheckedChange={(v) => toggleAll(Boolean(v))}
                     aria-label="全选"
@@ -367,9 +458,7 @@ export default function AdminProductsPage() {
                 <TableHead className="w-20">库存</TableHead>
                 <TableHead className="hidden w-20 text-right xl:table-cell">已售</TableHead>
                 <TableHead className="w-24">状态</TableHead>
-                <TableHead className="sticky-col-right w-20 text-right">
-                  操作
-                </TableHead>
+                <TableHead className="sticky-col-right w-20 text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -422,10 +511,86 @@ export default function AdminProductsPage() {
                       <CellText value={row.category?.name ?? "-"} />
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
-                      {formatMoney(row.price)}
+                      {formatMoney(row.price, "USD")}
                     </TableCell>
                     <TableCell>
-                      {stockEditId === row.id ? (
+                      {hasSpecStock(row) ? (
+                        /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
+                        specEditId === row.id ? (
+                          <div className="space-y-1.5 py-1">
+                            {specGroupsOf(row).map((g) => (
+                              <div key={g.name} className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs text-muted-foreground">{g.name}</span>
+                                {g.values.map((v) => (
+                                  <div key={v} className="flex items-center gap-0.5">
+                                    <Input
+                                      inputMode="numeric"
+                                      value={specEditValue[g.name]?.[v] ?? ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9]/g, "");
+                                        setSpecEditValue((prev) => ({
+                                          ...prev,
+                                          [g.name]: { ...(prev[g.name] ?? {}), [v]: val },
+                                        }));
+                                      }}
+                                      className="h-6 w-10 px-1 text-xs"
+                                      aria-label={`${g.name}:${v}`}
+                                    />
+                                    <span className="text-[10px] text-muted-foreground">{v}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                            <div className="flex gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-1.5 text-xs"
+                                onClick={() => void saveSpecStock(row)}
+                              >
+                                保存
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-1.5 text-xs"
+                                onClick={() => setSpecEditId(null)}
+                              >
+                                取消
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label="编辑规格库存"
+                            onClick={() => startSpecEdit(row)}
+                            title="点击编辑各规格库存"
+                            className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
+                          >
+                            <span className="text-xs text-muted-foreground">
+                              {specGroupsOf(row)
+                                .map((g) =>
+                                  g.values
+                                    .map((v) => {
+                                      const n =
+                                        (
+                                          row.specStock as Record<
+                                            string,
+                                            Record<string, number>
+                                          > | null
+                                        )?.[g.name]?.[v] ?? 0;
+                                      return `${v}×${n}`;
+                                    })
+                                    .join(" "),
+                                )
+                                .join(" · ")}
+                            </span>
+                            <Pencil className="h-3 w-3 text-muted-foreground" />
+                          </button>
+                        )
+                      ) : /* 单品：直接改总库存数字 */
+                      stockEditId === row.id ? (
                         <div className="flex items-center gap-1">
                           <Input
                             value={stockValue}
@@ -460,7 +625,7 @@ export default function AdminProductsPage() {
                         </button>
                       )}
                     </TableCell>
-                    <TableCell className="hidden text-right text-muted-foreground xl:table-cell tabular-nums">
+                    <TableCell className="hidden text-right tabular-nums text-muted-foreground xl:table-cell">
                       {row.soldCount}
                     </TableCell>
                     <TableCell>

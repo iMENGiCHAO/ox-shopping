@@ -1,22 +1,16 @@
 import { apiHandler, json } from "@/lib/api";
-import { requireUser } from "@/lib/auth/session";
-import {
-  assertOrderOwner,
-  createPaymentUrl,
-  getOrderByNumber,
-} from "@/server/services/order.service";
+import { requireOrderAccess, orderContact } from "@/server/services/order-access";
+import { createPaymentUrl } from "@/server/services/order.service";
 import { routeParam } from "@/app/api/_lib/params";
 
 export const runtime = "nodejs";
 
-/** POST /api/orders/[orderNumber]/pay — 生成支付链接 */
+/** POST /api/orders/[orderNumber]/pay — 生成支付链接（游客单凭令牌可重新发起支付） */
 export const POST = apiHandler(async (req, ctx) => {
-  const user = await requireUser();
   const orderNumber = routeParam(ctx.params.orderNumber);
+  const { order, user } = await requireOrderAccess(req, orderNumber);
 
-  const order = await getOrderByNumber(orderNumber);
-  assertOrderOwner(order, user.id);
-
-  const paymentUrl = await createPaymentUrl(order, user.email);
+  // 收银台收件人：登录单用账号邮箱，游客单用订单联系邮箱（否则网关侧收件人为空）
+  const paymentUrl = await createPaymentUrl(order, user?.email ?? orderContact(order).email);
   return json({ paymentUrl });
 });

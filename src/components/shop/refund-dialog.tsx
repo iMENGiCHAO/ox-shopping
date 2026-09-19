@@ -25,26 +25,43 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/fetch-client";
+import { orderApiUrl } from "@/lib/order-api";
 import { toast } from "sonner";
-import { useCurrency } from "@/components/shop/currency-provider";
+import { formatAmount, parseCurrencyCode } from "@/components/shop/currency";
 
 import { useShopLang } from "@/components/shop/lang-provider";
 type RefundFormValues = { reason: string; amount: number };
 
 export interface RefundDialogProps {
   orderNumber: string;
-  /** 可申请退款的最大金额(订单实付) */
+  /** 可申请退款的最大金额（订单实付，订单币种已换算金额，非 USD） */
   maxAmount: number;
+  /** 订单币种（用于金额展示） */
+  currency?: string;
+  /** 订单创建时的汇率快照（仅审计/对账，已不参与显示换算） */
+  exchangeRate?: number;
+  /** 游客订单的查询令牌（登录单为 null） */
+  token?: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 /** 申请退款对话框 */
-export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: RefundDialogProps) {
+export function RefundDialog({
+  orderNumber,
+  maxAmount,
+  currency,
+  token,
+  open,
+  onOpenChange,
+}: RefundDialogProps) {
   const { t } = useShopLang();
 
   const router = useRouter();
-  const { format } = useCurrency();
+  // 使用订单创建时的币种展示；maxAmount 已是订单币种金额（order.service 的 totalUser），
+  // 绝不能再乘 exchangeRate——否则「订单 €100 显示 Max refund €85.72」二次换算 bug。
+  const orderCurrency = parseCurrencyCode(currency ?? "USD");
+  const formatOrder = (amount: number) => formatAmount(amount, orderCurrency);
   const [submitting, setSubmitting] = useState(false);
 
   const form = useForm<RefundFormValues>({
@@ -55,7 +72,7 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
   const onSubmit = async (values: RefundFormValues) => {
     setSubmitting(true);
     try {
-      await apiFetch(`/api/orders/${orderNumber}/refund`, {
+      await apiFetch(orderApiUrl(orderNumber, token, "/refund"), {
         method: "POST",
         body: JSON.stringify({ reason: values.reason.trim(), amount: values.amount }),
       });
@@ -64,7 +81,9 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
       onOpenChange(false);
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit request, please try again later");
+      toast.error(
+        err instanceof Error ? err.message : t("Failed to submit request, please try again later"),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -74,10 +93,12 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Request a refund</DialogTitle>
+          <DialogTitle>{t("Request a refund")}</DialogTitle>
           <DialogDescription>
-            Max refund: {format(maxAmount)}
-            . The refund will be returned through the original payment method once approved. If the order has been shipped, the items must be returned first.
+            {t("Max refund:")} {formatOrder(maxAmount)}.{" "}
+            {t(
+              "The refund will be returned through the original payment method once approved. If the order has been shipped, the items must be returned first.",
+            )}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -87,7 +108,7 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
               name="amount"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Refund amount</FormLabel>
+                  <FormLabel>{t("Refund amount")}</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
@@ -107,9 +128,13 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
               name="reason"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Reason</FormLabel>
+                  <FormLabel>{t("Reason")}</FormLabel>
                   <FormControl>
-                    <Textarea placeholder="Please describe the reason (at least 5 chars)" rows={3} {...field} />
+                    <Textarea
+                      placeholder={t("Please describe the reason (at least 5 chars)")}
+                      rows={3}
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -117,10 +142,10 @@ export function RefundDialog({ orderNumber, maxAmount, open, onOpenChange }: Ref
             />
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t("Cancel")}
               </Button>
               <Button type="submit" disabled={submitting}>
-                {submitting ? "Submitting…" : "Submit request"}
+                {submitting ? t("Submitting…") : t("Submit request")}
               </Button>
             </DialogFooter>
           </form>

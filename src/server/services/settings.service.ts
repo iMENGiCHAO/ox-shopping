@@ -5,6 +5,7 @@ import { Lang } from "@/lib/shop-i18n";
 import { logger } from "@/lib/logger";
 import { isLogoArtworkDark } from "@/lib/logo-contrast";
 import { cacheGet, cacheSet, cacheDel } from "@/lib/cache";
+import { env, brandFallback, supportEmailFallback } from "@/lib/env";
 
 /**
  * 站点设置：读取 SiteSetting(由管理端 /api/admin/settings 维护)。
@@ -20,13 +21,10 @@ export interface SiteSettings {
   contactPhone: string;
   icp: string;
   seoKeywords: string;
-  /** 全站公告(管理端可编辑)：enabled + 文案，前台头部下方展示 */
-  announcementEnabled: boolean;
   /** 品牌LOGO(后台可上传更换);空=使用内置默认 */
   siteLogoUrl: string | null;
   /** LOGO 图案偏暗（黑色图案+透明底），黑色顶栏需反白显示；由 lib/logo-contrast 自动测定 */
   siteLogoDarkArtwork: boolean;
-  announcement: string;
   /**
    * 预售商品缺省提示文案（多语言）。
    * 站级默认 — 任何 isPresale=true 但自身未配置 presaleNoteZh/En 的商品都显示这条。
@@ -41,8 +39,12 @@ const DEFAULT_DESCRIPTION_ZH =
 const DEFAULT_DESCRIPTION_EN =
   "Quality goods, all in one place. Authentic, fast shipping, 7-day no-reason returns.";
 
-const DEFAULT_SITE_NAME_ZH = "Ox Shopping";
-const DEFAULT_SITE_NAME_EN = "Ox Shopping";
+/**
+ * 品牌名兜底 —— 统一取 lib/env 的 `brandFallback`（`SITE_NAME` 环境变量 → 内置默认）。
+ * 不要再在此处写死字面量：SEO 元数据 / 发票 / 邮件 / PayPal 收银台都汇到这一处。
+ */
+const DEFAULT_SITE_NAME_ZH = brandFallback;
+const DEFAULT_SITE_NAME_EN = brandFallback;
 
 /** 站级默认预售提示 — 任何 isPresale=true 但商品级未覆盖时使用。
  *  后台「设置 → 预售提示」可改；商品级可在编辑商品时单独覆盖。 */
@@ -51,13 +53,12 @@ const DEFAULT_PRESALE_NOTE_EN = "Pre-order item — ships within 14 days of paym
 
 type PolicyValue = string | { zh?: string; en?: string } | null | undefined;
 
-/** Read a { zh, en } policy value. Legacy string values are treated as `en`. */
+/** Read a { zh, en } policy value. Legacy string values apply to both languages
+ *  (same semantics as readI18n below) — the admin editor now always saves { zh, en }. */
 function readPolicy(value: PolicyValue, key: PolicyKey): { zh: string; en: string } {
   const fallback = POLICY_DEFAULTS[key];
   if (value == null) return { zh: fallback.zh, en: fallback.en };
-  if (typeof value === "string") {
-    return { zh: fallback.zh, en: value };
-  }
+  if (typeof value === "string") return { zh: value, en: value };
   return {
     zh: typeof value.zh === "string" && value.zh ? value.zh : fallback.zh,
     en: typeof value.en === "string" && value.en ? value.en : fallback.en,
@@ -79,7 +80,7 @@ export function getPolicyText(map: PolicyContentMap, key: PolicyKey, lang: Lang)
 }
 
 export async function getSiteSettings(): Promise<SiteSettings> {
-  // 缓存命中：站点设置几乎每个页面都要读(页头/页脚/SEO/公告)，是并发热路径。
+  // 缓存命中：站点设置几乎每个页面都要读(页头/页脚/SEO)，是并发热路径。
   // 短 TTL 缓存避免每次请求都打 DB(高并发下避免连接池/锁阻塞)；
   // 管理端写入设置时通过 invalidateSettingsCache() 立即失效，改动近实时生效。
   const cached = await cacheGet<SiteSettings>(SETTINGS_CACHE_KEY);
@@ -164,18 +165,21 @@ async function computeSiteSettings(): Promise<SiteSettings> {
   return {
     siteName,
     siteDescription,
+    /* 客服联系方式：后台配置 > 环境变量兜底（SUPPORT_EMAIL / MAIL_FROM 发件地址）。
+       不再回落到 `support@example.com` / `400-000-0000` —— 占位地址一旦上线，
+       FAQ、发票、隐私选择页都会带着它发给真实客户。 */
     contactEmail:
-      typeof map.contactEmail === "string" && map.contactEmail
-        ? map.contactEmail
-        : "support@example.com",
+      typeof map.contactEmail === "string" && map.contactEmail.trim()
+        ? map.contactEmail.trim()
+        : env.SUPPORT_EMAIL.trim() || supportEmailFallback,
     contactPhone:
-      typeof map.contactPhone === "string" && map.contactPhone ? map.contactPhone : "400-000-0000",
+      typeof map.contactPhone === "string" && map.contactPhone.trim()
+        ? map.contactPhone.trim()
+        : env.SUPPORT_PHONE.trim(),
     icp: typeof map.icp === "string" ? map.icp : "",
     seoKeywords: typeof map.seoKeywords === "string" ? map.seoKeywords : "",
-    announcementEnabled: map.announcementEnabled === true,
     siteLogoUrl,
     siteLogoDarkArtwork,
-    announcement: typeof map.announcement === "string" ? map.announcement : "",
     presaleNote: readI18n(map.presaleNote, DEFAULT_PRESALE_NOTE_ZH, DEFAULT_PRESALE_NOTE_EN),
     policies: {
       accessibility: readPolicy(map.policyAccessibility as PolicyValue, "accessibility"),
@@ -183,14 +187,15 @@ async function computeSiteSettings(): Promise<SiteSettings> {
       terms: readPolicy(map.policyTerms as PolicyValue, "terms"),
       refund: readPolicy(map.policyRefund as PolicyValue, "refund"),
       cookies: readPolicy(map.policyCookies as PolicyValue, "cookies"),
+      dataSharingOptOut: readPolicy(
+        map.policyDataSharingOptOut as PolicyValue,
+        "dataSharingOptOut",
+      ),
     },
   };
 }
 
 /** Resolve a setting to the current language's string, with safe fallback. */
-export function pickLang<T extends Record<"zh" | "en", string>>(
-  value: T,
-  lang: Lang,
-): string {
+export function pickLang<T extends Record<"zh" | "en", string>>(value: T, lang: Lang): string {
   return value[lang] || value.en || value.zh;
 }

@@ -216,4 +216,26 @@ export async function currencyLabel(): Promise<string> {
   return `${def.country} (${def.code} ${def.symbol})`;
 }
 
+/**
+ * 订单金额格式化：按订单创建时的币种显示。
+ *
+ * ⚠️ 订单表存储的金额**已经是订单币种单位**：`createOrder` 在事务内已用
+ * `toUserCurrency()` 把 USD 基础金额换算成用户币种并落库（见 order.service.ts），
+ * 同时存 `currency` 与 `exchangeRate` 快照仅供审计/对账。
+ * 因此这里**绝不能再乘 exchangeRate**——否则会出现"实付 €137.66、页面显示 €118.44"
+ * 的二次换算 bug（已修复）。
+ *
+ * @param amount 订单存储金额（订单币种单位，非 USD 基础金额）
+ * @param orderCurrency 订单币种代码（如 USD/EUR/CNY）
+ * @param _orderExchangeRate 仅为兼容旧调用签名保留，已不使用
+ */
+export function formatOrderAmount(
+  amount: number,
+  orderCurrency: string,
+  _orderExchangeRate?: number,
+): string {
+  const code = parseCurrencyCode(orderCurrency);
+  return formatAmount(amount, code);
+}
+
 export { DEFAULT_CURRENCY };

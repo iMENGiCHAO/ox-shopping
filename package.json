@@ -21,6 +21,7 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "admin:create": "tsx scripts/admin-create.ts",
+    "migrate:payment-channels": "tsx scripts/migrate-payment-channels.ts",
     "db:studio": "prisma studio",
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
@@ -32,7 +33,20 @@
     "postinstall": "prisma generate",
     "db:backup": "bash scripts/backup-db.sh",
     "preflight": "tsx scripts/preflight-check.ts",
-    "preflight:dev": "NODE_ENV=development tsx scripts/preflight-check.ts"
+    "preflight:dev": "NODE_ENV=development tsx scripts/preflight-check.ts",
+    "qa:design": "node scripts/design-assertions.cjs",
+    "qa:hardcode": "node scripts/qa/qa-hardcode.mjs",
+    "qa:error-lang": "node scripts/qa/qa-error-lang.mjs",
+    "qa:a11y": "node scripts/qa/qa-a11y.mjs",
+    "qa:mobile": "node scripts/qa/qa-mobile.mjs",
+    "qa:links": "node scripts/qa/qa-links.mjs",
+    "qa:links:static": "node scripts/qa/qa-links-static.mjs",
+    "qa:lang": "node scripts/qa/qa-lang.mjs",
+    "qa:sweep": "node scripts/qa/qa-sweep.mjs",
+    "qa:layout": "node scripts/qa/qa-layout.mjs",
+    "qa:probe": "node scripts/qa/qa-probe-geometry.mjs",
+    "qa:static": "npm run qa:hardcode && npm run qa:error-lang && npm run qa:links:static",
+    "verify": "npm run typecheck && npm run qa:static && npm run test:unit"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

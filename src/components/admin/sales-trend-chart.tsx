@@ -59,7 +59,7 @@ export function SalesTrendChart({ data, className }: SalesTrendChartProps) {
           <YAxis yAxisId="orders" orientation="right" hide />
           <Tooltip
             formatter={(value, name) => {
-              if (name === "营收") return [formatMoney(Number(value)), name];
+              if (name === "营收") return [formatMoney(Number(value), "CNY"), name];
               return [value, name];
             }}
             labelFormatter={(label) => `日期：${String(label)}`}

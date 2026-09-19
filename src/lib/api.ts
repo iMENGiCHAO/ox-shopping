@@ -2,9 +2,19 @@ import "server-only";
 import { NextRequest, NextResponse } from "next/server";
 import type { ZodType } from "zod";
 import { ApiError, toApiError } from "@/lib/errors";
-import { logError, withRequest } from "@/lib/logger";
+import { localizeErrorMessage, localizeErrorDetails } from "@/lib/error-i18n";
+import { langForApiRequest } from "@/lib/request-lang";
+import { logApiFailure, withRequest } from "@/lib/logger";
 import { captureException } from "@/lib/monitoring";
 import type { ApiErrorBody, ApiResponse } from "@/types/api";
+
+/**
+ * 从请求推断错误文案语言。规则见 `lib/request-lang`：
+ * **后台（/api/admin/*）恒中文**，店面按币种/shop-lang cookie。
+ */
+function requestLang(req: NextRequest): "zh" | "en" {
+  return langForApiRequest(req);
+}
 
 /** 成功响应：{ data } */
 export function json<T>(data: T, init?: ResponseInit): NextResponse {
@@ -70,7 +80,8 @@ export function apiHandler(handler: Handler): RouteHandler {
       return res;
     } catch (err) {
       const apiError = toApiError(err);
-      logError(err, req, {
+      // 按状态分级：4xx 客户端错误不打堆栈（401 未登录属正常噪音，降为 debug）
+      logApiFailure(err, req, {
         status: apiError.status,
         code: apiError.code,
         durationMs: Date.now() - started,
@@ -78,6 +89,14 @@ export function apiHandler(handler: Handler): RouteHandler {
       if (apiError.status >= 500) {
         captureException(err, { url: req.url, method: req.method });
       }
+      // 按请求语言本地化错误文案（服务端日志保留原始英文，仅响应体本地化）
+      const lang = requestLang(req);
+      const localized = localizeErrorMessage(apiError.message, lang);
+      if (localized !== apiError.message) {
+        apiError.message = localized;
+      }
+      // 字段级校验消息同样要本地化 —— 否则中文界面下表单报英文、英文界面下报中文
+      apiError.details = localizeErrorDetails(apiError.details, lang);
       return jsonError(apiError);
     }
   };
@@ -89,7 +108,7 @@ export async function readJson<T>(req: Request, schema: ZodType<T>): Promise<T> 
   try {
     raw = await req.json();
   } catch {
-    throw new ApiError(400, "BAD_REQUEST", "请求体不是合法的 JSON");
+    throw new ApiError(400, "BAD_REQUEST", "Request body is not valid JSON");
   }
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
@@ -97,7 +116,7 @@ export async function readJson<T>(req: Request, schema: ZodType<T>): Promise<T> 
       path: i.path.join("."),
       message: i.message,
     }));
-    throw new ApiError(400, "VALIDATION_ERROR", "请求参数不合法", details);
+    throw new ApiError(400, "VALIDATION_ERROR", "Invalid request parameters", details);
   }
   return parsed.data;
 }

@@ -127,8 +127,6 @@ export default function AdminNotificationsPage() {
         return "订单";
       case "refund":
         return "退款";
-      case "price_alert":
-        return "价格";
       default:
         return "系统";
     }

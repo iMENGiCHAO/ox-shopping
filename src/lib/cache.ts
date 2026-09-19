@@ -10,7 +10,19 @@ import { logger } from "@/lib/logger";
 
 const PRODUCTS_CACHE_PREFIX = "products:v2:";
 
-const memoryStore = new Map<string, { value: unknown; expiresAt: number }>();
+type MemoryEntry = { value: unknown; expiresAt: number };
+
+/**
+ * 内存缓存挂在 globalThis 上而非模块级常量：
+ * Next 会按路由把服务端代码拆成多个 bundle，模块可能被实例化多份，
+ * 导致「管理端写入 → invalidateSettingsCache()」清的是 A 实例、页面读的是 B 实例，
+ * 改动要等 TTL 过期才可见。挂到 globalThis 保证同进程内共享同一份 Map。
+ * （生产启用 Redis 时本就不受影响，这里是让无 Redis 的开发/单机部署也即时生效。）
+ */
+const globalForCache = globalThis as unknown as { __appMemoryCache?: Map<string, MemoryEntry> };
+const memoryStore: Map<string, MemoryEntry> =
+  globalForCache.__appMemoryCache ?? new Map<string, MemoryEntry>();
+globalForCache.__appMemoryCache = memoryStore;
 
 function memoryGet<T>(key: string): T | null {
   const hit = memoryStore.get(key);

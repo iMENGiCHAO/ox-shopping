@@ -28,9 +28,9 @@ type Dict = Record<string, Partial<Record<Lang, string>>>;
 const DICT: Dict = {
   /* ── Account / data export ─────────────────────────────────────── */
   "Download my data": { en: "Download my data", zh: "下载我的数据" },
-  "Export a copy of your personal data (profile, orders, reviews and subscriptions) as JSON.": {
-    en: "Export a copy of your personal data (profile, orders, reviews and subscriptions) as JSON.",
-    zh: "将你的个人数据（资料、订单、评价与订阅）导出为 JSON 文件。",
+  "Export a copy of your personal data (profile, orders and subscriptions) as JSON.": {
+    en: "Export a copy of your personal data (profile, orders and subscriptions) as JSON.",
+    zh: "将你的个人数据（资料、订单与订阅）导出为 JSON 文件。",
   },
   "Export my data": { en: "Export my data", zh: "导出我的数据" },
 
@@ -59,6 +59,7 @@ const DICT: Dict = {
   FAQs: { en: "FAQs", zh: "常见问题" },
   "Accessibility Statement": { en: "Accessibility Statement", zh: "无障碍声明" },
   "Terms and Conditions": { en: "Terms and Conditions", zh: "条款与条件" },
+  "Refund Policy": { en: "Refund Policy", zh: "退款政策" },
   "Cookie Consent": { en: "Cookie Consent", zh: "Cookie 同意" },
   "Sold out": { en: "Sold out", zh: "已售罄" },
   "Notify me": { en: "Notify me", zh: "到货通知" },
@@ -106,26 +107,27 @@ const DICT: Dict = {
   "View results": { en: "View results", zh: "查看结果" },
   "No results found.": { en: "No results found.", zh: "没有找到相关结果。" },
   Suggestions: { en: "Suggestions", zh: "搜索建议" },
+  "View all results": { en: "View all results", zh: "查看所有结果" },
+  /* 搜索浮层空态的两个集合入口（原站实测固定为这两条，与集合名一致） */
+  "X Collection": { en: "X Collection", zh: "X Collection" },
+  "SpaceXAI Collection": { en: "SpaceXAI Collection", zh: "SpaceXAI Collection" },
   "Sign Out": { en: "Sign Out", zh: "退出登录" },
   "Create Account": { en: "Create Account", zh: "创建账户" },
   "My Orders": { en: "My Orders", zh: "我的订单" },
   /** 短标签（移动端 <sm 视口） */
   Orders: { en: "Orders", zh: "订单" },
-  Favorites: { en: "Favorites", zh: "收藏" },
-  Coupons: { en: "Coupons", zh: "优惠券" },
   Policies: { en: "Policies", zh: "政策条款" },
   "Privacy Policy": { en: "Privacy Policy", zh: "隐私政策" },
   "Terms of Service": { en: "Terms of Service", zh: "服务条款" },
-  "Refund Policy": { en: "Refund Policy", zh: "退款政策" },
   "Cookie Policy": { en: "Cookie Policy", zh: "Cookie 政策" },
+  /* 结账页脚第三条（原站 checkout 页脚为 Refund policy · Privacy policy · Cookies） */
+  Cookies: { en: "Cookies", zh: "Cookie" },
 
   /* ── User menu ────────────────────────────────────────────────── */
   "My Account": { en: "My Account", zh: "个人中心" },
-  "My Favorites": { en: "My Favorites", zh: "我的收藏" },
   "Product removed": { en: "Product removed", zh: "商品已下架" },
   "item(s)": { en: "item(s)", zh: "件" },
   "Size Charts": { en: "Size Charts", zh: "参数对照表" },
-  "My Coupons": { en: "My Coupons", zh: "我的优惠券" },
   Profile: { en: "Profile", zh: "个人资料" },
   "Change Password": { en: "Change Password", zh: "修改密码" },
   "Shipping Address": { en: "Shipping Address", zh: "收货地址" },
@@ -160,6 +162,12 @@ const DICT: Dict = {
   "Clear filters": { en: "Clear filters", zh: "清除筛选" },
   "In stock": { en: "In stock", zh: "有货" },
   "Out of stock": { en: "Out of stock", zh: "缺货" },
+  /* 大爷需求：库存即时友好提示——加购时即提示，不等结账 */
+  "Only {n} left": { en: "Only {n} left", zh: "仅剩 {n} 件" },
+  "Insufficient stock, only {n} left": {
+    en: "Insufficient stock, only {n} left",
+    zh: "库存不足，当前仅剩 {n} 件",
+  },
   "Pre-order": { en: "Pre-order", zh: "预售" },
   "You may also like": { en: "You may also like", zh: "你可能也喜欢" },
   "404 Page not found": { en: "404 Page not found", zh: "404 页面不存在" },
@@ -181,14 +189,9 @@ const DICT: Dict = {
 
   /* ── Product detail ───────────────────────────────────────────── */
   Details: { en: "Details", zh: "详情" },
-  Reviews: { en: "Reviews", zh: "评价" },
   "Related recommendations": { en: "Related recommendations", zh: "相关推荐" },
   "Add to cart": { en: "Add to cart", zh: "加入购物车" },
   "Buy now": { en: "Buy now", zh: "立即购买" },
-  "Add to favorites": { en: "Add to favorites", zh: "加入收藏" },
-  "Added to favorites": { en: "Added to favorites", zh: "已加入收藏" },
-  "Remove from favorites": { en: "Remove from favorites", zh: "取消收藏" },
-  "Removed from favorites": { en: "Removed from favorites", zh: "已取消收藏" },
   Color: { en: "Color", zh: "颜色" },
   Capacity: { en: "Capacity", zh: "容量" },
   Size: { en: "Size", zh: "尺寸" },
@@ -201,36 +204,21 @@ const DICT: Dict = {
   Graphics: { en: "Graphics", zh: "显卡" },
   Switch: { en: "Switch", zh: "轴体" },
   "Recommended Area": { en: "Recommended Area", zh: "适用面积" },
-  Rating: { en: "Rating", zh: "评分" },
-  "No reviews yet": { en: "No reviews yet", zh: "暂无评价" },
-  "No reviews yet — share your experience after purchase!": {
-    en: "No reviews yet — share your experience after purchase!",
-    zh: "暂无评价，购买后发表您的使用心得吧～",
-  },
-  "{n} reviews": { en: "{n} reviews", zh: "{n} 条评价" },
-  "{n} review": { en: "{n} review", zh: "{n} 条评价" },
-  "Verified Purchase": { en: "Verified Purchase", zh: "已购买" },
-  Anonymous: { en: "Anonymous", zh: "匿名用户" },
   Submit: { en: "Submit", zh: "提交" },
   "Submitting…": { en: "Submitting…", zh: "提交中…" },
-  "Write a Review": { en: "Write a Review", zh: "发表评价" },
-  "Select a rating": { en: "Select a rating", zh: "请选择评分" },
-  "Share your thoughts…": { en: "Share your thoughts…", zh: "说点什么…" },
-  "Review submitted": { en: "Review submitted", zh: "评价已提交" },
-  "Review submitted — thanks for sharing!": {
-    en: "Review submitted — thanks for sharing!",
-    zh: "评价已提交，感谢您的分享！",
-  },
-  "Failed to submit your review, please try again later": {
-    en: "Failed to submit your review, please try again later",
-    zh: "评价提交失败，请稍后重试",
-  },
-
-  /* ── Cookie consent banner ────────────────────────────────────── */
-  'We use cookies to improve your browsing experience and analyze traffic. Clicking \\"Accept all\\" means you agree to our use of cookies. See our Cookie Policy.':
+  /* ── Cookie consent banner ──────────────────────────────────────
+     句子在组件里由「前半句 + <Link>Cookie Policy</Link> + .」拼成，
+     因此词条要写到 `See our` 为止，拼出来才是
+     "…means you agree to our use of cookies. See our Cookie Policy."。
+     此前词条写到 `our use of` 就断了，实际渲染成
+     "…our use of Cookie Policy."（语法错误）。
+     另外：这里**必须用单引号**——句中含 `"Accept all"`，
+     若改用双引号包裹就会引入 `\"` 转义，而转义写错会让键与调用方不相等，
+     表现为「词条在但永远不命中、静默漏出英文」（本次清理掉的两条死词条就是这个成因）。 */
+  'We use cookies to improve your browsing experience and analyze traffic. Clicking "Accept all" means you agree to our use of cookies. See our':
     {
-      en: 'We use cookies to improve your browsing experience and analyze traffic. Clicking \\"Accept all\\" means you agree to our use of cookies. See our Cookie Policy.',
-      zh: "本站使用 Cookie 以提升浏览体验并统计访问数据。点击「接受全部」即表示同意我们使用 Cookie。详见 Cookie 政策。",
+      en: 'We use cookies to improve your browsing experience and analyze traffic. Clicking "Accept all" means you agree to our use of cookies. See our',
+      zh: "我们使用 Cookie 改进浏览体验并分析流量。点击「全部接受」即表示您同意我们使用 Cookie。详见我们的",
     },
   "Accept all": { en: "Accept all", zh: "接受全部" },
   "Accept necessary only": { en: "Accept necessary only", zh: "仅接受必要" },
@@ -300,11 +288,31 @@ const DICT: Dict = {
   "Back to cart": { en: "Back to cart", zh: "返回购物车" },
   Items: { en: "Items", zh: "商品" },
   Summary: { en: "Summary", zh: "结算栏" },
-  "Enter coupon code": { en: "Enter coupon code", zh: "输入优惠码" },
   Apply: { en: "Apply", zh: "应用" },
-  "Coupon code applied": { en: "Coupon code applied", zh: "优惠码已应用" },
-  "Invalid coupon code": { en: "Invalid coupon code", zh: "优惠码无效" },
-  "Enter a coupon code first": { en: "Enter a coupon code first", zh: "请先输入优惠码" },
+  "Payment method": { en: "Payment method", zh: "支付方式" },
+  "Not available yet": { en: "Not available yet", zh: "暂未开通" },
+  "Not available for this currency — switch currency or pick another method": {
+    en: "Not available for this currency — switch currency or pick another method",
+    zh: "不支持当前币种，请切换币种或选择其他支付方式",
+  },
+
+  /* ── Cart drawer ───────────────────────────────────────────────── */
+  "Your Bag": { en: "Your Bag", zh: "购物袋" },
+  "Loading…": { en: "Loading…", zh: "加载中…" },
+  "Discover something you'll love.": {
+    en: "Discover something you'll love.",
+    zh: "去发现你会喜欢的好物。",
+  },
+  "Start Shopping": { en: "Start Shopping", zh: "开始购物" },
+  "Shipping & taxes calculated at checkout.": {
+    en: "Shipping & taxes calculated at checkout.",
+    zh: "运费与税费将在结算时计算。",
+  },
+  "View Full Bag": { en: "View Full Bag", zh: "查看完整购物袋" },
+  "Sign in to track orders and save your bag": {
+    en: "Sign in to track orders and save your bag",
+    zh: "登录以跟踪订单并保存购物袋",
+  },
 
   /* ── Checkout flow ────────────────────────────────────────────── */
   "Select shipping address": { en: "Select shipping address", zh: "选择收货地址" },
@@ -341,6 +349,20 @@ const DICT: Dict = {
   },
   "Sending…": { en: "Sending…", zh: "发送中…" },
   "Send message": { en: "Send message", zh: "发送留言" },
+  /* ── /pages/contact 联系表单（原站字段名逐字对齐：Name / E-mail / Message） ── */
+  "Contact Us": { en: "Contact Us", zh: "联系我们" },
+  /* FAQ 答案里的 `{contactForm}` 链接文案 —— 原站原文 “or fill out this form” */
+  "this form": { en: "this form", zh: "此表单" },
+  "Please enter your name": { en: "Please enter your name", zh: "请输入姓名" },
+  "Please enter your message": { en: "Please enter your message", zh: "请输入留言内容" },
+  "Failed to send, please try again": {
+    en: "Failed to send, please try again",
+    zh: "发送失败，请稍后重试",
+  },
+  "Message sent — we'll get back to you soon.": {
+    en: "Message sent — we'll get back to you soon.",
+    zh: "留言已发送，我们会尽快回复您。",
+  },
   "Place order": { en: "Place order", zh: "提交订单" },
   "Pay now": { en: "Pay now", zh: "前往支付" },
   "Your order has no items": { en: "Your order has no items", zh: "订单中没有商品" },
@@ -354,21 +376,67 @@ const DICT: Dict = {
     en: "Failed to submit your order, please try again later",
     zh: "订单提交失败，请稍后重试",
   },
-  "The best available offer has been applied at checkout": {
-    en: "The best available offer has been applied at checkout",
-    zh: "结算时已自动应用最佳优惠",
-  },
   "Processing…": { en: "Processing…", zh: "处理中…" },
   Processing: { en: "Processing", zh: "处理中" },
+  "Please select a shipping method": {
+    en: "Please select a shipping method",
+    zh: "请选择配送方式",
+  },
+  "No shipping methods available, please contact customer service.": {
+    en: "No shipping methods available, please contact customer service.",
+    zh: "暂无可用配送方式，请联系客服。",
+  },
+  "Address saved": { en: "Address saved", zh: "地址已保存" },
+  "Address saved, but failed to refresh the list": {
+    en: "Address saved, but failed to refresh the list",
+    zh: "地址已保存，但列表刷新失败",
+  },
+  "Estimated shipping": { en: "Estimated shipping", zh: "预计运费" },
+  "Cash on Delivery": { en: "Cash on Delivery", zh: "货到付款" },
+  "Pay on delivery:": { en: "Pay on delivery:", zh: "货到付款，到付" },
+  /* 结账页运费行 / 运费方式行的「到付」标签（原站此处不带冒号，金额由调用方另行拼接）。 */
+  "Pay on delivery": { en: "Pay on delivery", zh: "到付" },
+  /* 顶栏购物车图标上的未读通知红点（仅读屏可见的 aria-label）。 */
+  "You have unread notifications": {
+    en: "You have unread notifications",
+    zh: "有未读通知",
+  },
+  "Free shipping unlocked": { en: "Free shipping unlocked", zh: "已享免邮" },
+  "calculated at checkout": { en: "calculated at checkout", zh: "订单确认时计算" },
+  "Spend {amount} more for free shipping": {
+    en: "Spend {amount} more for free shipping",
+    zh: "再凑 {amount} 即可享免邮",
+  },
+  /* 结账页侧栏的凑单提示（含免邮门槛）。用字典而不是 `lang === "zh" ? ... : ...`
+     三元分支 —— 后者会把中文整句写进组件，切语言时容易漏改。 */
+  "Spend {amount} more to unlock free shipping (over {threshold})": {
+    en: "Spend {amount} more to unlock free shipping (over {threshold})",
+    zh: "再买 {amount} 即可免运费（满 {threshold} 免邮）",
+  },
+  "Please remove out-of-stock items first": {
+    en: "Please remove out-of-stock items first",
+    zh: "请先删除缺货商品",
+  },
+  "Some items are out of stock. Please remove them before checkout.": {
+    en: "Some items are out of stock. Please remove them before checkout.",
+    zh: "购物车中有缺货商品，请删除后再结账",
+  },
+  "Your cart contains pre-order items. They will ship once back in stock.": {
+    en: "Your cart contains pre-order items. They will ship once back in stock.",
+    zh: "购物车中有预售商品，发货时间会延后到货时再发出",
+  },
+  "Current order status: {status}": {
+    en: "Current order status: {status}",
+    zh: "当前订单状态：{status}",
+  },
 
   /* ── Mock payment & result pages ──────────────────────────────── */
   "Mock payment": { en: "Mock payment", zh: "模拟支付环境" },
+  "Mock payment notice": {
+    en: "This is the mock payment channel for development and demos — no real money is charged. Clicking [Mock payment successful] will mark the order as paid.",
+    zh: "这是用于开发与演示的「模拟支付」渠道，不会产生真实扣款。点击「模拟支付成功」将直接把订单标记为已支付。",
+  },
   "Mock payment successful": { en: "Mock payment successful", zh: "模拟支付成功" },
-  'No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking \\"Mock payment successful\\" will mark the order as paid immediately.':
-    {
-      en: 'No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking \\"Mock payment successful\\" will mark the order as paid immediately.',
-      zh: "当前未配置真实支付渠道(Stripe)，以下为演示用模拟支付流程。点击「模拟支付成功」将直接标记订单为已支付。",
-    },
   "Payment cancelled": { en: "Payment cancelled", zh: "支付已取消" },
   "Payment received": { en: "Payment received", zh: "支付成功" },
   "Payment failed, please try again later": {
@@ -390,13 +458,15 @@ const DICT: Dict = {
   "Back to home": { en: "Back to home", zh: "返回首页" },
 
   /* ── Auth: sign in ─────────────────────────────────────────────── */
-  "Sign in to your Ox Shopping account": {
-    en: "Sign in to your Ox Shopping account",
-    zh: "登录 Ox Shopping 账号",
+  // 注意：涉及品牌的文案一律用 {brand} 占位符 + t(key, { brand: siteName })，
+  // 不要在键或译文里写死品牌名 —— 否则运营在后台改站名后这里会残留旧品牌。
+  "Sign in to your {brand} account": {
+    en: "Sign in to your {brand} account",
+    zh: "登录 {brand} 账号",
   },
-  "Welcome back to Ox Shopping — please sign in.": {
-    en: "Welcome back to Ox Shopping — please sign in.",
-    zh: "欢迎回到 Ox Shopping，请登录您的账号。",
+  "Welcome back to {brand} — please sign in.": {
+    en: "Welcome back to {brand} — please sign in.",
+    zh: "欢迎回到 {brand}，请登录您的账号。",
   },
   Password: { en: "Password", zh: "密码" },
   "Please enter your password": { en: "Please enter your password", zh: "请输入密码" },
@@ -406,18 +476,41 @@ const DICT: Dict = {
     zh: "记住我(本地存储 30 天)",
   },
   "Forgot password?": { en: "Forgot password?", zh: "忘记密码？" },
+  /** 登录页密码框内右侧的原站文案（比 "Forgot password?" 多一个 your，逐字对齐） */
+  "Forgot your password?": { en: "Forgot your password?", zh: "忘记密码？" },
+  /** 搜索页左侧筛选栏 aria-label（原站标签**不全大写**，逐字对齐）。
+      注意：Relevance / Price, low to high / Price, high to low / Availability / Price / to
+      在本字典更靠前处已有同义键，不要在此重复定义（对象字面量重复键会编译报错）。 */
+  "Search filters": { en: "Search filters", zh: "搜索筛选" },
+  "Price range": { en: "Price range", zh: "价格区间" },
+  "Minimum price": { en: "Minimum price", zh: "最低价" },
+  "Maximum price": { en: "Maximum price", zh: "最高价" },
   "No account?": { en: "No account?", zh: "没有账号？" },
   "Sign-in failed, please try again later": {
     en: "Sign-in failed, please try again later",
     zh: "登录失败，请稍后重试",
   },
+  /* `apiFetch` 在响应体没有可读错误文案时的兜底（HTTP 状态码兜底提示）。
+     此前这里在 `lib/fetch-client.ts` 里写死中文「请求失败(${status})」，
+     英文站会漏出中文 —— 现统一走字典。 */
+  "Request failed ({status})": {
+    en: "Request failed ({status})",
+    zh: "请求失败（{status}）",
+  },
   "Already have an account?": { en: "Already have an account?", zh: "已有账号？" },
+  /** 注册页副标题与姓名分栏校验（原站逐字文案） */
+  "Please fill in the information below:": {
+    en: "Please fill in the information below:",
+    zh: "请在下方填写信息：",
+  },
+  "Please enter your first name": { en: "Please enter your first name", zh: "请输入名字" },
+  "Please enter your last name": { en: "Please enter your last name", zh: "请输入姓氏" },
 
   /* ── Auth: register ───────────────────────────────────────────── */
   Register: { en: "Register", zh: "注册" },
-  "Register a Ox Shopping account and start shopping": {
-    en: "Register a Ox Shopping account and start shopping",
-    zh: "注册 Ox Shopping 账号，开启购物之旅",
+  "Register a {brand} account and start shopping": {
+    en: "Register a {brand} account and start shopping",
+    zh: "注册 {brand} 账号，开启购物之旅",
   },
   "Password strength": { en: "Password strength", zh: "密码强度" },
   Weak: { en: "Weak", zh: "弱" },
@@ -451,6 +544,19 @@ const DICT: Dict = {
   },
 
   /* ── Auth: forgot/reset/verify ────────────────────────────────── */
+  /* 找回密码表单的文案**逐字对齐原站** `/account/login#recover`：
+     Recover password / Enter your email to recover your password: / Recover
+     / Remember your password? / Back to login。
+     原站把「登录」与「找回密码」放在同一页锚点切换，本地用同一个
+     RecoverForm 组件同时服务页内切换与独立路由 /auth/forgot-password。 */
+  "Recover password": { en: "Recover password", zh: "找回密码" },
+  "Enter your email to recover your password:": {
+    en: "Enter your email to recover your password:",
+    zh: "输入邮箱以找回密码：",
+  },
+  Recover: { en: "Recover", zh: "找回" },
+  "Remember your password?": { en: "Remember your password?", zh: "想起密码了？" },
+  "Back to login": { en: "Back to login", zh: "返回登录" },
   "Forgot Password": { en: "Forgot Password", zh: "找回密码" },
   "Enter your registered email — we will send you a reset link.": {
     en: "Enter your registered email — we will send you a reset link.",
@@ -495,6 +601,15 @@ const DICT: Dict = {
   "Verification failed, please try again later": {
     en: "Verification failed, please try again later",
     zh: "验证失败，请稍后重试",
+  },
+  "Resend verification email": { en: "Resend verification email", zh: "重新发送验证邮件" },
+  "Verification email resent — please check your inbox.": {
+    en: "Verification email resent — please check your inbox.",
+    zh: "验证邮件已重新发送，请查收。",
+  },
+  "Failed to resend, please try again later": {
+    en: "Failed to resend, please try again later",
+    zh: "重发失败，请稍后再试",
   },
 
   /* ── Account: profile ─────────────────────────────────────────── */
@@ -582,13 +697,21 @@ const DICT: Dict = {
     zh: "查看与管理您的全部订单",
   },
   All: { en: "All", zh: "全部" },
-  Pending: { en: "Pending", zh: "待支付" },
+  Pending: { en: "Pending", zh: "待处理" },
   "Payment pending": { en: "Payment pending", zh: "待支付" },
   Paid: { en: "Paid", zh: "已支付" },
   Shipped: { en: "Shipped", zh: "已发货" },
+  Delivered: { en: "Delivered", zh: "已送达" },
   Completed: { en: "Completed", zh: "已完成" },
   Cancelled: { en: "Cancelled", zh: "已取消" },
   Refunded: { en: "Refunded", zh: "已退款" },
+  "Refund under review": { en: "Refund under review", zh: "退款审核中" },
+  "Refund approved": { en: "Refund approved", zh: "退款已通过" },
+  "Refund rejected": { en: "Refund rejected", zh: "退款已驳回" },
+  "{n} item(s) not added to cart": {
+    en: "{n} item(s) not added to cart",
+    zh: "{n} 件未加入购物车",
+  },
   "No orders in this status — try another status filter.": {
     en: "No orders in this status — try another status filter.",
     zh: "当前分类下没有订单，去看看其他状态吧。",
@@ -640,68 +763,27 @@ const DICT: Dict = {
     en: "Refund request submitted; we'll review it as soon as possible",
     zh: "退款申请已提交，我们将尽快审核处理",
   },
+  "Max refund:": { en: "Max refund:", zh: "最多可退：" },
+  "The refund will be returned through the original payment method once approved. If the order has been shipped, the items must be returned first.":
+    {
+      en: "The refund will be returned through the original payment method once approved. If the order has been shipped, the items must be returned first.",
+      zh: "退款审核通过后将原路退回。若订单已发货，需先退回商品。",
+    },
+  "Please describe the reason (at least 5 chars)": {
+    en: "Please describe the reason (at least 5 chars)",
+    zh: "请描述退款原因（至少5个字符）",
+  },
   "Delivery info": { en: "Delivery info", zh: "收货信息" },
   "Amount summary": { en: "Amount summary", zh: "金额明细" },
   Logistics: { en: "Logistics", zh: "物流" },
   "View details": { en: "View details", zh: "查看详情" },
 
-  /* ── Favorites ────────────────────────────────────────────────── */
-  "Browse products you've favorited": {
-    en: "Browse products you've favorited",
-    zh: "查看您收藏的商品",
-  },
-  "No favorites yet": { en: "No favorites yet", zh: "还没有收藏任何商品" },
-  "Click the heart icon on a product detail page to favorite it.": {
-    en: "Click the heart icon on a product detail page to favorite it.",
-    zh: "在商品详情页点击心形按钮即可收藏。",
-  },
-
-  /* ── Coupons ──────────────────────────────────────────────────── */
-  "Available Coupons": { en: "Available Coupons", zh: "可用优惠券" },
-  "Available Coupons · Enter the code at checkout": {
-    en: "Available Coupons · Enter the code at checkout",
-    zh: "可用优惠券 · 结算时输入优惠码即可使用",
-  },
-  "Used Coupons": { en: "Used Coupons", zh: "已使用的优惠券" },
-  "You have not used any coupons yet": {
-    en: "You have not used any coupons yet",
-    zh: "还没有使用过优惠券",
-  },
-  "No coupons available right now": {
-    en: "No coupons available right now",
-    zh: "暂无可领取的优惠券",
-  },
   Copy: { en: "Copy", zh: "复制" },
   Copied: { en: "Copied", zh: "已复制" },
-  "Coupon code {code} copied": { en: "Coupon code {code} copied", zh: "优惠码 {code} 已复制" },
-  "Copy failed — please copy the coupon code manually": {
-    en: "Copy failed — please copy the coupon code manually",
-    zh: "复制失败，请手动复制优惠码",
-  },
-  "Coupon will be redeemed by the system at checkout — shipping is finalized on the checkout page.":
-    {
-      en: "Coupon will be redeemed by the system at checkout — shipping is finalized on the checkout page.",
-      zh: "优惠券将在结算时由系统核销，运费以结算页为准。",
-    },
-  "Check the homepage coupon center — we release new coupons from time to time.": {
-    en: "Check the homepage coupon center — we release new coupons from time to time.",
-    zh: "留意首页领券中心，我们会不定期放出优惠券。",
-  },
-  "Spend {minSpend}, get {discount}% off": {
-    en: "Spend {minSpend}, get {discount}% off",
-    zh: "满 {minSpend} 元享 {discount} 折",
-  },
   "Spend {minSpend} for free shipping": {
     en: "Spend {minSpend} for free shipping",
     zh: "满 {minSpend} 元免运费",
   },
-  "Spend {minSpend}, get {value} off": {
-    en: "Spend {minSpend}, get {value} off",
-    zh: "满 {minSpend} 元减 {value} 元",
-  },
-  "{value} off": { en: "{value} off", zh: "立减 {value} 元" },
-  "Free shipping sitewide": { en: "Free shipping sitewide", zh: "全场免运费" },
-  "(free shipping)": { en: "(free shipping)", zh: "(免运费)" },
 
   /* ── 404 ──────────────────────────────────────────────────────── */
   "Page not found": { en: "Page not found", zh: "页面不存在" },
@@ -732,29 +814,8 @@ const DICT: Dict = {
 
   /* ── Rating stars ─────────────────────────────────────────────── */
   "Rating {n} / 5": { en: "Rating {n} / 5", zh: "评分 {n} / 5" },
-  "{i} stars": { en: "{i} stars", zh: "{i} 星" },
-
-  /* ── Review form ──────────────────────────────────────────────── */
-  "Submit review": { en: "Submit review", zh: "发表评价" },
-  "Title (optional)": { en: "Title (optional)", zh: "标题（选填）" },
-  "Review content": { en: "Review content", zh: "评价内容" },
-  "Summarize your experience in one line": {
-    en: "Summarize your experience in one line",
-    zh: "用一句话概括你的使用体验",
-  },
-  "Share your experience — pros, cons, etc. (at least 5 chars)": {
-    en: "Share your experience — pros, cons, etc. (at least 5 chars)",
-    zh: "说点什么…（至少 5 个字符）",
-  },
-
-  /* ── Coupon card ──────────────────────────────────────────────── */
-  "{discount}% off": { en: "{discount}% off", zh: "{discount} 折" },
-  "Valid: {start} to {end}": { en: "Valid: {start} to {end}", zh: "有效期：{start} 至 {end}" },
 
   /* ── Cart page ────────────────────────────────────────────────── */
-  "Please enter a promo code": { en: "Please enter a promo code", zh: "请输入优惠券码" },
-  "Promo code applied": { en: "Promo code applied", zh: "优惠券已应用" },
-  "Could not apply promo code": { en: "Could not apply promo code", zh: "优惠券应用失败" },
   "Item removed": { en: "Item removed", zh: "已移除商品" },
   "Could not remove, please try again": {
     en: "Could not remove, please try again",
@@ -768,14 +829,7 @@ const DICT: Dict = {
   "Browse Products": { en: "Browse Products", zh: "去逛逛商品" },
   "{count} items": { en: "{count} items", zh: "{count} 件商品" },
   "remove this item": { en: "remove this item", zh: "移除该商品" },
-  DiscountCoupon: { en: "DiscountCoupon", zh: "优惠券" },
   "Applying…": { en: "Applying…", zh: "应用中…" },
-  "Coupon will be redeemed by the system at checkout; shipping is finalized on the checkout page.":
-    {
-      en: "Coupon will be redeemed by the system at checkout; shipping is finalized on the checkout page.",
-      zh: "优惠券将在结算时由系统核销，运费以结算页为准。",
-    },
-  Discount: { en: "Discount", zh: "折扣" },
   "Calculated at checkout": { en: "Calculated at checkout", zh: "结算时计算" },
   "Estimated total": { en: "Estimated total", zh: "预估合计" },
   "Continue Shopping": { en: "Continue Shopping", zh: "继续购物" },
@@ -783,7 +837,6 @@ const DICT: Dict = {
   /* ── Checkout flow ─────────────────────────────────────────────── */
   "1. Shipping Address": { en: "1. Shipping Address", zh: "1. 收货地址" },
   "2. Shipping method": { en: "2. Shipping method", zh: "2. 配送方式" },
-  "3. Coupon (optional)": { en: "3. Coupon (optional)", zh: "3. 优惠券（可选）" },
   "4. Order notes (optional)": { en: "4. Order notes (optional)", zh: "4. 订单备注（可选）" },
   "5. Order summary": { en: "5. Order summary", zh: "5. 订单摘要" },
   "Checkout unavailable": { en: "Checkout unavailable", zh: "暂时无法结算" },
@@ -797,15 +850,6 @@ const DICT: Dict = {
   },
   "Standard shipping (3-5 days)": { en: "Standard shipping (3-5 days)", zh: "标准配送（3-5 天）" },
   "Express shipping (1-2 days)": { en: "Express shipping (1-2 days)", zh: "加急配送（1-2 天）" },
-  "Spend {threshold} for free shipping (or use a free-shipping coupon)": {
-    en: "Spend {threshold} for free shipping (or use a free-shipping coupon)",
-    zh: "满 {threshold} 免运费（或使用免运券）",
-  },
-  "Applied coupon": { en: "Applied coupon", zh: "已应用优惠券" },
-  "Enter coupon code, e.g. WELCOME10": {
-    en: "Enter coupon code, e.g. WELCOME10",
-    zh: "输入优惠券码，例如 WELCOME10",
-  },
   "Delivery time requests, invoice details, etc. (max 300 chars)": {
     en: "Delivery time requests, invoice details, etc. (max 300 chars)",
     zh: "配送时间要求、发票信息等（最多 300 字）",
@@ -820,11 +864,6 @@ const DICT: Dict = {
     zh: "请先选择收货地址",
   },
   "Cancelling…": { en: "Cancelling…", zh: "取消中…" },
-  "No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking [Mock payment successful] will mark the order as paid.":
-    {
-      en: "No real payment channel (Stripe) is configured — this is a demo mock payment flow. Clicking [Mock payment successful] will mark the order as paid.",
-      zh: "当前未配置真实支付渠道（Stripe），以下为演示用模拟支付流程。点击「模拟支付成功」将直接标记订单为已支付。",
-    },
   "Order pending payment": { en: "Order pending payment", zh: "待支付订单号" },
   "Your order has been paid — we will ship it as soon as possible.": {
     en: "Your order has been paid — we will ship it as soon as possible.",
@@ -840,9 +879,9 @@ const DICT: Dict = {
   "Sign Up": { en: "Sign Up", zh: "注册" },
   "Sign up": { en: "Sign up", zh: "注册" },
   "Signing up…": { en: "Signing up…", zh: "注册中…" },
-  "Create a Ox Shopping account and start shopping.": {
-    en: "Create a Ox Shopping account and start shopping.",
-    zh: "注册 Ox Shopping 账号，开启购物之旅。",
+  "Create a {brand} account and start shopping.": {
+    en: "Create a {brand} account and start shopping.",
+    zh: "注册 {brand} 账号，开启购物之旅。",
   },
   "Registration successful!": { en: "Registration successful!", zh: "注册成功！" },
   "2-30 characters": { en: "2-30 characters", zh: "2-30 个字符" },
@@ -893,7 +932,12 @@ const DICT: Dict = {
   },
   "Shop All": { en: "Shop All", zh: "全部选购" },
   "Free Shipping": { en: "Free Shipping", zh: "全场包邮" },
-  "On all orders over $75": { en: "On all orders over $75", zh: "$75 以上订单" },
+  /* 免邮门槛文案：金额必须由调用方传入（后台「免邮门槛」设置），
+     不能把 $75 写进字典 —— 否则后台改了门槛、前端文案还是 $75。 */
+  "On all orders over {amount}": {
+    en: "On all orders over {amount}",
+    zh: "{amount} 以上订单",
+  },
   "30-Day Returns": { en: "30-Day Returns", zh: "30 天退换" },
   "No questions asked": { en: "No questions asked", zh: "无理由退换" },
   "Responsibly Made": { en: "Responsibly Made", zh: "责任制造" },
@@ -969,10 +1013,6 @@ const DICT: Dict = {
   "District / County": { en: "District / County", zh: "区/县" },
   "Edit address": { en: "Edit address", zh: "编辑地址" },
   "Email (read-only)": { en: "Email (read-only)", zh: "邮箱（只读）" },
-  "Enter the coupon code at checkout to apply": {
-    en: "Enter the coupon code at checkout to apply",
-    zh: "结算时输入优惠券码即可使用",
-  },
   "Enter your name": { en: "Enter your name", zh: "输入你的姓名" },
   "Failed to change, please try again later": {
     en: "Failed to change, please try again later",
@@ -1051,16 +1091,10 @@ const DICT: Dict = {
   "{n} available": { en: "{n} available", zh: "库存 {n} 件" },
   "{n} sold": { en: "{n} sold", zh: "已售 {n}" },
   "Save {n}%": { en: "Save {n}%", zh: "省 {n}%" },
-  Saved: { en: "Saved", zh: "已收藏" },
-  "Add to wishlist": { en: "Add to wishlist", zh: "加入心愿单" },
   Category: { en: "Category", zh: "分类" },
   "No detailed description available.": {
     en: "No detailed description available.",
     zh: "暂无详细描述。",
-  },
-  "Showing first {a} of {b} reviews": {
-    en: "Showing first {a} of {b} reviews",
-    zh: "显示前 {a} 条，共 {b} 条评价",
   },
   "You May Also Like": { en: "You May Also Like", zh: "你可能还喜欢" },
   Recommended: { en: "Recommended", zh: "为你推荐" },
@@ -1081,13 +1115,30 @@ const DICT: Dict = {
     en: "Cookie Policy: How we use cookies and similar technologies",
     zh: "Cookie 政策：我们如何使用 Cookie 和类似技术",
   },
+  "Deletion request in progress": {
+    en: "Deletion request in progress",
+    zh: "注销申请处理中",
+  },
+  "We received your deletion request on {date}. Our team will process it within 30 days — your account stays fully usable until then.":
+    {
+      en: "We received your deletion request on {date}. Our team will process it within 30 days — your account stays fully usable until then.",
+      zh: "我们已收到您的注销申请（{date} 提交）。客服将在 30 个自然日内处理，期间您的账户可正常使用。",
+    },
+  "Withdraw deletion request": {
+    en: "Withdraw deletion request",
+    zh: "撤回注销申请",
+  },
+  "Deletion request withdrawn — your account is back to normal": {
+    en: "Deletion request withdrawn — your account is back to normal",
+    zh: "注销申请已撤回，账户恢复正常",
+  },
   "Your deletion request has been received; we will process it after verification": {
     en: "Your deletion request has been received; we will process it after verification",
     zh: "注销申请已收到，核实后我们将处理您的请求",
   },
-  "Create your Ox Shopping account and start shopping.": {
-    en: "Create your Ox Shopping account and start shopping.",
-    zh: "创建 Ox Shopping 商城账户，即刻开启购物。",
+  "Create your {brand} account and start shopping.": {
+    en: "Create your {brand} account and start shopping.",
+    zh: "创建 {brand} 账户，即刻开启购物。",
   },
   items: { en: "items", zh: "件商品" },
   "No matching orders": { en: "No matching orders", zh: "没有匹配的订单" },
@@ -1095,11 +1146,6 @@ const DICT: Dict = {
   "Shopping bag": { en: "Shopping bag", zh: "购物袋" },
   "Close bag": { en: "Close bag", zh: "关闭购物袋" },
   "Added to bag": { en: "Added to bag", zh: "已加入购物袋" },
-  'We use cookies to improve your browsing experience and analyze traffic. Clicking "Accept all" means you agree to our use of':
-    {
-      en: 'We use cookies to improve your browsing experience and analyze traffic. Clicking "Accept all" means you agree to our use of',
-      zh: "我们使用 Cookie 改进浏览体验并分析流量。点击「全部接受」即表示您同意我们的",
-    },
   Previous: { en: "Previous", zh: "上一页" },
   Next: { en: "Next", zh: "下一页" },
   __lang__: { en: "__lang__", zh: "__lang__" },
@@ -1131,43 +1177,14 @@ const DICT: Dict = {
     en: "All marked as read ({n})",
     zh: "已全部标为已读（{n} 条）",
   },
-  "Delete": { en: "Delete", zh: "删除" },
-  "Deleted": { en: "Deleted", zh: "已删除" },
+  Delete: { en: "Delete", zh: "删除" },
+  Deleted: { en: "Deleted", zh: "已删除" },
   "Clear read": { en: "Clear read", zh: "清空已读" },
   "Cleared {n} read messages": {
     en: "Cleared {n} read messages",
     zh: "已清空 {n} 条已读消息",
   },
 
-  /* ── Favorites page (account/favorites) ───────────────────────────── */
-  "Resubscribed to price alerts": { en: "Resubscribed to price alerts", zh: "已重新订阅降价通知" },
-  "Price alerts disabled": { en: "Price alerts disabled", zh: "已关闭降价通知" },
-  "Price alerts off": { en: "Price alerts off", zh: "降价通知已关闭" },
-  "Price alerts on": { en: "Price alerts on", zh: "降价通知已开启" },
-  "Resubscribe to price alerts": { en: "Resubscribe to price alerts", zh: "重新订阅降价通知" },
-  "Disable price alerts (keeps the favorite)": {
-    en: "Disable price alerts (keeps the favorite)",
-    zh: "关闭降价通知（不影响收藏）",
-  },
-  "Enable alerts": { en: "Enable alerts", zh: "开启通知" },
-  "Disable alerts": { en: "Disable alerts", zh: "关闭通知" },
-  "Remove favorite": { en: "Remove favorite", zh: "取消收藏" },
-  "Price dropped {amount} — notified": {
-    en: "Price dropped {amount} — notified",
-    zh: "已降价 {amount} · 价格已通知",
-  },
-  "{n} with price alerts on": {
-    en: "{n} with price alerts on",
-    zh: "{n} 件已开启降价通知",
-  },
-  "Favorites auto-enable price alerts. Removing a favorite also cancels alerts. Use the toggle to disable alerts while keeping the favorite.": {
-    en: "Favorites auto-enable price alerts. Removing a favorite also cancels alerts. Use the toggle to disable alerts while keeping the favorite.",
-    zh: "收藏商品后自动开启降价通知。取消收藏时通知也一并取消。如需保留收藏但关闭通知，点「关闭通知」。",
-  },
-  "Saved — we'll notify you on price drops": {
-    en: "Saved — we'll notify you on price drops",
-    zh: "已收藏 — 商品降价时会通知您",
-  },
   "Notify me when restocked": { en: "Notify me when restocked", zh: "到货时通知我" },
   "Subscribed — we'll email you on restock": {
     en: "Subscribed — we'll email you on restock",
@@ -1178,6 +1195,174 @@ const DICT: Dict = {
     zh: "输入您的邮箱，商品补货时我们会通知您",
   },
   Subscribe: { en: "Subscribe", zh: "订阅" },
+
+  /* ── 页脚 ──────────────────────────────────────────────────────── */
+  Footer: { en: "Footer", zh: "页脚" },
+  "Your Privacy Choices": { en: "Your Privacy Choices", zh: "您的隐私选择" },
+  /* 无障碍：跳到主内容（此前硬编码在 (shop)/layout.tsx） */
+  "Skip to content": { en: "Skip to content", zh: "跳到主要内容" },
+
+  /* ── 补齐此前只有调用、没有词条的键 ────────────────────────────────
+     这些 key 早就被 t() 调用，但 DICT 里缺失 → 中文界面会静默漏出英文。
+     统一补上，保证 zh 渲染不再回落到英文源串。 */
+  "3. Order notes (optional)": { en: "3. Order notes (optional)", zh: "3. 订单备注（选填）" },
+  "4. Order summary": { en: "4. Order summary", zh: "4. 订单摘要" },
+  "Added {n} item(s) to cart": { en: "Added {n} item(s) to cart", zh: "已加入购物车 {n} 件" },
+  "Go to item {n}": { en: "Go to item {n}", zh: "前往第 {n} 件商品" },
+  "Order is empty": { en: "Order is empty", zh: "订单为空" },
+  "Order not found…": { en: "Order not found…", zh: "未找到订单…" },
+  Reorder: { en: "Reorder", zh: "再次购买" },
+  "{n} items": { en: "{n} items", zh: "{n} 件商品" },
+
+  /* ── 补齐 2026-09-19 全量审计发现的漏词条键 ──────────────────────────
+     审计方式：扫描 src 下所有 t("…") / t('…') 字面量（还原转义后）与 DICT 求差集。
+     缺失的后果**不是报错**，而是 zh 界面静默显示英文源串（translate 回退到 key），
+     所以这类缺口必须靠自动化守卫，不能靠肉眼。
+     该不变量已固化为断言：tests/unit/i18n-keys.test.ts。 */
+  "Available Coupons": { en: "Available Coupons", zh: "可用优惠券" },
+  "Enter the discount code at checkout to apply": {
+    en: "Enter the discount code at checkout to apply",
+    zh: "在结算页输入折扣码即可使用",
+  },
+  "Order not found, please check the order number.": {
+    en: "Order not found, please check the order number.",
+    zh: "未找到该订单，请核对订单号。",
+  },
+  "We've emailed you a secure link to view this order.": {
+    en: "We've emailed you a secure link to view this order.",
+    zh: "我们已向你的邮箱发送了查看此订单的安全链接。",
+  },
+
+  /* ── 结账流程（对齐 shop.x.com 结账页：Cart › Information › Shipping › Payment › Review）──
+     这些标签此前只有 t() 调用、DICT 里没有词条，中文界面会静默漏出英文。 */
+  Information: { en: "Information", zh: "信息" },
+  Payment: { en: "Payment", zh: "支付" },
+  Review: { en: "Review", zh: "确认" },
+  "Order summary": { en: "Order summary", zh: "订单摘要" },
+  "Continue to shipping": { en: "Continue to shipping", zh: "继续填写配送信息" },
+  "Continue to payment": { en: "Continue to payment", zh: "继续支付" },
+  "Return to cart": { en: "Return to cart", zh: "返回购物车" },
+  "Calculated at next step": { en: "Calculated at next step", zh: "下一步计算" },
+  "Country/Region": { en: "Country/Region", zh: "国家/地区" },
+  "First name": { en: "First name", zh: "名" },
+  "Last name": { en: "Last name", zh: "姓" },
+  State: { en: "State", zh: "省/州" },
+  "ZIP code": { en: "ZIP code", zh: "邮政编码" },
+  "Save this information for next time": {
+    en: "Save this information for next time",
+    zh: "保存信息，下次自动填写",
+  },
+  "Order notes": { en: "Order notes", zh: "订单备注" },
+  "Refund policy": { en: "Refund policy", zh: "退款政策" },
+  "Privacy policy": { en: "Privacy policy", zh: "隐私政策" },
+  "Checkout as guest": { en: "Checkout as guest", zh: "以游客身份结算" },
+  "You're checking out as a guest — no account needed.": {
+    en: "You're checking out as a guest — no account needed.",
+    zh: "当前以游客身份结算，无需注册账号。",
+  },
+  "We'll email your order confirmation and tracking updates here.": {
+    en: "We'll email your order confirmation and tracking updates here.",
+    zh: "订单确认与物流通知将发送至此邮箱。",
+  },
+  "Sign in to use your saved addresses": {
+    en: "Sign in to use your saved addresses",
+    zh: "登录以使用已保存的收货地址",
+  },
+  "Please enter your email": { en: "Please enter your email", zh: "请输入邮箱" },
+  "Please enter a valid email address": {
+    en: "Please enter a valid email address",
+    zh: "请输入有效的邮箱地址",
+  },
+  "Please fill in the shipping address": {
+    en: "Please fill in the shipping address",
+    zh: "请填写收货地址",
+  },
+  "Recipient name": { en: "Recipient name", zh: "收货人姓名" },
+  "Phone number": { en: "Phone number", zh: "联系电话" },
+  "Street address": { en: "Street address", zh: "详细地址" },
+  "Apartment, suite, etc. (optional)": {
+    en: "Apartment, suite, etc. (optional)",
+    zh: "公寓、门牌等（选填）",
+  },
+  District: { en: "District", zh: "区/县" },
+  "Continue to review": { en: "Continue to review", zh: "继续确认订单" },
+  "Complete order": { en: "Complete order", zh: "提交订单" },
+  Back: { en: "Back", zh: "返回上一步" },
+  "Please select a payment method": { en: "Please select a payment method", zh: "请选择支付方式" },
+  "Shipping method": { en: "Shipping method", zh: "配送方式" },
+  "Order notes (optional)": { en: "Order notes (optional)", zh: "订单备注（选填）" },
+  "Add a note": { en: "Add a note", zh: "添加备注" },
+
+  /* ── 折扣码（优惠券）──────────────────────────────────────────────
+     券码校验失败的文案由服务端返回原因码，再经 translate() 渲染；
+     因此这里的英文串同时充当「服务端错误文案」与「前端提示文案」的单一来源。 */
+  "Discount code": { en: "Discount code", zh: "折扣码" },
+  "Discount codes": { en: "Discount codes", zh: "折扣码" },
+  Discount: { en: "Discount", zh: "折扣" },
+  "Enter a discount code": { en: "Enter a discount code", zh: "请输入折扣码" },
+  "Discount code applied": { en: "Discount code applied", zh: "折扣码已应用" },
+  "Discount code removed": { en: "Discount code removed", zh: "折扣码已移除" },
+  "This discount code doesn't exist": {
+    en: "This discount code doesn't exist",
+    zh: "该折扣码不存在",
+  },
+  "This discount code is no longer active": {
+    en: "This discount code is no longer active",
+    zh: "该折扣码已停用",
+  },
+  "This discount code isn't valid yet": {
+    en: "This discount code isn't valid yet",
+    zh: "该折扣码尚未生效",
+  },
+  "This discount code has expired": { en: "This discount code has expired", zh: "该折扣码已过期" },
+  "This discount code has reached its usage limit": {
+    en: "This discount code has reached its usage limit",
+    zh: "该折扣码已达使用上限",
+  },
+  "You've already used this discount code": {
+    en: "You've already used this discount code",
+    zh: "您已使用过该折扣码",
+  },
+  "This discount code can't be applied to your order": {
+    en: "This discount code can't be applied to your order",
+    zh: "该折扣码不适用于当前订单",
+  },
+  "Spend {amount} more to use this discount code": {
+    en: "Spend {amount} more to use this discount code",
+    zh: "再消费 {amount} 即可使用该折扣码",
+  },
+  "Available discount codes": { en: "Available discount codes", zh: "可用折扣码" },
+  "No discount codes available right now": {
+    en: "No discount codes available right now",
+    zh: "暂无可用折扣码",
+  },
+  "Copy code": { en: "Copy code", zh: "复制券码" },
+  "Ends {date}": { en: "Ends {date}", zh: "{date} 到期" },
+  "Save {amount}": { en: "Save {amount}", zh: "立减 {amount}" },
+  "{pct}% off": { en: "{pct}% off", zh: "{pct}% 折扣" },
+  "Free shipping on your order": { en: "Free shipping on your order", zh: "本单免运费" },
+  "Min. spend {amount}": { en: "Min. spend {amount}", zh: "满 {amount} 可用" },
+  "Apply a discount code at checkout": {
+    en: "Apply a discount code at checkout",
+    zh: "结算时可使用折扣码",
+  },
+  "Shop all products": { en: "Shop all products", zh: "选购全部商品" },
+
+  /* ── 折扣码中心 / 我的折扣码 ───────────────────────────────────── */
+  Coupons: { en: "Coupons", zh: "折扣码" },
+  "Coupon Center": { en: "Coupon Center", zh: "领券中心" },
+  "My Coupons": { en: "My Coupons", zh: "我的折扣码" },
+  "Used Coupons": { en: "Used Coupons", zh: "已使用" },
+  "You have not used any coupons yet": {
+    en: "You have not used any coupons yet",
+    zh: "你还没有使用过折扣码",
+  },
+  "Valid until {date}": { en: "Valid until {date}", zh: "有效期至 {date}" },
+  "Coupon code {code} copied": { en: "Coupon code {code} copied", zh: "折扣码 {code} 已复制" },
+  "Copy failed — please copy the coupon code manually": {
+    en: "Copy failed — please copy the coupon code manually",
+    zh: "复制失败，请手动复制折扣码",
+  },
 };
 
 /** Translate a key for a given lang.
@@ -1215,6 +1400,23 @@ export function listKeys(): string[] {
 }
 
 /**
+ * 语言相关标点 —— 全角/半角的单一事实来源。
+ *
+ * 为什么需要它：中文用「：、（）」，英文用「:, ()」。这类标点若写死在 JSX 里，
+ * 切到英文后页面会混入全角字符（例如 `Estimated shipping：` / `（3-5 天）`），
+ * 属于典型的 i18n 泄漏。凡是「把两个片段拼成一句话」的地方都走这里。
+ */
+export const PUNCT: Record<Lang, { colon: string; list: string; parens: (s: string) => string }> = {
+  zh: { colon: "：", list: "、", parens: (s) => `（${s}）` },
+  en: { colon: ": ", list: ", ", parens: (s) => `(${s})` },
+};
+
+/** 取当前语言的标点集（未知语言按英文处理）。 */
+export function punct(lang: Lang) {
+  return PUNCT[lang] ?? PUNCT.en;
+}
+
+/**
  * Pick a product / category name for the current language.
  * - zh: returns zh name (with en fallback)
  * - en: returns nameEn when available, otherwise name (which may be zh).
@@ -1235,4 +1437,45 @@ export function pickDescription(
   lang: Lang,
 ): string {
   return lang === "zh" ? descZh || descEn || "" : descEn || descZh || "";
+}
+
+/**
+ * R4 修复：生成页面级 hreflang alternates。
+ * 根 layout 的 alternates 只覆盖首页；子页面（PDP/PLP/search）的 generateMetadata
+ * 会覆盖根 layout metadata，导致子页面缺 hreflang。调用此函数补全。
+ *
+ * @param path 页面路径（如 /products/tee、/search?q=xxx），不含语言前缀
+ * @returns Metadata["alternates"] 格式的对象
+ */
+export function buildAlternates(path: string): {
+  languages: Record<string, string>;
+  canonical: string;
+} {
+  const base = (process.env.SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  return {
+    canonical: `${base}${cleanPath}`,
+    languages: {
+      en: `${base}${cleanPath}`,
+      zh: `${base}/zh${cleanPath}`,
+      "x-default": `${base}${cleanPath}`,
+    },
+  };
+}
+
+/**
+ * R3 修复：统一语言前缀路径。
+ * - zh 模式：路径前加 /zh（如 /products/tee → /zh/products/tee）
+ * - en 模式：不加前缀（默认英文）
+ * - 已含 /zh 或 /en 前缀的路径不重复添加
+ * - 保留 query/hash
+ *
+ * 用于 product-card、header 等组件的内部链接，避免 /zh 页面内点击跳回英文版。
+ */
+export function localizePath(path: string, lang: Lang): string {
+  if (!path || path.startsWith("http") || path.startsWith("mailto:")) return path;
+  // 已含语言前缀则不重复
+  if (/^\/(zh|en)(\/|$)/.test(path)) return path;
+  if (lang === "zh") return `/zh${path.startsWith("/") ? path : `/${path}`}`;
+  return path;
 }

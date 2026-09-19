@@ -17,7 +17,7 @@ export const POST = apiHandler(async (req) => {
   // 账号级失败锁定：同一邮箱（跨 IP）连错 5 次锁 15 分钟，防分布式爆破
   const lockKey = `login-lock:${input.email.toLowerCase()}`;
   const lock = await rateLimit({ key: lockKey, limit: 5, windowSeconds: 900 });
-  if (!lock.ok) throw rateLimited("失败次数过多，账号已临时锁定，请 15 分钟后再试");
+  if (!lock.ok) throw rateLimited("Too many failed attempts — this account is temporarily locked. Please try again in 15 minutes");
 
   const rl = await rateLimit({
     key: `login:${getClientIp(req)}:${input.email}`,
@@ -29,9 +29,9 @@ export const POST = apiHandler(async (req) => {
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   if (!user) {
     await audit({ action: "AUTH_LOGIN_FAILED", meta: { email: input.email }, req });
-    throw unauthorized("邮箱或密码错误");
+    throw unauthorized("Incorrect email or password");
   }
-  if (user.status === "DISABLED") throw forbidden("账号已被禁用");
+  if (user.status === "DISABLED") throw forbidden("This account has been disabled");
 
   const ok = await verifyPassword(input.password, user.passwordHash);
   if (!ok) {
@@ -42,7 +42,7 @@ export const POST = apiHandler(async (req) => {
       entityId: user.id,
       req,
     });
-    throw unauthorized("邮箱或密码错误");
+    throw unauthorized("Incorrect email or password");
   }
 
   // 后台登录入口:非员工账号直接拒绝,不建立任何 session
@@ -55,7 +55,7 @@ export const POST = apiHandler(async (req) => {
       meta: { email: input.email },
       req,
     });
-    throw forbidden("该账号没有后台访问权限");
+    throw forbidden("This account does not have admin access");
   }
 
   const tokens = await issueSession(user);

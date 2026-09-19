@@ -6,8 +6,7 @@ import { randomBytes } from "node:crypto";
  * proxy.ts 只做编排，行为与拆分前完全一致。
  *
  * 注意：CSRF 豁免清单、admin 守卫、请求 ID、生产 CSP 的 nonce + strict-dynamic 结构
- * 属于承重墙（见 docs/ARCHITECTURE_REVIEW_2026-09.md §1 W3/W4），本模块仅做等价迁移，
- * 不改变其语义。
+ * 属于承重墙（安全关键路径），本模块仅做等价迁移，不改变其语义。
  */
 
 /**

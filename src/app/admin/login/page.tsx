@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SessionUser } from "@/types/api";
-import { useT } from "@/components/admin/lang-provider";
+import { useT, useSiteName } from "@/components/admin/lang-provider";
 
 const adminLoginSchema = z.object({
   email: z.string().trim().toLowerCase().email("请输入有效的邮箱"),
@@ -32,8 +32,8 @@ function getLoginUser(res: LoginResponse): SessionUser {
 
 function LoginForm() {
   const t = useT();
+  const siteName = useSiteName();
 
-  const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next");
 
@@ -62,11 +62,11 @@ function LoginForm() {
       }
       window.dispatchEvent(new CustomEvent("auth:login"));
       toast.success(`${t("Welcome back")}, ${user.name}`);
-      // 仅 router.push()：登录后 cookie 已由登录接口写入，软导航到目标路由时
-      // 服务端重新渲染即读到新会话。原 router.push()+router.refresh() 并发会
-      // 偶发"登录后白屏需手动刷新"——remove redundant refresh 即消除该竞态。
+      // 整页导航：登录后 /admin 共享 layout 需从"登录分支"切到"侧栏分支"，
+      // router.push() 不会重新渲染共享 layout（表现为只有仪表盘、无侧栏，
+      // 手动刷新才出现）。整页导航强制服务端重新渲染整个 admin 外壳。
       const target = next && next.startsWith("/admin") ? next : "/admin";
-      router.push(target);
+      window.location.assign(target);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Sign in failed, please try again"));
     } finally {
@@ -81,7 +81,9 @@ function LoginForm() {
           <Store className="h-6 w-6" strokeWidth={1.75} />
         </span>
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">Ox Shopping · {t("Admin")}</h1>
+          <h1 className="text-lg font-semibold tracking-tight">
+            {siteName ? `${siteName} · ${t("Admin")}` : t("Admin")}
+          </h1>
           <p className="mt-1 text-[13px] text-muted-foreground">
             {t("Sign in with your administrator account")}
           </p>
@@ -95,7 +97,7 @@ function LoginForm() {
             id="login-email"
             type="email"
             autoComplete="email"
-            placeholder="admin@example.com"
+            placeholder={t("Email")}
             {...form.register("email")}
           />
           {form.formState.errors.email ? (
@@ -124,12 +126,6 @@ function LoginForm() {
           {t("Sign In")}
         </Button>
       </form>
-
-      <div className="mt-6 rounded-md bg-secondary/60 p-3 text-xs leading-relaxed text-muted-foreground">
-        {t("Demo account")}: admin@example.com / Admin@123456 (Admin)
-        <br />
-        support@example.com / Support@123456 (Support)
-      </div>
 
       <p className="mt-4 text-center text-[12px] text-muted-foreground">
         <Link href="/" className="hover:underline">

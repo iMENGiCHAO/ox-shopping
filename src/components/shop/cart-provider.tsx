@@ -18,8 +18,14 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/fetch-client";
-import { MAX_CART_ITEM_QUANTITY } from "@/lib/constants";
+import { MAX_CART_ITEM_QUANTITY, LOGGED_IN_COOKIE } from "@/lib/constants";
 import { specKey, type SpecSelection } from "@/components/shop/types";
+
+/** 是否已登录（读服务端登录时写入的 JS 可读提示 cookie），避免未登录时去打 /api/auth/me 造成 401 控制台噪音 */
+function hasLoggedInCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split(";").some((c) => c.trim().startsWith(`${LOGGED_IN_COOKIE}=`));
+}
 
 import { useShopLang } from "@/components/shop/lang-provider";
 /** Shopping Bag条目(客户端形态，与服务端 cart.service.CartLine 对齐) */
@@ -64,7 +70,12 @@ interface CartContextValue {
   /** 是否已登录(服务端Shopping Bag) */
   isLoggedIn: boolean;
   refresh: () => Promise<void>;
-  addToCart: (productId: string, quantity?: number, attributes?: SpecSelection[]) => Promise<void>;
+  addToCart: (
+    productId: string,
+    quantity?: number,
+    attributes?: SpecSelection[],
+    opts?: { stock?: number; isPresale?: boolean },
+  ) => Promise<void>;
   updateQuantity: (cartItemId: string, quantity: number) => Promise<void>;
   removeItem: (cartItemId: string) => Promise<void>;
   clear: () => Promise<void>;
@@ -175,6 +186,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
   /** 加载Shopping Bag：优先服务端，401 时回退游客模式 */
   const load = useCallback(async () => {
     setLoading(true);
+    // 未登录（无 JS 可读 logged_in cookie）→ 直接游客模式，避免 /api/auth/me 401 控制台噪音
+    if (!hasLoggedInCookie()) {
+      setIsLoggedIn(false);
+      await loadGuest();
+      setLoading(false);
+      return;
+    }
     try {
       await apiFetch<{ user: { id: string } }>("/api/auth/me");
       setIsLoggedIn(true);
@@ -242,7 +260,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [load, loadGuest]);
 
   const addToCart = useCallback(
-    async (productId: string, quantity = 1, attributes?: SpecSelection[]) => {
+    async (
+      productId: string,
+      quantity = 1,
+      attributes?: SpecSelection[],
+      opts?: { stock?: number; isPresale?: boolean },
+    ) => {
       const qty = Math.min(Math.max(1, Math.floor(quantity)), MAX_CART_ITEM_QUANTITY);
       if (isLoggedIn) {
         await apiFetch("/api/cart", {
@@ -260,8 +283,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const existing = list.find(
           (e) => e.productId === productId && specKey(e.attributes) === specKey(attributes),
         );
+        // 大爷需求：游客加购也即时校验库存（已登录走服务端校验），不足当场提示，不等结账
+        const newQty = Math.min((existing?.quantity ?? 0) + qty, MAX_CART_ITEM_QUANTITY);
+        if (opts?.stock !== undefined && !opts.isPresale && newQty > opts.stock) {
+          throw new Error(t("Insufficient stock, only {n} left", { n: opts.stock }));
+        }
         if (existing) {
-          existing.quantity = Math.min(existing.quantity + qty, MAX_CART_ITEM_QUANTITY);
+          existing.quantity = newQty;
         } else {
           list.push({
             productId,
@@ -290,12 +318,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
         const list = readGuestEntries();
         const entry = list.find((e) => guestLineId(e) === cartItemId);
         if (!entry) return;
+        // 大爷需求：游客改数量也即时校验库存（行数据带 stock），不足当场提示
+        const line = items.find((l) => l.id === cartItemId);
+        if (line && !line.isPresale && qty > line.stock) {
+          toast.error(t("Insufficient stock, only {n} left", { n: line.stock }));
+          return;
+        }
         entry.quantity = qty;
         writeGuestEntries(list);
         await loadGuest(list);
       }
     },
-    [isLoggedIn, load, loadGuest],
+    [isLoggedIn, load, loadGuest, items, t],
   );
 
   const removeItem = useCallback(

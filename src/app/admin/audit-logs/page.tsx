@@ -4,7 +4,7 @@ import * as React from "react";
 import { ScrollText } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
+import {apiFetchRaw } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ export default function AdminAuditLogsPage() {
   const [rows, setRows] = React.useState<AdminAuditLog[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
-  const [total, setTotal] = React.useState(0);
+  const [, setTotal] = React.useState(0);
   const [totalPages, setTotalPages] = React.useState(1);
 
   const [action, setAction] = React.useState("");

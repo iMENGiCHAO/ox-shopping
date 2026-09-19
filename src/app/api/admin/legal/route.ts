@@ -7,13 +7,14 @@ import { z } from "zod";
 
 export const runtime = "nodejs";
 
-/** 五份法务文档的存储键（site_settings）；与前台 policies 页共用同一组键 */
+/** 法务文档的存储键（site_settings）；与前台 policies 页共用同一组键 */
 const LEGAL_KEYS = [
   "policyAccessibility",
   "policyPrivacy",
   "policyTerms",
   "policyRefund",
   "policyCookies",
+  "policyDataSharingOptOut",
 ] as const;
 
 type LegalKey = (typeof LEGAL_KEYS)[number];
@@ -30,6 +31,7 @@ const schema = z.object({
   policyTerms: documentSchema.optional(),
   policyRefund: documentSchema.optional(),
   policyCookies: documentSchema.optional(),
+  policyDataSharingOptOut: documentSchema.optional(),
 });
 
 /** 取某键当前存储值（无记录 → null，前端回退内置默认展示） */

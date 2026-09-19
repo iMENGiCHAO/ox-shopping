@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * 种子数据：管理员、测试用户、支持人员、分类、商品、优惠券、评价
+ * 种子数据：管理员、测试用户、支持人员、分类、商品
  * 幂等设计：重复执行不会产生重复数据（upsert）。
  * 运行：npm run db:seed
  *
@@ -8,15 +8,13 @@
  * 由 scripts/gen-xcom-seed.cjs 从官方 /products.json 生成）。
  */
 import "dotenv/config";
-import { PrismaClient, Prisma, Role, ProductStatus, CouponType } from "@prisma/client";
+import { PrismaClient, Prisma, Role, ProductStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { xcomCategories, xcomProducts } from "./xcom-catalog";
+import { xcomCollections } from "./xcom-collections";
+import { FAQ_DEFAULTS } from "../src/lib/faq-defaults";
 
 const prisma = new PrismaClient();
-
-const now = new Date();
-const in30d = new Date(now.getTime() + 30 * 24 * 3600 * 1000);
-const in90d = new Date(now.getTime() + 90 * 24 * 3600 * 1000);
 
 async function seedUsers() {
   const passwordHash = await bcrypt.hash("Admin@123456", 12);
@@ -84,25 +82,105 @@ async function seedUsers() {
 }
 
 async function seedCategories() {
+  // 一致性守卫：`xcom-catalog.ts` 由官方 /products.json 自动生成，
+  // `xcom-collections.ts` 是手写集合清单。若自动目录里出现手写清单未收录的分类，
+  // 说明官方新增了集合而清单没跟上 —— 直接报错，避免静默漏掉集合。
+  const missing = xcomCategories.filter(
+    (c) => !xcomCollections.some((k) => k.slug === c.slug),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `prisma/xcom-collections.ts 缺少分类定义：${missing.map((c) => c.slug).join(", ")}` +
+        `（官方目录新增了分类，请同步手写集合清单）`,
+    );
+  }
+
   const map = new Map<string, string>();
-  for (const cat of xcomCategories) {
-    // 非破坏性：已存在的分类不做覆盖（保护后台编辑过的名称/图片）
+  for (const cat of xcomCollections) {
+    /* 这 4 个集合是**导航结构**（= 原站 /collections 的镜像），
+       seed 视 `xcom-collections.ts` 为权威并同步名称/顺序/图片 ——
+       否则历史改名（如 spacexai-collection 曾被改成「Ox Collection」）
+       会让 /collections 与原站不一致，且换机器重新部署无法复现。
+       运营若要自定义，请**新增**集合而不是改这 4 个。
+       唯一保留的运营字段：`isActive`（下架集合）与 `parentId`。 */
     const row = await prisma.category.upsert({
       where: { slug: cat.slug },
-      update: {},
+      update: {
+        name: cat.name,
+        nameEn: cat.nameEn,
+        description: cat.description,
+        image: cat.image,
+        cardImage: cat.cardImage ?? null,
+        sortOrder: cat.sortOrder,
+        homeSortOrder: cat.homeSortOrder ?? null,
+      },
       create: {
         name: cat.name,
         nameEn: cat.nameEn,
         slug: cat.slug,
         description: cat.description,
         image: cat.image,
+        cardImage: cat.cardImage ?? null,
         sortOrder: cat.sortOrder,
+        homeSortOrder: cat.homeSortOrder ?? null,
       },
     });
     map.set(cat.slug, row.id);
   }
-  console.log(`✓ 分类创建完成（${xcomCategories.length} 个）`);
+  console.log(`✓ 分类创建完成（${xcomCollections.length} 个）`);
   return map;
+}
+
+/**
+ * 集合成员种子（幂等）。
+ *
+ * 原站一件商品可同时属于多个集合，`Product.categoryId` 只能存一个，
+ * 因此「附加归属」落 `product_collections`：
+ *   - `productSlugs` 非空的集合（Mens / Womens）→ 逐条 upsert 成员行，
+ *     `sortOrder` 取数组下标（= 原站陈列顺序）；
+ *   - `productSlugs` 为空的集合（SpaceXAI / X Collection）→ 成员由主分类决定，
+ *     无需成员行；此处顺手清理历史遗留的冗余行，避免双写。
+ *
+ * 只补不删商品：缺失的 slug 记 warning 而不抛错（目录可能被运营下架过）。
+ */
+async function seedCollectionMembers(categoryMap: Map<string, string>) {
+  let created = 0;
+  for (const col of xcomCollections) {
+    const categoryId = categoryMap.get(col.slug);
+    if (!categoryId) continue;
+
+    if (col.productSlugs.length === 0) {
+      // 成员由主分类决定 —— 清掉本集合下「主分类另有其人」的冗余成员行
+      const removed = await prisma.productCollection.deleteMany({
+        where: { categoryId, product: { categoryId: { not: categoryId } } },
+      });
+      if (removed.count > 0) {
+        console.log(`  · ${col.slug}：清理冗余成员行 ${removed.count} 条`);
+      }
+      continue;
+    }
+
+    for (const [index, slug] of col.productSlugs.entries()) {
+      const product = await prisma.product.findUnique({
+        where: { slug },
+        select: { id: true, categoryId: true },
+      });
+      if (!product) {
+        console.warn(`  ⚠️ ${col.slug}：成员商品不存在，跳过 → ${slug}`);
+        continue;
+      }
+      // 主分类已命中的商品无需成员行（归属判定取并集）
+      if (product.categoryId === categoryId) continue;
+
+      const row = await prisma.productCollection.upsert({
+        where: { productId_categoryId: { productId: product.id, categoryId } },
+        update: { sortOrder: index },
+        create: { productId: product.id, categoryId, sortOrder: index },
+      });
+      if (row.createdAt.getTime() > Date.now() - 5000) created++;
+    }
+  }
+  console.log(`✓ 集合成员创建完成（新增 ${created} 条归属）`);
 }
 
 async function seedProducts(categoryMap: Map<string, string>) {
@@ -187,56 +265,6 @@ async function seedProducts(categoryMap: Map<string, string>) {
   );
 }
 
-async function seedCoupons() {
-  await prisma.coupon.upsert({
-    where: { code: "WELCOME10" },
-    update: {},
-    create: {
-      code: "WELCOME10",
-      type: CouponType.PERCENTAGE,
-      value: 10,
-      minSpend: 100,
-      maxDiscount: 200,
-      startsAt: now,
-      endsAt: in90d,
-      usageLimit: 0,
-      isActive: true,
-    },
-  });
-
-  await prisma.coupon.upsert({
-    where: { code: "SAVE50" },
-    update: {},
-    create: {
-      code: "SAVE50",
-      type: CouponType.FIXED,
-      value: 50,
-      minSpend: 300,
-      startsAt: now,
-      endsAt: in90d,
-      usageLimit: 500,
-      isActive: true,
-    },
-  });
-
-  await prisma.coupon.upsert({
-    where: { code: "FREESHIP" },
-    update: {},
-    create: {
-      code: "FREESHIP",
-      type: CouponType.FREE_SHIPPING,
-      value: 0,
-      minSpend: 99,
-      startsAt: now,
-      endsAt: in30d,
-      usageLimit: 1000,
-      isActive: true,
-    },
-  });
-
-  console.log("✓ 优惠券创建完成（WELCOME10 九折 / SAVE50 满300减50 / FREESHIP 免运费）");
-}
-
 /** 物流方式种子（幂等）：后台可编辑，测试与演示环境依赖 standard/express */
 async function seedShippingMethods() {
   const methods = [
@@ -294,8 +322,11 @@ async function seedSiteSettings() {
   const defaults: Record<string, unknown> = {
     siteName: "Ox Shopping",
     siteDescription: "Official Ox Shopping — official apparel and accessories.",
-    contactEmail: "support@example.com",
-    contactPhone: "400-000-0000",
+    // 客服联系方式从环境变量取（SUPPORT_EMAIL / SUPPORT_PHONE），不再往库里塞
+    // `support@example.com` / `400-000-0000` 这类占位值 —— 它们会被 FAQ、发票、
+    // 「您的隐私选择」页直接引用并展示给真实客户。上线前请在后台「站点设置」填写。
+    contactEmail: process.env.SUPPORT_EMAIL ?? "",
+    contactPhone: process.env.SUPPORT_PHONE ?? "",
     icp: "",
     seoKeywords: "Ox Shopping,Grok,X,shop,apparel",
   };
@@ -308,6 +339,115 @@ async function seedSiteSettings() {
     });
   }
   console.log("✓ 站点设置初始化完成");
+}
+
+/**
+ * 支付渠道：全部内置渠道预留（大爷需求：支付账户未申请，先建好渠道，后台填参数即用）。
+ * - mock：开发/演示必需，开箱即用（启用）。
+ * - alipay/wechat/bankcard/stripe/paypal：预留（未配置/未启用）——
+ *   申请到账户后在后台「支付渠道」填参数并启用；前台在接通前显示「暂未开通」置灰。
+ * 密钥加密用 PAYMENT_CHANNEL_ENC_KEY；未配置时回退开发默认值（与 migrate 脚本一致）。
+ */
+async function seedPaymentChannels() {
+  const { encryptConfig } = await import("../src/lib/payment/channel-crypto-core");
+  const key = process.env.PAYMENT_CHANNEL_ENC_KEY || "dev-payment-channel-enc-key-change-me";
+  const builtin = [
+    { code: "mock", name: "模拟支付", provider: "mock", enabled: true, sortOrder: 0 },
+    { code: "alipay", name: "支付宝", provider: "alipay", enabled: false, sortOrder: 10 },
+    { code: "wechat", name: "微信支付", provider: "wechat", enabled: false, sortOrder: 20 },
+    { code: "bankcard", name: "银行卡支付", provider: "bankcard", enabled: false, sortOrder: 30 },
+    { code: "stripe", name: "Stripe", provider: "stripe", enabled: false, sortOrder: 40 },
+    { code: "paypal", name: "PayPal", provider: "paypal", enabled: false, sortOrder: 50 },
+  ] as const;
+  for (const ch of builtin) {
+    // 幂等：已存在的渠道（含已配置的密钥/启用状态）一律不动
+    await prisma.paymentChannel.upsert({
+      where: { code: ch.code },
+      update: {},
+      create: { ...ch, configEncrypted: encryptConfig(key, {}) },
+    });
+  }
+  console.log(
+    "✓ 支付渠道初始化完成（模拟支付已启用；支付宝/微信/银行卡/Stripe/PayPal 已预留待配置）",
+  );
+}
+
+/**
+ * FAQ 入库 —— 让「FAQ 管理」后台可编辑，同时保证内容不只存在于某个开发库里。
+ *
+ * 为什么需要它：`/pages/faqs` 是「先读库、库空才回落 `FAQ_DEFAULTS`」，
+ * 而此前**没有任何种子或迁移往 `faqs` 表写数据** —— 库里的内容来自一次性手工插入，
+ * 结果是仓库里的 `FAQ_DEFAULTS` 与库里的文案各自漂移（例如库中第 1 条
+ * 缺少 `{contactForm}` 占位符，导致 FAQ 指向的联系页在线上永远不可达）。
+ *
+ * 规则（幂等，且**绝不覆盖运营在后台的编辑**）：
+ *   - 表为空 → 全量写入 `FAQ_DEFAULTS`
+ *   - 表非空 → 只回写「从未被编辑过」的行（`updatedAt` 与 `createdAt` 相等，
+ *     即仍是写入时的原样）中、与 `FAQ_DEFAULTS` 同 `sortOrder` 但文案已过期的那些
+ */
+async function seedFaqs() {
+  const existing = await prisma.faq.findMany({
+    select: {
+      id: true,
+      sortOrder: true,
+      question: true,
+      answer: true,
+      questionEn: true,
+      answerEn: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (existing.length === 0) {
+    await prisma.faq.createMany({
+      data: FAQ_DEFAULTS.map((f, i) => ({
+        question: f.question,
+        answer: f.answer,
+        questionEn: f.questionEn,
+        answerEn: f.answerEn,
+        sortOrder: i,
+        published: true,
+      })),
+    });
+    console.log(`✓ FAQ 初始化完成（写入 ${FAQ_DEFAULTS.length} 条）`);
+    return;
+  }
+
+  const bySortOrder = new Map(existing.map((r) => [r.sortOrder, r]));
+  let updated = 0;
+  let kept = 0;
+
+  for (const [i, f] of FAQ_DEFAULTS.entries()) {
+    const row = bySortOrder.get(i);
+    if (!row) continue;
+    const same =
+      row.question === f.question &&
+      row.answer === f.answer &&
+      row.questionEn === f.questionEn &&
+      row.answerEn === f.answerEn;
+    if (same) continue;
+    // updatedAt 被 @updatedAt 维护：与 createdAt 相等 ⇒ 后台从未改过这一行
+    const untouched = row.updatedAt.getTime() === row.createdAt.getTime();
+    if (!untouched) {
+      kept++;
+      continue;
+    }
+    await prisma.faq.update({
+      where: { id: row.id },
+      data: {
+        question: f.question,
+        answer: f.answer,
+        questionEn: f.questionEn,
+        answerEn: f.answerEn,
+      },
+    });
+    updated++;
+  }
+
+  console.log(
+    `✓ FAQ 同步完成（库中 ${existing.length} 条：回写 ${updated} 条、保留运营编辑 ${kept} 条）`,
+  );
 }
 
 async function main() {
@@ -325,13 +465,11 @@ async function main() {
   }
   const categoryMap = await seedCategories();
   await seedProducts(categoryMap);
+  await seedCollectionMembers(categoryMap);
   await seedShippingMethods();
-  if (process.env.NODE_ENV !== "production" || seedDemo) {
-    await seedCoupons();
-  } else {
-    console.log("⏭ 跳过优惠券种子（生产环境：由运营后台创建）");
-  }
   await seedSiteSettings();
+  await seedFaqs();
+  await seedPaymentChannels();
   console.log("种子数据全部完成 ✔");
   if (seedDemo) {
     console.log("  管理员: admin@example.com / Admin@123456");

@@ -5,17 +5,26 @@ import { prisma } from "@/lib/prisma";
 import { siteSettingsSchema } from "@/lib/validations/admin";
 import { isLogoArtworkDark } from "@/lib/logo-contrast";
 import { invalidateSettingsCache } from "@/server/services/settings.service";
+import { env, isS3Configured } from "@/lib/env";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-/** GET /api/admin/settings — 全部站点设置 */
+/** GET /api/admin/settings — 全部站点设置 + 服务端环境状态（只读，不暴露任何密钥） */
 export const GET = apiHandler(async () => {
   await requireStaff();
   const rows = await prisma.siteSetting.findMany();
   const settings: Record<string, unknown> = {};
   for (const r of rows) settings[r.key] = r.value;
-  return json({ settings });
+  return json({
+    settings,
+    /** 后端环境状态（只读，供设置页提示；密钥一律不返回） */
+    envStatus: {
+      mailProvider: env.MAIL_PROVIDER,
+      storageDriver: isS3Configured ? "s3" : "local",
+      currency: env.CURRENCY,
+    },
+  });
 });
 
 /** PUT /api/admin/settings — 批量更新(upsert) */

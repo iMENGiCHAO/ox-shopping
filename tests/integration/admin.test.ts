@@ -115,15 +115,28 @@ describe("商品管理", () => {
     });
     expect(stock.status).toBe(200);
 
-    // 归档（软删除）
+    // 归档（软删除）：走状态接口置为 ARCHIVED
+    const { PATCH: patchProductStatus } = await import(
+      "@/app/api/admin/products/[id]/status/route"
+    );
+    const archive = await callApi(patchProductStatus, {
+      method: "PATCH",
+      cookies: cookiesOf(adminJar),
+      params: { id: product.id },
+      body: { status: "ARCHIVED" },
+    });
+    expect(archive.status).toBe(200);
+    const archived = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(archived.status).toBe("ARCHIVED");
+
+    // 删除（硬删除）：后台 UI 中「归档」与「删除」是两个独立操作，删除后记录不再存在
     const del = await callApi(DELETE, {
       method: "DELETE",
       cookies: cookiesOf(adminJar),
       params: { id: product.id },
     });
     expect(del.status).toBe(200);
-    const archived = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
-    expect(archived.status).toBe("ARCHIVED");
+    expect(await prisma.product.findUnique({ where: { id: product.id } })).toBeNull();
   });
 });
 

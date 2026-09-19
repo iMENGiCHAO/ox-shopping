@@ -47,16 +47,18 @@ export function CellLine({
   );
 }
 
-/** 双行布局（主行 + 副行） */
+/** 双行布局（主行 + 副行）。className 作用于外层容器（如 font-mono / tabular-nums）。 */
 export function CellPair({
   primary,
   secondary,
+  className,
 }: {
   primary: React.ReactNode;
   secondary?: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="min-w-0">
+    <div className={cn("min-w-0", className)}>
       <div className="truncate text-sm font-medium" title={typeof primary === "string" ? primary : undefined}>
         {primary}
       </div>

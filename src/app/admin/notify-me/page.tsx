@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Bell, Loader2, Trash2 } from "lucide-react";
+import { Bell, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -56,8 +55,8 @@ export default function AdminNotifyMePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await apiFetch<{ data: NotifyRow[] }>("/api/admin/notify-me");
-      setRows(res.data ?? []);
+      const res = await apiFetch<{ items: NotifyRow[] }>("/api/admin/notify-me");
+      setRows(res.items ?? []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -115,20 +114,14 @@ export default function AdminNotifyMePage() {
                   <TableHead className="w-20">语种</TableHead>
                   <TableHead className="w-24">状态</TableHead>
                   <TableHead className="hidden w-[120px] xl:table-cell">登记时间</TableHead>
-                  <TableHead className="sticky-col-right w-20 text-right">
-                    操作
-                  </TableHead>
+                  <TableHead className="sticky-col-right w-20 text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((r) => (
                   <TableRow key={r.id}>
                     <TableCell>
-                      <CellText
-                        value={r.email}
-                        title={r.email}
-                        className="text-sm font-medium"
-                      />
+                      <CellText value={r.email} title={r.email} className="text-sm font-medium" />
                     </TableCell>
                     <TableCell className="hidden md:table-cell">
                       {r.product ? (
@@ -142,9 +135,7 @@ export default function AdminNotifyMePage() {
                           {r.product.nameEn ?? r.product.name}
                         </a>
                       ) : r.productId ? (
-                        <span className="text-muted-foreground">
-                          {r.productId.slice(-8)}
-                        </span>
+                        <span className="text-muted-foreground">{r.productId.slice(-8)}</span>
                       ) : (
                         <span className="text-muted-foreground">全站</span>
                       )}
@@ -177,7 +168,7 @@ export default function AdminNotifyMePage() {
                         {r.status === "notified" ? "已通知" : "待通知"}
                       </span>
                     </TableCell>
-                    <TableCell className="hidden tabular-nums text-xs text-muted-foreground xl:table-cell">
+                    <TableCell className="hidden text-xs tabular-nums text-muted-foreground xl:table-cell">
                       {new Date(r.createdAt).toLocaleString("zh-CN", {
                         month: "2-digit",
                         day: "2-digit",
@@ -187,14 +178,18 @@ export default function AdminNotifyMePage() {
                     </TableCell>
                     <TableCell className="sticky-col-right">
                       <DataTableActions
-                        actions={[
-                          {
-                            label: "删除",
-                            icon: Trash2,
-                            onClick: () => void remove(r.id),
-                            destructive: true,
-                          },
-                        ]}
+                        actions={
+                          busyId === r.id
+                            ? []
+                            : [
+                                {
+                                  label: "删除",
+                                  icon: Trash2,
+                                  onClick: () => void remove(r.id),
+                                  destructive: true,
+                                },
+                              ]
+                        }
                       />
                     </TableCell>
                   </TableRow>

@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const GET = apiHandler(async (req) => {
   const user = await requireUser();
 
-  const [profile, addresses, orders, reviews, favorites, notifySubscriptions] = await Promise.all([
+  const [profile, addresses, orders, notifySubscriptions] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: {
@@ -29,8 +29,6 @@ export const GET = apiHandler(async (req) => {
       orderBy: { createdAt: "desc" },
       include: { items: { select: { productName: true, quantity: true, price: true, attributes: true } } },
     }),
-    prisma.review.findMany({ where: { userId: user.id } }),
-    prisma.favorite.findMany({ where: { userId: user.id } }),
     prisma.notifyMe.findMany({ where: { email: user.email } }),
   ]);
 
@@ -48,8 +46,6 @@ export const GET = apiHandler(async (req) => {
     profile,
     addresses,
     orders,
-    reviews,
-    favorites,
     restockSubscriptions: notifySubscriptions.map((n) => ({
       productId: n.productId,
       attributes: n.attributes,

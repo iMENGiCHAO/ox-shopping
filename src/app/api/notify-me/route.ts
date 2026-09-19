@@ -1,9 +1,9 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
-import { rateLimited } from "@/lib/errors";
+import { badRequest, notFound, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { hasSoldOutSpecValue } from "@/server/services/spec-stock";
 import { z } from "zod";
-import { cookies } from "next/headers";
 import { getLang } from "@/lib/shop-i18n-server";
 import type { Lang } from "@/lib/shop-i18n";
 
@@ -22,7 +22,24 @@ export const POST = apiHandler(async (req) => {
   const email = input.email.toLowerCase();
 
   const rl = await rateLimit({ key: `notifyme:${email}`, limit: 5, windowSeconds: 3600 });
-  if (!rl.ok) throw rateLimited("登记太频繁，请稍后再试");
+  if (!rl.ok) throw rateLimited("Too many requests, please try again later");
+
+  // 防御（大爷指正的 bug 兜底）：有货组合不允许登记到货通知——
+  // 整件有货（ACTIVE 且 stock>0）时，登记规格里必须含至少一个「显式售罄」值
+  // （与 PDP 售罄划线 / notifyRestock 触发口径一致：未追踪值视为可用）。
+  // 否则下次该商品任意补货触发 notifyRestock 时，会立即给客户发出
+  // 「从未售罄过」的错误到货邮件（allAvailable 恒真）。
+  if (input.productId) {
+    const product = await prisma.product.findUnique({
+      where: { id: input.productId },
+      select: { stock: true, status: true, specStock: true },
+    });
+    if (!product) throw notFound("Product not found");
+    if (product.status === "ACTIVE" && product.stock > 0) {
+      if (!hasSoldOutSpecValue(product.specStock, input.attributes ?? {}))
+        throw badRequest("This variant is in stock — you can add it to your bag now");
+    }
+  }
 
   // 记录订阅时浏览器的语种（lang cookie > currency > en），用于按用户原语种发到货通知
   // 游客（未登录）也能订阅，所以用 cookie 而非 user.lang
@@ -43,7 +60,7 @@ export const POST = apiHandler(async (req) => {
         lang, // 每次重新订阅都更新为当前语种
       },
     });
-    return json({ data: { ok: true, already: true, id: updated.id } });
+    return json({ ok: true, already: true, id: updated.id });
   }
   const row = await prisma.notifyMe.create({
     data: {
@@ -53,5 +70,5 @@ export const POST = apiHandler(async (req) => {
       lang,
     },
   });
-  return json({ data: { ok: true, already: false, id: row.id } }, { status: 201 });
+  return json({ ok: true, already: false, id: row.id }, { status: 201 });
 });

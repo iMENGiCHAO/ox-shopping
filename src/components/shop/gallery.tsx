@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { cn } from "@/lib/utils";
@@ -10,22 +10,26 @@ export interface GalleryProps {
   images: string[];
   alt: string;
   className?: string;
-  /** 官方 badge-list：浮于主图（非缩略图栏）左上角 */
-  badges?: ReactNode;
 }
 
-/* 放大镜自定义光标(shop.x.com 同款观感) — 黑线 + 白底 */
+/* 放大镜自定义光标(shop.x.com 同款观感) — 白色小圆 + 中间加号
+   （白色：黑色/深色商品图与纯黑灯箱底上依然清晰可见，黑线会"黑图压黑线"看不见） */
 const CURSOR_ZOOM_IN =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23000000' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
 
 /**
  * 官方两级放大实测（1440×900 视口）：
- * 一级：图片高度=窗口高(900×900)，上下边贴死，仅左右可平移，光标 zoom-in；
- * 二级：×3（2700×2700），四边溢出贴边拖拽，光标 grab；再点回到适配态。
+ * 一级：图片高度=窗口高(900×900)，仅左右拖拽切换；二级：×3 四边溢出贴边拖拽，光标 grab。
  */
 const STAGE2_HEIGHT_VH = 300;
 /** 拖拽位移小于该像素视为点击(切换缩放) */
 const CLICK_SLOP = 6;
+/** 灯箱滑动条：换片/弹回过渡（官方 PhotoSwipe 观感 ~600ms 缓动） */
+const STRIP_MS = 600;
+const STRIP_EASE = "cubic-bezier(0.22, 0.61, 0.36, 1)";
+/** 松手换片阈值：拖过 1/3 视口，或快速甩动（官方 PhotoSwipe 速度语义） */
+const SWIPE_RATIO = 0.35;
+const FLICK_V = 0.5; // px/ms
 
 interface FlyFrom {
   tx: number;
@@ -35,27 +39,36 @@ interface FlyFrom {
 
 /**
  * Product gallery — shop.x.com（Impact 主题内嵌 PhotoSwipe）逐项对齐：
- * 官方配置：bgOpacity:1 纯黑背景 · maxZoomLevel:3 · 无计数器 · 圆形描边按钮 ·
- * 双击缩放(PhotoSwipe 默认行为) · 点击黑色背景关闭 · 滚轮切换图片。
- * 1. 主图悬停完全静态，仅放大镜光标；单击 → 灯箱从主图飞入，整图适配纯黑屏幕；
- * 2. 双击图片 → 以点击点为锚过渡放大至 2.5×；再次双击缩回适配态；
- * 3. 放大后按住拖拽 → 1:1 平移（拖拽期间禁用过渡保证跟手），带边界钳制；
- * 4. 单击图片外的黑色背景 → 关闭；滚轮 ↑↓ → 切换图片；
- * 5. 圆形 ‹ › × 按钮（多图时显示箭头）；Esc 关闭。
+ * 1. 主图滑动轨道（大爷需求①）：点缩略图/圆点 → 大图左右平滑滑动切换（~500ms 官方缓动），
+ *    不再是原图直接硬切；
+ * 2. 灯箱滑动条（大爷需求②）：适配态/一级放大态按住左键横向拖拽 → 整条跟手移动，
+ *    当前图拖出视口约一半时相邻图从左/右缓慢进入显示区域（官方 slide 间距 = 视口宽，
+ *    图隐藏一半时邻居恰好开始进入），松手过 1/3 视口或快速甩动 → 邻居缓动滑入正中
+ *    （动画结束后无跳变换 active）；未过阈值 → 弹回居中；
+ * 3. 二级（×3）保持 1:1 全向拖拽平移 + 边界钳制 + 松手慢速回弹；
+ * 4. 官方点击语义：图外白色背景 → 关闭；图上：适配→一级→二级→关闭；
+ * 5. 圆形 ‹ › × 按钮置于图片下方中央，Esc/方向键支持，箭头同样走滑动条动画。
  *
- * 实现要点：所有 transform 统一由 React style 管理；飞入通过 flyFrom 状态注入
- * 初始矩阵，双 rAF 后置空触发过渡——绝不直接改写 DOM style，避免与 React 的
- * 样式提交互相覆盖（此前缓存图场景点击放大失效的回归根因）。
+ * 实现要点：所有 transform 统一由 React style 管理；换片动画先缓动到邻居居中、
+ * 过渡结束后再无跳变地交换 active（位置连续，绝不闪跳）；拖拽期间禁用过渡保证跟手。
  */
-export function Gallery({ images, alt, className, badges }: GalleryProps) {
+export function Gallery({ images, alt, className }: GalleryProps) {
   const t = useT();
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
-  /* 灯箱状态：stage 0=适配 · 1=高贴窗(仅横向) · 2=3×全向拖拽 */
+  /* 灯箱状态：stage 0=适配 · 1=放大(高贴窗) · 2=3×全向拖拽 */
   const [stage, setStage] = useState<0 | 1 | 2>(0);
-  /** 数值级别的镜像 ref（供事件回调/特效内读取最新级别） */
   const zoomLevelRef = useRef<0 | 1 | 2>(0);
-  /** 位移镜像 ref：pointerup 结算时读到的是实时值而非渲染闭包的滞后值 */
+  /** 灯箱视口宽（滑动条 slide 间距 = 视口宽，官方 PhotoSwipe 模型） */
+  const [vw, setVw] = useState(0);
+
+  /* 滑动条（stage 0/1）：拖拽跟手 + 换片/弹回过渡 */
+  const [stripOffset, setStripOffset] = useState(0);
+  const stripOffsetRef = useRef(0);
+  const [stripAnimating, setStripAnimating] = useState(false);
+  const stripTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /* stage 2 全向拖拽（保留官方 1:1 平移 + 边界钳制 + 慢速回弹） */
   const offsetRef = useRef({ x: 0, y: 0 });
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
@@ -68,12 +81,33 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
 
   const stageRef = useRef<HTMLDivElement | null>(null); // 主图舞台(飞入源矩形)
   const lightboxImgRef = useRef<HTMLImageElement | null>(null);
-  const dragStart = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const dragStart = useRef<{
+    px: number;
+    py: number;
+    ox: number;
+    oy: number;
+    sox: number;
+  } | null>(null);
   const didDragRef = useRef(false); // 拖拽过则随后的 click 不算点击
+  const velocityRef = useRef({ x: 0, t: 0, dx: 0 });
   const openedAtRef = useRef(0);
   const flyKeyRef = useRef("");
 
-  /* ---------- 飞入定位：open/切图时执行一次 ---------- */
+  /* ---------- 灯箱视口宽 / 图集预加载 ---------- */
+  useEffect(() => {
+    if (!open) return;
+    setVw(window.innerWidth);
+    const onR = () => setVw(window.innerWidth);
+    window.addEventListener("resize", onR);
+    // 预加载全部图集：邻居滑入时已是成品图，不闪白
+    for (const src of list) {
+      const im = new Image();
+      im.src = src;
+    }
+    return () => window.removeEventListener("resize", onR);
+  }, [open, list]);
+
+  /* ---------- 飞入定位：open 时执行一次（仅适配态） ---------- */
   useEffect(() => {
     if (!open) {
       flyKeyRef.current = "";
@@ -108,10 +142,9 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
     };
     if (img.complete && img.naturalWidth > 0) run();
     else img.addEventListener("load", run, { once: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, active]);
 
-  /** 各级可拖边界：按渲染高度与原图比例解析计算（贴边钳制） */
+  /** 各级可拖边界：按渲染高度与原图比例解析计算（贴边钳制，仅 stage 2 单图平移用） */
   const clampFor = useCallback((st: 0 | 1 | 2, ox: number, oy: number) => {
     if (st === 0) return { x: 0, y: 0 };
     const img = lightboxImgRef.current;
@@ -135,20 +168,59 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
 
   /* ---------- 键盘 / 滚动锁 ---------- */
   const close = useCallback(() => {
+    if (stripTimer.current) {
+      clearTimeout(stripTimer.current);
+      stripTimer.current = null;
+    }
     setOpen(false);
     changeStage(0);
     offsetRef.current = { x: 0, y: 0 };
     setOffset({ x: 0, y: 0 });
+    stripOffsetRef.current = 0;
+    setStripOffset(0);
+    setStripAnimating(false);
   }, []);
+
+  /** 灯箱换片（箭头/键盘/拖拽松手共用）：滑动条缓动到邻居居中，动画结束后无跳变换 active */
+  const goTo = useCallback(
+    (dir: 1 | -1) => {
+      if (stripTimer.current) return; // 动画进行中忽略，防连点错乱
+      const width = vw || window.innerWidth;
+      setStripAnimating(true);
+      stripOffsetRef.current = -dir * width;
+      setStripOffset(-dir * width);
+      stripTimer.current = setTimeout(() => {
+        stripTimer.current = null;
+        setActive((a) => {
+          const next = (a + dir + list.length) % list.length;
+          // 跳过新图的飞入动画（fly-in effect 以 active 为 key）——
+          // 否则换片动画结束后新图会先跳到缩略图位置再飞回中心（实测抖动根因）
+          flyKeyRef.current = `${next}`;
+          return next;
+        });
+        stripOffsetRef.current = 0;
+        setStripOffset(0);
+        setStripAnimating(false);
+      }, STRIP_MS);
+    },
+    [vw, list.length],
+  );
 
   const step = useCallback(
     (dir: 1 | -1) => {
-      setActive((a) => (a + dir + list.length) % list.length);
-      changeStage(0);
-      offsetRef.current = { x: 0, y: 0 };
-      setOffset({ x: 0, y: 0 });
+      if (stage >= 2 || list.length < 2) {
+        // 深度放大态/单图：直接换片（官方 PhotoSwipe 深度放大下翻页同样直接跳）
+        setActive((a) => (a + dir + list.length) % list.length);
+        changeStage(0);
+        offsetRef.current = { x: 0, y: 0 };
+        setOffset({ x: 0, y: 0 });
+        stripOffsetRef.current = 0;
+        setStripOffset(0);
+        return;
+      }
+      goTo(dir);
     },
-    [list.length],
+    [stage, list.length, goTo],
   );
 
   useEffect(() => {
@@ -176,6 +248,9 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
     changeStage(0);
     offsetRef.current = { x: 0, y: 0 };
     setOffset({ x: 0, y: 0 });
+    stripOffsetRef.current = 0;
+    setStripOffset(0);
+    setStripAnimating(false);
   };
 
   /**
@@ -185,6 +260,7 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
    */
   const onStageClick = (e: React.MouseEvent) => {
     if (performance.now() - openedAtRef.current < 400) return;
+    if (stripTimer.current) return; // 换片动画中忽略
     if ((e.target as HTMLElement).closest("button")) return;
     if (didDragRef.current) return;
     const img = lightboxImgRef.current;
@@ -197,23 +273,26 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
         );
       })();
     if (!inside) return close();
-    changeStage(((st): 0 | 1 | 2 => (st === 2 ? 0 : st === 0 ? 1 : 2))(zoomLevelRef.current));
+    // 官方语义：适配态→一级；一级→二级；二级→关闭（与 shop.x.com 点击缩放循环一致）
+    if (zoomLevelRef.current === 2) return close();
+    changeStage(zoomLevelRef.current === 0 ? 1 : 2);
     offsetRef.current = { x: 0, y: 0 };
     setOffset({ x: 0, y: 0 });
-  };
-
-  /** 滚轮 → 切换上一张/下一张(PhotoSwipe 默认 wheel 行为) */
-  const onStageWheel = (e: React.WheelEvent) => {
-    if (list.length < 2) return;
-    if (Math.abs(e.deltaY) < 8 && Math.abs(e.deltaX) < 8) return;
-    step(e.deltaY > 0 || e.deltaX > 0 ? 1 : -1); // body 已锁滚动，无需 preventDefault
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     if (performance.now() - openedAtRef.current < 400) return;
-    dragStart.current = { px: e.clientX, py: e.clientY, ox: offset.x, oy: offset.y };
+    if (stripTimer.current) return; // 换片动画中不响应新拖拽
+    dragStart.current = {
+      px: e.clientX,
+      py: e.clientY,
+      ox: offset.x,
+      oy: offset.y,
+      sox: stripOffsetRef.current,
+    };
     didDragRef.current = false;
+    velocityRef.current = { x: 0, t: performance.now(), dx: 0 };
     setSlowSettle(false);
     // 指针捕获：拖拽出元素/视口后仍能收到 move/up，官方手感的关键
     try {
@@ -232,42 +311,37 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
       setDragging(true);
       didDragRef.current = true;
     }
-    // 官方语义：按住期间自由跟随（允许暂时拖出边界），松手时再结算；
-    // 一级上下贴死 → 仅横向跟随，纵向始终为 0
-    if (dragging) {
-      const next = stage === 1 ? { x: st.ox + dx, y: 0 } : { x: st.ox + dx, y: st.oy + dy };
+    // 速度采样（松手时快速甩动也能换片，官方 PhotoSwipe 手感）
+    const now = performance.now();
+    const dt = now - velocityRef.current.t;
+    if (dt > 16) {
+      velocityRef.current = { x: (dx - velocityRef.current.dx) / Math.max(1, dt), t: now, dx };
+    }
+    if (!dragging) return;
+    if (stage >= 2) {
+      // 二级：1:1 全向平移（拖拽期间禁用过渡保证跟手），允许暂时拖出边界，松手时再结算
+      const next = { x: st.ox + dx, y: st.oy + dy };
       offsetRef.current = next;
       setOffset(next);
+    } else {
+      // 适配态/一级放大：滑动条横向跟手（邻居图同步跟随，官方 PhotoSwipe 模型）
+      const next = st.sox + dx;
+      stripOffsetRef.current = next;
+      setStripOffset(next);
     }
   };
 
   const onPointerUp = () => {
     const st = dragStart.current;
     dragStart.current = null;
+    if (!st || !dragging) {
+      setDragging(false);
+      return;
+    }
     setDragging(false);
-    if (!st || !dragging) return;
-    const live = offsetRef.current;
-    if (stage === 1) {
-      // 一级：横向拉过阈值 → 居中切换上/下一张（保持放大级别）；否则弹回居中
-      const SWIPE = Math.max(80, window.innerWidth * 0.12);
-      if (live.x <= -SWIPE) {
-        setActive((a) => (a + 1) % list.length);
-        offsetRef.current = { x: 0, y: 0 };
-        setOffset({ x: 0, y: 0 });
-        flyKeyRef.current = `${active + 1}`; // 跳过新图的飞入动画
-      } else if (live.x >= SWIPE) {
-        setActive((a) => (a - 1 + list.length) % list.length);
-        offsetRef.current = { x: 0, y: 0 };
-        setOffset({ x: 0, y: 0 });
-        flyKeyRef.current = `${active - 1}`;
-      } else {
-        setSlowSettle(true);
-        const target = clampFor(stage, live.x, 0);
-        offsetRef.current = target;
-        setOffset(target);
-      }
-    } else if (stage === 2) {
+    if (stage >= 2) {
       // 二级：只把「露出空白」的那一侧缓慢拉回贴边；仍压满的边保持原位
+      const live = offsetRef.current;
       const target = clampFor(stage, live.x, live.y);
       if (Math.abs(target.x - live.x) > 1 || Math.abs(target.y - live.y) > 1) {
         setSlowSettle(true);
@@ -275,96 +349,152 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
         setOffset(target);
       }
       /* 无露白 → 原地停留，继续看细节 */
+      return;
+    }
+    // 适配态/一级放大：滑动条结算 —— 过 1/3 视口或快速甩动 → 邻居缓动滑入正中；否则弹回
+    const live = stripOffsetRef.current - st.sox;
+    const width = vw || window.innerWidth;
+    const v = velocityRef.current.x;
+    const passed =
+      list.length > 1 &&
+      (Math.abs(live) > width * SWIPE_RATIO ||
+        (Math.abs(v) > FLICK_V && Math.sign(v) === Math.sign(live) && live !== 0));
+    if (passed) {
+      goTo(live < 0 ? 1 : -1);
+    } else {
+      // 弹回居中（缓动，与换片同款观感）
+      setStripAnimating(true);
+      stripOffsetRef.current = st.sox;
+      setStripOffset(st.sox);
+      stripTimer.current = setTimeout(() => {
+        stripTimer.current = null;
+        setStripAnimating(false);
+      }, STRIP_MS);
     }
   };
 
-  /* 图片样式：flyFrom(仅适配态) > 放大级显式尺寸+平移 > 适配态 */
-  /* 官方观感：拖拽中零过渡；松手弹性回弹约 1.1s 缓动；其余 300ms */
+  /* 图片样式：flyFrom(仅适配态当前张) > 放大级显式尺寸 > 适配态 */
   const settleEase = "cubic-bezier(0.16, 0.84, 0.44, 1)";
-  const imgClass =
-    stage === 0
-      ? cn(
-          "max-h-full max-w-full select-none object-contain",
-          !dragging && "transition-transform duration-300 ease-out",
-        )
-      : cn(
-          "select-none",
-          dragging ? "" : slowSettle ? "" : "duration-300 ease-out transition-[transform]",
-        );
-  const imgStyle: React.CSSProperties | undefined =
-    flyFrom && stage === 0
-      ? { transform: `translate(${flyFrom.tx}px, ${flyFrom.ty}px) scale(${flyFrom.s})` }
-      : stage === 0
-        ? undefined
-        : {
-            height: stage === 1 ? "100vh" : `${STAGE2_HEIGHT_VH}vh`,
-            width: "auto",
-            maxWidth: "none",
-            transform: `translate(${offset.x}px, ${offset.y}px)`,
-            transition: dragging
-              ? "none"
-              : slowSettle
-                ? `transform 1100ms ${settleEase}`
-                : undefined,
-          };
 
   return (
     <>
-      <div
-        className={cn(
-          "flex flex-col-reverse gap-4 sm:flex-row sm:items-start sm:gap-4 lg:gap-[80px]",
-          className,
-        )}
-      >
+      <div className={cn("flex flex-row gap-8 md:gap-20", className)}>
+        {/* 左侧缩略图列表 — 大屏显示，小屏隐藏（原网站小屏无缩略图列表）
+            元素盒 56×56（1px 描边 + 1px 内边距 + 52px 图），盒间距 16px
+            —— 均为原站实测值，见 docs/PARITY_AUDIT §二之四 */}
         {list.length > 1 ? (
           <div
+            className="hidden w-14 shrink-0 flex-col gap-4 md:flex lg:sticky lg:top-24 lg:self-start"
             data-testid="gallery-thumbs"
-            className="flex gap-1.5 overflow-x-auto sm:w-14 sm:flex-col sm:gap-1.5 sm:overflow-visible lg:sticky lg:top-[84px] lg:self-start"
           >
             {list.map((src, i) => (
               <button
-                key={`${src}-${i}`}
+                key={i}
                 type="button"
                 onClick={() => setActive(i)}
+                aria-label={t("Go to item {n}", { n: i + 1 })}
                 className={cn(
-                  "relative h-14 w-14 shrink-0 overflow-hidden border p-px transition-colors duration-100 sm:h-12 sm:w-full",
-                  i === active ? "border-foreground" : "border-transparent hover:border-input",
+                  "relative aspect-square w-full overflow-hidden border p-px transition-all duration-150",
+                  i === active
+                    ? "border-foreground ring-1 ring-foreground"
+                    : "border-transparent opacity-60 hover:opacity-100",
                 )}
-                aria-label={t("View image {n}", { n: i + 1 })}
               >
-                <ImageWithFallback src={src} alt="" fill sizes="80px" className="object-contain" />
+                <ImageWithFallback
+                  src={src}
+                  alt={`${alt} ${i + 1}`}
+                  width={52}
+                  height={52}
+                  sizes="52px"
+                  className="h-full w-full object-contain"
+                />
               </button>
             ))}
           </div>
         ) : null}
 
-        {/* 主图 — 悬停静态，点击进灯箱 */}
-        <div
-          ref={stageRef}
-          className="relative aspect-square w-full flex-1 overflow-hidden"
-          style={{ cursor: CURSOR_ZOOM_IN }}
-        >
-          {badges ? (
-            <div className="pointer-events-none absolute left-2 top-2 z-10 flex flex-col items-start gap-1">
-              {badges}
+        {/* 主图 — 大爷需求①：滑动轨道，点缩略图/圆点大图左右平滑切换（官方同款观感） */}
+        <div className="min-w-0 flex-1">
+          <div
+            ref={stageRef}
+            className="relative aspect-square w-full overflow-hidden bg-ground"
+            style={{ cursor: CURSOR_ZOOM_IN }}
+          >
+            {/* 原网站 shop.x.com 无 NEW/HOT 标签，保持一致 — badges 已移除 */}
+            <button
+              type="button"
+              className="absolute inset-0 z-10"
+              style={{ cursor: CURSOR_ZOOM_IN }}
+              aria-label={t("Zoom in on image")}
+              onClick={openLightbox}
+            />
+            {/* 移动端放大按钮 —— 原站实测：主图右上角内缩 20px 的 36px 白圆 + 深色放大镜
+                （桌面端用放大镜光标提示，无此按钮；见 globals.css `.pdp-zoom-btn`） */}
+            <button
+              type="button"
+              aria-label={t("Zoom in on image")}
+              onClick={openLightbox}
+              className="pdp-zoom-btn absolute right-5 top-5 z-20 h-9 w-9 items-center justify-center rounded-full bg-white text-foreground shadow-sm"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden="true"
+              >
+                <circle cx="10.5" cy="10.5" r="7" />
+                <line x1="15.8" y1="15.8" x2="21" y2="21" />
+                <line x1="7.5" y1="10.5" x2="13.5" y2="10.5" />
+                <line x1="10.5" y1="7.5" x2="10.5" y2="13.5" />
+              </svg>
+            </button>
+            <div
+              className="flex h-full w-full transition-transform duration-500"
+              style={{
+                transform: `translateX(-${active * 100}%)`,
+                transitionTimingFunction: STRIP_EASE,
+              }}
+            >
+              {list.map((src, i) => (
+                <div key={i} className="relative h-full w-full shrink-0">
+                  {/* 轨道内全部 eager：移出视口的 slide 不触发懒加载，滑动不闪白 */}
+                  <ImageWithFallback
+                    src={src}
+                    alt={`${alt} ${i + 1}`}
+                    fill
+                    priority
+                    sizes="(max-width: 1024px) 100vw, 50vw"
+                    className="object-contain"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 底部圆点导航 — 小屏显示，大屏隐藏（原网站小屏有圆点导航）。
+              尺寸/间距走令牌：移动端 24px 间距 + 6px 点 + 16px 点距（原站 375 实测）。 */}
+          {list.length > 1 ? (
+            <div
+              className="mt-[var(--pdp-dots-mt)] flex justify-center gap-[var(--pdp-dots-gap)] md:hidden"
+              data-testid="gallery-dots"
+            >
+              {list.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setActive(i)}
+                  aria-label={t("Go to item {n}", { n: i + 1 })}
+                  className={cn(
+                    "h-[var(--pdp-dots-size)] w-[var(--pdp-dots-size)] rounded-full transition-colors",
+                    i === active ? "bg-foreground" : "bg-foreground/30",
+                  )}
+                />
+              ))}
             </div>
           ) : null}
-          {/* 收藏按钮已挪到 product-card（卡片右上角），详情页主图保留干净的放大镜交互，避免点击冲突 */}
-          <button
-            type="button"
-            className="absolute inset-0 z-10"
-            style={{ cursor: CURSOR_ZOOM_IN }}
-            aria-label={t("Zoom in on image")}
-            onClick={openLightbox}
-          />
-          <ImageWithFallback
-            src={current ?? undefined}
-            alt={alt}
-            fill
-            priority
-            sizes="(max-width: 1024px) 100vw, 60vw"
-            className="object-fill"
-          />
         </div>
       </div>
 
@@ -376,11 +506,12 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
           aria-modal="true"
           aria-label={t("Zoom in on image")}
         >
-          {/* 图片舞台 */}
+          {/* 图片舞台：适配态/一级放大 = 滑动条（大爷需求②拖拽换片，邻居缓动进入）；
+              二级 = 单图 1:1 全向平移 */}
           <div
             style={{ cursor: stage === 2 ? undefined : CURSOR_ZOOM_IN }}
             className={cn(
-              "absolute inset-0 flex items-center justify-center overflow-hidden",
+              "absolute inset-0 overflow-hidden",
               stage === 2 && (dragging ? "cursor-grabbing" : "cursor-grab"),
             )}
             onPointerDown={onPointerDown}
@@ -390,17 +521,81 @@ export function Gallery({ images, alt, className, badges }: GalleryProps) {
               if (!dragging) dragStart.current = null;
             }}
             onClick={onStageClick}
-            onWheel={onStageWheel}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              ref={lightboxImgRef}
-              src={current}
-              alt={alt}
-              draggable={false}
-              className={imgClass}
-              style={imgStyle}
-            />
+            {stage < 2 ? (
+              <>
+                {(() => {
+                  const n = list.length;
+                  const W = vw || 0;
+                  // 成环邻居（大爷需求）：prev/current/next 取模环绕——
+                  // 拖到最后一张再拖，紧接首张从另一侧滑入；首张往回拖，末张滑入
+                  const slots = [
+                    { idx: (active - 1 + n) % n, off: -W, isCurrent: false },
+                    { idx: active, off: 0, isCurrent: true },
+                    { idx: (active + 1) % n, off: W, isCurrent: false },
+                  ];
+                  // n=2 时 prev 与 next 是同一张图：按 idx 去重（保留首位），避免 React key 冲突
+                  const seen = new Set<number>();
+                  return slots
+                    .filter((s) => (seen.has(s.idx) ? false : (seen.add(s.idx), true)))
+                    .map(({ idx, off, isCurrent }) => {
+                      const src = list[idx];
+                      return (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={idx}
+                          ref={isCurrent ? lightboxImgRef : undefined}
+                          src={src}
+                          alt={alt}
+                          draggable={false}
+                          className={cn(
+                            "absolute left-1/2 top-1/2 select-none",
+                            stage === 0 && "max-h-full max-w-full object-contain",
+                          )}
+                          style={{
+                            ...(stage === 1
+                              ? { height: "100vh", width: "auto", maxWidth: "none" }
+                              : {}),
+                            transform: `translate(-50%, -50%) translateX(${off + stripOffset}px)`,
+                            transition: dragging
+                              ? "none"
+                              : stripAnimating
+                                ? `transform ${STRIP_MS}ms ${STRIP_EASE}`
+                                : undefined,
+                            ...(flyFrom && isCurrent && stage === 0
+                              ? {
+                                  transform: `translate(calc(-50% + ${flyFrom.tx}px), calc(-50% + ${flyFrom.ty}px)) scale(${flyFrom.s})`,
+                                  transition: "none",
+                                }
+                              : {}),
+                          }}
+                        />
+                      );
+                    });
+                })()}
+              </>
+            ) : (
+              /* 二级（×3）：单图全向平移（官方观感：拖拽中零过渡；松手慢速回弹） */
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                ref={lightboxImgRef}
+                src={current}
+                alt={alt}
+                draggable={false}
+                className="absolute left-1/2 top-1/2 select-none"
+                style={{
+                  height: `${STAGE2_HEIGHT_VH}vh`,
+                  width: "auto",
+                  maxWidth: "none",
+                  transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px)`,
+                  transition: dragging
+                    ? "none"
+                    : slowSettle
+                      ? `transform 1100ms ${settleEase}`
+                      : undefined,
+                }}
+              />
+            )}
           </div>
 
           {/* 官方布局：‹ 关闭 › 按钮组置于图片下方中央 — 白底黑边黑图标 */}

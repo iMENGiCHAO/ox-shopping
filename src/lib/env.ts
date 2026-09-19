@@ -41,6 +41,12 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
   /**
+   * 支付渠道配置加密主密钥（AES-256-GCM，经 SHA-256 派生为 32 字节）。
+   * 用于加密 payment_channels.config_encrypted（支付宝/微信的密钥等）。
+   * 生产必须替换为随机值；更换后需重新保存各渠道配置（旧密文将无法解密）。
+   */
+  PAYMENT_CHANNEL_ENC_KEY: z.string().min(1).default("dev-payment-channel-enc-key-change-me"),
+  /**
    * 基础币种（商品价格库单位 + 默认展示币种）。
    * 受 Stripe 支持范围限制的子集，CNY 在 Stripe 通道下会被拒 → 走 mock。
    * 注：用户选择其他币种时由汇率换算，Order.currency 记录实际支付币种。
@@ -51,13 +57,33 @@ const envSchema = z.object({
 
   // 邮件
   MAIL_PROVIDER: z.enum(["resend", "smtp", "console"]).default("console"),
-  MAIL_FROM: z.string().default("Ox Shopping <no-reply@example.com>"),
+  /**
+   * 发件人。留空时由 `brandFallback` + `SITE_URL` 的域名拼出（见下方 `mailFrom`）。
+   * 注意：不要在此写死 `no-reply@example.com` —— example.com 是 IANA 保留域，
+   * 从它发信会被所有主流收件方拒收（SPF/DKIM 无从配置），生产必须显式配置。
+   */
+  MAIL_FROM: z.string().optional().default(""),
   RESEND_API_KEY: z.string().optional().default(""),
   SMTP_HOST: z.string().optional().default(""),
   SMTP_PORT: z.coerce.number().int().default(587),
   SMTP_USER: z.string().optional().default(""),
   SMTP_PASS: z.string().optional().default(""),
   SMTP_SECURE: booleanFromString.default("false"),
+
+  /**
+   * 品牌名兜底：后台「站点设置 → 站点名称」未填写时使用。
+   * 这里是**全站唯一**的品牌字面量来源 —— SEO 元数据、发票、邮件、
+   * PayPal 收银台、后台外壳都从这里取，改名只需改这一处（或直接设环境变量）。
+   */
+  SITE_NAME: z.string().optional().default(""),
+
+  /**
+   * 客服联系方式兜底：后台「站点设置」未填写时使用。
+   * 客服邮箱留空则回落到 MAIL_FROM 里的发件地址 —— 避免把
+   * `support@example.com` 这类占位地址带到线上（FAQ / 发票 / 隐私选择页都会引用它）。
+   */
+  SUPPORT_EMAIL: z.string().optional().default(""),
+  SUPPORT_PHONE: z.string().optional().default(""),
 
   // 存储
   STORAGE_DRIVER: z.enum(["s3", "local"]).default("local"),
@@ -102,6 +128,13 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 
+/**
+ * 品牌名占位值 —— 全站**唯一**的品牌字面量。
+ * 后台「站点设置 → 站点名称」未填写、且 `SITE_NAME` 环境变量也为空时使用。
+ * 生产环境由下方守卫拒绝启动，避免占位名漏到线上 SEO / 发票 / 邮件。
+ */
+export const PLACEHOLDER_BRAND = "Ox Shopping";
+
 // ---------- 生产安全守卫：弱默认密钥直接拒绝启动 ----------
 {
   const weak: string[] = [];
@@ -112,6 +145,9 @@ export const env = parsed.data;
   }
   if (isWeakSecret(env.JWT_REFRESH_SECRET, "dev-refresh-secret-change-me")) {
     weak.push("JWT_REFRESH_SECRET");
+  }
+  if (isWeakSecret(env.PAYMENT_CHANNEL_ENC_KEY, "dev-payment-channel-enc-key-change-me")) {
+    weak.push("PAYMENT_CHANNEL_ENC_KEY");
   }
   if (weak.length > 0 && env.REQUIRE_STRONG_SECRETS) {
     // 构建期(next build)仅告警——页面数据收集会导入路由模块，此时不应中断构建；
@@ -128,6 +164,34 @@ export const env = parsed.data;
           `\n请设置 ≥32 位随机密钥(如 openssl rand -base64 48)。` +
           `\n本地一键演示如需跳过此检查，请显式设置 REQUIRE_STRONG_SECRETS=false。`,
       );
+    }
+  }
+}
+
+// ---------- 生产守卫：占位品牌名 / 保留域发件地址直接拒绝启动 ----------
+{
+  const placeholders: string[] = [];
+  if (!env.SITE_NAME.trim()) {
+    placeholders.push(
+      `SITE_NAME 未配置 → 品牌名将回落为占位值「${PLACEHOLDER_BRAND}」，` +
+        `会出现在 SEO 标题、发票抬头与支付收银台`,
+    );
+  }
+  if (!env.MAIL_FROM.trim()) {
+    placeholders.push(
+      `MAIL_FROM 未配置 → 发件地址将由 SITE_NAME + SITE_URL 自动拼出；` +
+        `若站点域名未配置 DNS(SPF/DKIM)，邮件会被收件方拒收`,
+    );
+  }
+  if (placeholders.length > 0 && env.REQUIRE_STRONG_SECRETS) {
+    const msg =
+      `[警告] 生产环境存在未配置的站点标识项：\n` +
+      placeholders.map((p) => `  - ${p}`).join("\n") +
+      `\n请在 .env 中补齐后重新部署。`;
+    if (process.env.NEXT_PHASE === "phase-production-build") {
+      console.warn(msg);
+    } else {
+      throw new Error(`[启动失败] ${msg}`);
     }
   }
 }
@@ -157,3 +221,40 @@ export const isS3Configured =
 
 /** 实际生效的存储驱动 */
 export const effectiveStorageDriver: "s3" | "local" = isS3Configured ? "s3" : "local";
+
+/**
+ * 品牌名的最终兜底。优先级：`SITE_NAME` 环境变量 → 内置占位名。
+ * 运行期真实品牌以数据库 `site_settings.siteName` 为准（后台可改），
+ * 本常量只服务于「数据库还没数据」的场景（SEO 元数据、发票、邮件、收银台）。
+ *
+ * ⚠️ 生产部署必须在 .env 里设置 SITE_NAME —— 否则占位品牌名会出现在
+ * SEO 标题、发票抬头与 PayPal 收银台上。上方守卫会在生产环境直接拒绝启动。
+ */
+export const brandFallback: string = env.SITE_NAME.trim() || PLACEHOLDER_BRAND;
+
+/** `SITE_URL` 的域名（用于拼默认发件地址）；解析失败时回落 localhost。 */
+const siteHost: string = (() => {
+  try {
+    return new URL(env.SITE_URL).hostname;
+  } catch {
+    return "localhost";
+  }
+})();
+
+/**
+ * 实际使用的发件地址：`MAIL_FROM` 显式配置优先，否则由品牌名 + 站点域名拼出
+ * （如 `Acme <no-reply@acme.com>`）。这样既不写死任何品牌/域名字面量，
+ * 又能保证默认值与站点自身域名一致 —— 比 `no-reply@example.com` 可投递得多。
+ */
+export const mailFrom: string = env.MAIL_FROM.trim() || `${brandFallback} <no-reply@${siteHost}>`;
+
+/**
+ * 客服邮箱的最终兜底：`SUPPORT_EMAIL` 优先，否则取发件地址里的地址
+ * （`"Brand <a@b.com>"` → `"a@b.com"`）。仍然为空说明运营未做任何配置，
+ * 此时前台会隐藏联系入口而不是显示占位地址。
+ */
+export const supportEmailFallback: string = (() => {
+  if (env.SUPPORT_EMAIL.trim()) return env.SUPPORT_EMAIL.trim();
+  const m = /<([^>]+)>/.exec(mailFrom);
+  return (m?.[1] ?? mailFrom).trim();
+})();

@@ -10,6 +10,21 @@ config({ path: path.resolve(process.cwd(), ".env.test"), override: false });
 config({ path: path.resolve(process.cwd(), ".env"), override: false });
 
 /**
+ * 测试进程**不得**启动进程内定时任务调度器。
+ *
+ * `src/lib/prisma.ts` 在模块求值时就会 `void import("@/server/jobs/start")` 拉起
+ * 一个 60s 心跳的 setInterval（只受 `CRON_ENABLED` 与 globalThis 守卫约束）。
+ * 在 vitest 里这会出问题：守卫标记挂在 globalThis 上（整个进程共享），
+ * 而模块实例是**按测试文件重建**的 —— 于是 A 文件注册的定时器会在 B 文件运行时
+ * 拿着已失效的模块绑定空转，抛 `runScheduledJobs is not a function`，
+ * 被 vitest 记为 unhandled error，让整轮结果失真。
+ *
+ * 测试要的是确定性与隔离，不是后台调度；需要验证调度逻辑时直接调
+ * `runScheduledJobs()` 即可，不必让它自己跑起来。
+ */
+process.env.CRON_ENABLED = "false";
+
+/**
  * next/headers 的 cookies() 依赖 Next 请求上下文（AsyncLocalStorage），
  * 在直接调用 Route Handler 的测试环境不可用。这里替换为从全局变量读取，
  * 由 tests/helpers/api.ts 在每次调用前注入当前 CookieJar。

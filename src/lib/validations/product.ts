@@ -25,7 +25,10 @@ export const productAttributeSchema = z.object({
  * 避免误伤"分步更新"场景。孤儿组/值会让 aggregateTrackedStock 多算/漏算总库存。
  */
 function checkSpecStockConsistency(
-  val: { specStock?: Record<string, Record<string, number>> | null; attributes?: { name: string; values: string[] }[] | null },
+  val: {
+    specStock?: Record<string, Record<string, number>> | null;
+    attributes?: { name: string; values: string[] }[] | null;
+  },
   ctx: z.RefinementCtx,
 ): void {
   if (val.specStock == null || val.attributes == null) return;
@@ -62,6 +65,8 @@ function checkSpecStockConsistency(
 
 const productBaseSchema = z.object({
   name: z.string().trim().min(2, "商品名称至少 2 个字符").max(120),
+  /// 英文名（可选）：前台英文界面与搜索优先用它；留空回退中文名。仅用于 show/SEO，不作为 slug 必填。
+  nameEn: z.string().trim().max(120).nullable().optional(),
   slug: z
     .string()
     .trim()
@@ -91,7 +96,10 @@ const productBaseSchema = z.object({
     .nullable()
     .optional(),
   /// 规格级库存 { "Size": { "S": 3 } }，0 = 售罄
-  specStock: z.record(z.string(), z.record(z.string(), z.number().int().min(0))).nullable().optional(),
+  specStock: z
+    .record(z.string(), z.record(z.string(), z.number().int().min(0)))
+    .nullable()
+    .optional(),
   images: z.array(productImageSchema).max(20, "最多 20 张图片").default([]),
   attributes: z.array(productAttributeSchema).max(30).default([]),
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
@@ -116,6 +124,11 @@ export const batchStatusSchema = z.object({
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]),
 });
 
+/** 批量删除：与单删同语义（物理删除，购物车级联清理，订单保留快照） */
+export const batchDeleteSchema = z.object({
+  ids: z.array(z.string().min(1)).min(1, "请选择商品").max(200),
+});
+
 export const stockUpdateSchema = z.object({
   stock: z.number().int().min(0).max(9999999),
 });
@@ -127,6 +140,7 @@ export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 
 export const categoryCreateSchema = z.object({
   name: z.string().trim().min(2, "分类名称至少 2 个字符").max(50),
+  nameEn: z.string().trim().max(100).optional().nullable(),
   slug: z
     .string()
     .trim()
@@ -136,8 +150,15 @@ export const categoryCreateSchema = z.object({
   description: z.string().max(500).optional().nullable(),
   image: imageUrlSchema.optional().nullable(),
   bannerImage: imageUrlSchema.optional().nullable(),
+  /** `/collections` 集合卡片图（为空时前端回落到 `image`） */
+  cardImage: imageUrlSchema.optional().nullable(),
   parentId: z.string().nullable().optional(),
   sortOrder: z.number().int().default(0),
+  /**
+   * 首页横幅次序（1=左，2=右）。`null` = 不出现在首页横幅。
+   * 与 `sortOrder`（/collections 陈列顺序）解耦，因为原站两者顺序不同。
+   */
+  homeSortOrder: z.number().int().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 

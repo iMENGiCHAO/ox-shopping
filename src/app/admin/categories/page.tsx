@@ -63,6 +63,7 @@ function slugify(name: string): string {
 const categoryFormSchema = z
   .object({
     name: z.string().trim().min(2, "分类名称至少 2 个字符").max(50),
+    nameEn: z.string().trim().max(100).optional().or(z.literal("")),
     slug: z
       .string()
       .trim()
@@ -89,8 +90,25 @@ const categoryFormSchema = z
       )
       .optional()
       .or(z.literal("")),
+    cardImage: z
+      .string()
+      .max(2048)
+      .refine(
+        (v) => v === "" || /^https?:\/\//.test(v) || v.startsWith("/"),
+        "请填写合法的图片 URL（http/https）或站内路径",
+      )
+      .optional()
+      .or(z.literal("")),
     parentId: z.string().optional().or(z.literal("")),
     sortOrder: z.string().min(1, "请填写排序值"),
+    homeSortOrder: z
+      .string()
+      .optional()
+      .or(z.literal(""))
+      .refine(
+        (v) => v === "" || v === undefined || (/^\d+$/.test(v) && Number(v) >= 1),
+        "首页次序须为 ≥1 的整数，留空表示不上首页",
+      ),
     isActive: z.boolean().default(true),
   })
   .refine((d) => Number.isInteger(Number(d.sortOrder)), {
@@ -167,6 +185,7 @@ export default function AdminCategoriesPage() {
     resolver: zodResolver(categoryFormSchema),
     defaultValues: {
       name: "",
+      nameEn: "",
       slug: "",
       description: "",
       image: "",
@@ -182,12 +201,16 @@ export default function AdminCategoriesPage() {
     setSlugTouched(Boolean(editing));
     form.reset({
       name: editing?.name ?? "",
+      nameEn: editing?.nameEn ?? "",
       slug: editing?.slug ?? "",
       description: editing?.description ?? "",
       image: editing?.image ?? "",
       bannerImage: editing?.bannerImage ?? "",
+      cardImage: editing?.cardImage ?? "",
       parentId: editing?.parentId ?? "",
       sortOrder: String(editing?.sortOrder ?? 0),
+      homeSortOrder:
+        editing?.homeSortOrder != null ? String(editing.homeSortOrder) : "",
       isActive: editing?.isActive ?? true,
     });
   }, [formOpen, editing, form]);
@@ -246,12 +269,15 @@ export default function AdminCategoriesPage() {
     setFormSaving(true);
     const payload = {
       name: values.name,
+      nameEn: values.nameEn || null,
       slug: values.slug || undefined,
       description: values.description || null,
       image: values.image || null,
       bannerImage: values.bannerImage || null,
+      cardImage: values.cardImage || null,
       parentId: values.parentId || null,
       sortOrder: Number(values.sortOrder),
+      homeSortOrder: values.homeSortOrder ? Number(values.homeSortOrder) : null,
       isActive: values.isActive,
     };
     try {
@@ -529,6 +555,17 @@ export default function AdminCategoriesPage() {
               ) : null}
             </div>
             <div className="space-y-2">
+              <Label htmlFor="cat-name-en">分类名称（英文）</Label>
+              <Input
+                id="cat-name-en"
+                placeholder="例如 Mobile Phones（英文界面显示此名称）"
+                {...form.register("nameEn")}
+              />
+              {form.formState.errors.nameEn ? (
+                <p className="text-xs text-destructive">{form.formState.errors.nameEn.message}</p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="cat-slug">
                 路径标识 {editing ? "（编辑时通常不修改）" : "（按名称自动生成，可手动调整）"}
               </Label>
@@ -581,6 +618,22 @@ export default function AdminCategoriesPage() {
                   </p>
                 ) : null}
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="cat-home-sort">
+                  {t("Home banner order")}（1=左，2=右；留空不上首页）
+                </Label>
+                <Input
+                  id="cat-home-sort"
+                  type="number"
+                  placeholder="—"
+                  {...form.register("homeSortOrder")}
+                />
+                {form.formState.errors.homeSortOrder ? (
+                  <p className="text-xs text-destructive">
+                    {form.formState.errors.homeSortOrder.message}
+                  </p>
+                ) : null}
+              </div>
               <div className="flex items-end gap-2 pb-2">
                 <Label htmlFor="cat-active" className="shrink-0">
                   启用
@@ -604,6 +657,20 @@ export default function AdminCategoriesPage() {
               <Input id="cat-image" placeholder="https://..." {...form.register("image")} />
               {form.formState.errors.image ? (
                 <p className="text-xs text-destructive">{form.formState.errors.image.message}</p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cat-card">集合卡片图（`/collections` 列表用；留空则回落到上方图片）</Label>
+              <ImageUploader
+                value={form.watch("cardImage") ? [form.watch("cardImage")!] : []}
+                onChange={(urls) =>
+                  form.setValue("cardImage", urls[0] ?? "", { shouldValidate: true })
+                }
+                max={1}
+              />
+              <Input id="cat-card" placeholder="https://..." {...form.register("cardImage")} />
+              {form.formState.errors.cardImage ? (
+                <p className="text-xs text-destructive">{form.formState.errors.cardImage.message}</p>
               ) : null}
             </div>
             <div className="space-y-2">
@@ -659,7 +726,7 @@ export default function AdminCategoriesPage() {
         title={t("Delete category")}
         description={
           deleting
-            ? `确定要删除分类"${deleting.name}"吗？其下子分类将提升为顶级分类。此操作无法撤销。`
+            ? `确定要删除分类"${deleting.name}"吗？该分类下不能有商品或子分类才能删除。此操作无法撤销。`
             : ""
         }
         confirmText={t("Delete")}

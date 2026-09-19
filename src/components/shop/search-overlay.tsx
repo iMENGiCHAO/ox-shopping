@@ -35,12 +35,16 @@ export function SearchOverlay() {
     if (!open) return;
     inputRef.current?.focus();
     document.body.style.overflow = "hidden";
+    // 搜索面板展开时顶栏强制实心黑（集合页顶部顶栏本为透明，
+    // 否则会出现"上方菜单栏透明、只有搜索行黑色"的观感 bug）
+    document.body.classList.add("search-open");
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = "";
+      document.body.classList.remove("search-open");
       window.removeEventListener("keydown", onKey);
     };
   }, [open]);
@@ -116,7 +120,7 @@ export function SearchOverlay() {
       {open && mounted
         ? createPortal(
             <div
-              className="fixed inset-x-0 bottom-0 top-[65px] z-50 bg-black/40"
+              className="fixed inset-x-0 bottom-0 top-[var(--header-h)] z-50 bg-black/40"
               role="dialog"
               aria-modal="true"
               aria-label={t("Search")}
@@ -129,9 +133,12 @@ export function SearchOverlay() {
                   q.length >= 2 ? "bg-black" : "bg-transparent"
                 }`}
               >
-                {/* 搜索行 — 紧贴 65px 头部下方，h-[77px]，不透明黑底（官方实测 0,0,0） */}
+                {/* 搜索行 — 紧贴顶栏下沿，h-[77px]，不透明黑底（官方实测 0,0,0）。
+                    用 `.shell`（20/48px 内边距）而不是 `.container`：
+                    面板经 Portal 挂到 body，已不在 [data-shop-root] 作用域内，
+                    `.container` 的 20px 内边距会让放大镜与顶栏 LOGO（x=48）错位 28px。 */}
                 <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="bg-black">
-                  <div className="container flex h-[77px] items-center gap-4">
+                  <div className="shell flex h-[77px] items-center gap-4">
                     <Search className="h-5 w-5 shrink-0 text-white/65" strokeWidth={1.25} />
                     <input
                       ref={inputRef}
@@ -165,9 +172,30 @@ export function SearchOverlay() {
                   </div>
                 </form>
 
+                {/* 空态（原站实测 2026-09-20）：两个集合入口**整幅并排**，
+                    文字形如 `[ X Collection ] Shop All`，点击直达对应集合页 */}
+                {q.length < 2 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2">
+                    {[
+                      { href: "/collections/x-collection", label: "X Collection" },
+                      { href: "/collections/spacexai-collection", label: "SpaceXAI Collection" },
+                    ].map((c) => (
+                      <Link
+                        key={c.href}
+                        href={c.href}
+                        onClick={() => setOpen(false)}
+                        className="flex items-center justify-center gap-2 py-6 text-[15px] text-white transition-opacity hover:opacity-65"
+                      >
+                        <span className="tracking-[0.06em]">[ {t(c.label)} ]</span>
+                        <span>{t("Shop All")}</span>
+                      </Link>
+                    ))}
+                  </div>
+                ) : null}
+
                 {/* 联想区 — 左 240px 侧栏（Suggestions + 查询链接）/ 右侧商品网格 */}
                 {q.length >= 2 ? (
-                  <div className="container flex flex-col gap-10 pb-16 pt-6 lg:flex-row lg:gap-[54px]">
+                  <div className="shell flex flex-col gap-10 pb-16 pt-6 lg:flex-row lg:gap-[54px]">
                     <div className="w-full shrink-0 lg:w-[240px]">
                       <p className="text-[12px] font-normal leading-normal text-white/65">
                         {t("Suggestions")}
@@ -210,6 +238,14 @@ export function SearchOverlay() {
                           </ul>
                         </div>
                       ) : null}
+                      {/* 官方联想底部入口：查看全部搜索结果 */}
+                      <Link
+                        href={`/search?q=${encodeURIComponent(q)}`}
+                        onClick={() => setOpen(false)}
+                        className="mt-6 inline-block text-[15px] text-white underline underline-offset-4 hover:opacity-65"
+                      >
+                        {t("View all results")}
+                      </Link>
                     </div>
 
                     <div className="min-w-0 flex-1">

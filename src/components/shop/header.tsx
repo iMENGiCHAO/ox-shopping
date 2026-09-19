@@ -1,40 +1,38 @@
 import Link from "next/link";
-import { getSessionUser } from "@/lib/auth/session";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
-import { getUnreadCount } from "@/server/services/notification.service";
 import { getLang } from "@/lib/shop-i18n-server";
+import { localizePath } from "@/lib/shop-i18n";
+import { getSessionUser } from "@/lib/auth/session";
 import { CartBadge } from "@/components/shop/cart-badge";
-import { CurrencySelect } from "@/components/shop/currency-select";
 import { SearchOverlay } from "@/components/shop/search-overlay";
+import { CurrencySelect } from "@/components/shop/currency-select";
 import { UserMenu } from "@/components/shop/user-menu";
 
 /**
  * Site header — faithful shop.x.com replica:
- * pure-black 65px bar, site wordmark LEFT, utilities RIGHT
- * (currency · search · account · cart). No category nav, hide-on-scroll
- * handled by HeaderShell.
+ * pure-black bar (59px <700px / 65px ≥700px), wordmark centered <1000px, left-aligned ≥1000px.
+ *
+ * 响应式三段式（原站实测，断点 700 / 1000）：
+ * - <700px    ：仅 Search + Cart 两个图标（空间有限，币种在页脚，登录在结账流程触发）
+ * - 700–999px ：Account + Search + Cart 三个图标（仍无币种/文字）
+ * - ≥1000px   ：币种(🇺🇸USD ▾) → Login/Account → Search → Cart (n)（全文字，shop.x.com 顺序）
+ *
+ * 显隐全部由 globals.css 的 `.header-*` 类控制，组件里不再写断点，
+ * 保证"顶栏高度 / LOGO 对齐 / 右侧项数"三者始终同步。
+ * No category nav, hide-on-scroll handled by HeaderShell.
  */
 export async function Header() {
-  const [user, settings] = await Promise.all([getSessionUser(), getSiteSettings()]);
+  const settings = await getSiteSettings();
   const lang = await getLang();
   const siteName = pickLang(settings.siteName, lang);
-  // 服务端先查未读数 — 首屏 SSR 就能看到 `Account (n)`，避免客户端 mount 后才补上
-  const initialUnread = user ? await getUnreadCount(user.id) : 0;
+  const user = await getSessionUser();
 
   return (
     <header className="bg-ink text-ink-foreground">
-      {/* 公告栏 —— 管理端「站点设置」控制开关与文案，数据直达前台 */}
-      {settings.announcementEnabled && settings.announcement ? (
-        <div className="border-b border-white/10 bg-ink">
-          <div className="container flex min-h-[36px] items-center justify-center px-5 py-1.5 text-center text-[13px] leading-snug text-white/85">
-            <span className="line-clamp-2">{settings.announcement}</span>
-          </div>
-        </div>
-      ) : null}
       <div className="header-bar">
         {/* Left logo — 后台自定义品牌LOGO,否则官方白色X。
-            桌面固定左缘 48px；移动端居中（官方实测 375 视口左缘 153px）。 */}
-        <Link href="/" aria-label={siteName} className="header-logo">
+            ≥1000px 固定左缘 48px；<1000px 居中（官方实测 375 视口左缘 153px）。 */}
+        <Link href={localizePath("/", lang)} aria-label={siteName} className="header-logo">
           {/* 自定义品牌 LOGO：最大高度 44px 等比例缩放(object-contain 防变形)。
               顶栏为纯黑色：上传的 LOGO 若为透明底+黑色图案会"黑图压黑底"不可见，
               服务端已测定图案明度并写入 siteLogoDarkArtwork，偏暗时此处 invert 反白。
@@ -43,20 +41,19 @@ export async function Header() {
             src={settings.siteLogoUrl || "/images/brand/logo-header.png"}
             alt={siteName}
             className={`h-[44px] w-auto max-w-[200px] object-contain object-left${
-              settings.siteLogoUrl && settings.siteLogoDarkArtwork ? " invert" : ""
+              settings.siteLogoUrl && settings.siteLogoDarkArtwork ? "invert" : ""
             }`}
           />
         </Link>
 
-        {/* Right utilities — 移动端仅 搜索+购物车（官方）；桌面端 币种+搜索+账号(带消息角标)+购物车 */}
+        {/* Right utilities — 三段式显隐由 CSS 类控制。
+            顺序对齐 shop.x.com：币种 → 登录/账户 → 搜索 → 购物车。 */}
         <div className="header-utils text-sm">
-          <div className="header-util-desktop">
-            <CurrencySelect />
-          </div>
+          <span className="header-util-desktop">
+            <CurrencySelect withFlag direction="down" />
+          </span>
+          <UserMenu user={user} />
           <SearchOverlay />
-          <div className="header-util-desktop">
-            <UserMenu user={user} initialUnread={initialUnread} />
-          </div>
           <CartBadge />
         </div>
       </div>

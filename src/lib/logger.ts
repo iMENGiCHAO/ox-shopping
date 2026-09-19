@@ -38,3 +38,28 @@ export function logError(err: unknown, req?: Request | null, context?: Record<st
     log.error({ err, ...context }, "request failed");
   }
 }
+
+/**
+ * API 请求失败日志（按状态分级，避免预期内的客户端错误刷屏）：
+ * - 5xx 服务端错误：error + 完整堆栈（需排查）
+ * - 401/403 未登录/无权限：debug（访客每次轮询都会触发，属正常噪音）
+ * - 其他 4xx 客户端错误：warn，只记消息不打堆栈
+ */
+export function logApiFailure(
+  err: unknown,
+  req: Request | null | undefined,
+  context: { status: number } & Record<string, unknown>,
+) {
+  const log = withRequest(req);
+  const message = err instanceof Error ? err.message : String(err);
+  if (context.status >= 500) {
+    log.error(
+      { err: err instanceof Error ? { message: err.message, stack: err.stack } : err, ...context },
+      "request failed",
+    );
+  } else if (context.status === 401 || context.status === 403) {
+    log.debug({ message, ...context }, "request rejected");
+  } else {
+    log.warn({ message, ...context }, "request rejected");
+  }
+}

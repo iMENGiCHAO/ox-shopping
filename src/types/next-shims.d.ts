@@ -25,7 +25,7 @@ declare module "next" {
 declare module "next/server" {
   // NextRequest 用 class 声明：既能 new（tests 构造请求），
   // 又是 Request 子类型（handler 参数逆变兼容），nextUrl/cookies 必填。
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   export class NextRequest extends Request {
     nextUrl: URL;
     cookies: {

@@ -1,4 +1,3 @@
-import { ChevronDown } from "lucide-react";
 
 /**
  * Size Chart — shop.x.com 官方同构。
@@ -155,8 +154,8 @@ export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
           <table className="w-full border-collapse text-[15px] font-normal text-foreground">
             <tbody>
               {/* 官方结构：1 行表头 + N 行数据（N = rows.length），绝无空行；
-                  单元格 1px #DDD 网格：每行底部横线 + 非首列左边竖线 */}
-              <tr className="border-b border-t border-[#DDDDDD]">
+                  单元格 1px 发丝线（--border = #DDDDDD，与原站一致）：每行底部横线 + 非首列左边竖线 */}
+              <tr className="border-b border-t border-border">
                 {chart.headers.map((cell, ci) => (
                   <th
                     key={ci}
@@ -164,7 +163,7 @@ export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
                     className={`py-4 text-[15px] font-bold ${
                       ci === 0
                         ? "border-l-0 px-3 pl-0 text-left"
-                        : "border-l border-[#DDDDDD] px-3 text-center"
+                        : "border-l border-border px-3 text-center"
                     }`}
                   >
                     {cell}
@@ -172,14 +171,14 @@ export function SizeChartAccordion({ chart }: { chart: SizeChartTable }) {
                 ))}
               </tr>
               {chart.rows.map((row, ri) => (
-                <tr key={ri} className="border-b border-[#DDDDDD]">
+                <tr key={ri} className="border-b border-border">
                   {row.map((cell, ci) => (
                     <td
                       key={ci}
                       className={`py-4 align-middle tabular-nums ${
                         ci === 0
                           ? "border-l-0 px-3 pl-0 text-left font-bold"
-                          : "border-l border-[#DDDDDD] px-3 text-center"
+                          : "border-l border-border px-3 text-center"
                       }`}
                     >
                       {cell}

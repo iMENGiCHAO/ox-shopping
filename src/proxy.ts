@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "@/lib/auth/jwt";
-import { ACCESS_TOKEN_COOKIE, REQUEST_ID_HEADER } from "@/lib/constants";
+import {
+  ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
+  REQUEST_ID_HEADER,
+} from "@/lib/constants";
 import { CSRF_COOKIE, generateCsrfToken, validateCsrf } from "@/lib/auth/csrf";
 import { randomNonce, buildCsp } from "@/lib/server/proxy-helpers";
+import { langFromCookies } from "@/lib/request-lang";
+import { localizeErrorMessage } from "@/lib/error-i18n";
+import { env } from "@/lib/env";
 
 /**
  * Next 16 Proxy（原 Middleware，已在 16.0 弃用 middleware 并改名为 proxy）：
@@ -14,6 +21,10 @@ import { randomNonce, buildCsp } from "@/lib/server/proxy-helpers";
  * 运行：Next 16 默认 Node.js runtime（jose 验证 / crypto.randomUUID 都需要 Node）。
  *   - 出口 `export function proxy(...)` 是 Next 16 的约定名
  *   - 旧 `middleware.ts` 已被弃用，详见 node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md
+ *
+ * ⚠️ 顺序约束（安全关键）：CSP 的构造只是**准备**响应，绝不能提前 return；
+ *    必须继续执行 CSRF 校验与 /admin 守卫，最后统一返回同一个 res。
+ *    （历史 bug：生产 CSP 分支提前 return，导致 CSRF 与 admin 守卫在生产环境完全失效。）
  */
 
 const CSRF_EXEMPT_PREFIXES = [
@@ -23,6 +34,8 @@ const CSRF_EXEMPT_PREFIXES = [
   "/api/healthz",
   // 游客可调：售罄商品到货通知订阅（已用 rate-limit(5/h) + 同 email+product 去重防御滥用）
   "/api/notify-me",
+  // 支付渠道统一异步回调（支付宝/微信等第三方网关回调，无 CSRF token；验签在 handler 内完成）
+  "/api/pay/notify/",
 ];
 const PUBLIC_PATHS = ["/healthz", "/favicon.ico", "/_next", "/uploads", "/fonts"];
 
@@ -32,6 +45,17 @@ function isCsrfExempt(pathname: string): boolean {
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+}
+
+/** 在 Cookie 请求头字符串里 upsert 一个键值（用于静默续期后同步给后续 RSC/Route Handler） */
+function upsertCookieHeader(cookieHeader: string, name: string, value: string): string {
+  const parts = cookieHeader
+    .split(";")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .filter((p) => !p.startsWith(`${name}=`));
+  parts.push(`${name}=${value}`);
+  return parts.join("; ");
 }
 
 /**
@@ -57,6 +81,22 @@ export async function proxy(req: NextRequest) {
   // ---------- 路由级 locale 识别 ----------
   const locale = parseLocalePrefix(pathname);
 
+  // ---------- 旧链接迁移：/products?category=<slug> → /collections/<slug> ----------
+  // 原站集合页 URL 形态是 /collections/<slug>（2026-09-20 实测 200），本地历史形态
+  // 是 /products?category=<slug>。在中间件层做 307，避免旧链接落到索引页造成死链体验；
+  // 保留 /zh|/en 前缀，避免中文用户被甩到英文站。
+  {
+    const categorySlug = req.nextUrl.searchParams.get("category")?.trim();
+    if (locale.rest === "/products" && categorySlug) {
+      const prefix = locale.lang ? `/${locale.lang}` : "";
+      const target = new URL(
+        `${prefix}/collections/${encodeURIComponent(categorySlug)}`,
+        req.url,
+      );
+      return NextResponse.redirect(target, 307);
+    }
+  }
+
   // ---------- 请求 ID ----------
   let requestId = req.headers.get(REQUEST_ID_HEADER);
   if (!requestId) {
@@ -69,52 +109,111 @@ export async function proxy(req: NextRequest) {
   // 路由级语言信号（getLang() 优先读它，使 SSR 语言感知）
   if (locale.lang) requestHeaders.set("x-lang", locale.lang);
 
-  // ---------- CSP（生产：per-request nonce + strict-dynamic）----------
-  // 开发模式保留宽松策略(HMR 依赖 eval/inline)；生产由 proxy 按请求签发 nonce，
-  // Next 检测到请求头 CSP 含 nonce 后会自动写入其自有 bootstrap 脚本。
   const isProd = process.env.NODE_ENV === "production";
-  // 路由级 locale：有前缀时 rewrite 到去前缀路径（URL 仍显示 /zh|/en，内部路由命中 shop）
-  const rewriteUrl = locale.lang ? new URL(locale.rest, req.url) : undefined;
+  const isPublic = isPublicPath(pathname);
 
-  if (isProd && !isPublicPath(pathname)) {
-    const nonce = randomNonce();
-    requestHeaders.set("x-nonce", nonce);
-    const csp = buildCsp(nonce, true);
-    requestHeaders.set("Content-Security-Policy", csp);
-    const cspRes = rewriteUrl
+  // 路由级 locale：有前缀时 rewrite 到去前缀路径（URL 仍显示 /zh|/en，内部路由命中 shop）
+  // R2 修复：new URL(rest, req.url) 会丢弃原 query（如 /zh/search?q=tee → /search），
+  // 必须显式回填 req.nextUrl.search，否则带参 /zh 页面全部失效。
+  const rewriteUrl = locale.lang ? new URL(locale.rest, req.url) : undefined;
+  if (rewriteUrl) rewriteUrl.search = req.nextUrl.search;
+
+  const makeResponse = () =>
+    rewriteUrl
       ? NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
       : NextResponse.next({ request: { headers: requestHeaders } });
-    cspRes.headers.set("Content-Security-Policy", csp);
-    cspRes.headers.set(REQUEST_ID_HEADER, requestId);
-    return cspRes;
-  }
 
-  // 公开路径仅透传请求 ID
-  if (isPublicPath(pathname)) {
+  // 公开路径仅透传请求 ID（不注入 CSP/CSRF，降低静态资源开销）
+  if (isPublic) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  const res = rewriteUrl
-    ? NextResponse.rewrite(rewriteUrl, { request: { headers: requestHeaders } })
-    : NextResponse.next({ request: { headers: requestHeaders } });
-  res.headers.set(REQUEST_ID_HEADER, requestId);
+  // ---------- 静默续期 ----------
+  // access_token(15min) 过期但 refresh_token(7d) 有效时，自动轮换并写回 cookie，
+  // 否则用户每 15 分钟被登出一次（"7 天免登录"形同虚设）。
+  // 仅在 access 无效时才查库，命中频率 = 每用户每 15 分钟一次。
+  let rotatedTokens: { accessToken: string; refreshToken: string } | null = null;
+  {
+    const accessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+    const accessPayload = accessToken ? await verifyAccessToken(accessToken) : null;
+    if (!accessPayload) {
+      const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+      if (refreshToken) {
+        try {
+          const { rotateSession } = await import("@/lib/auth/session");
+          const rotated = await rotateSession(refreshToken);
+          rotatedTokens = { accessToken: rotated.accessToken, refreshToken: rotated.refreshToken };
+        } catch {
+          // 刷新失败（过期 / 重放检测触发）：按未登录处理，不阻断请求
+        }
+      }
+    }
+  }
+  if (rotatedTokens) {
+    let cookieHeader = requestHeaders.get("cookie") ?? "";
+    cookieHeader = upsertCookieHeader(cookieHeader, ACCESS_TOKEN_COOKIE, rotatedTokens.accessToken);
+    cookieHeader = upsertCookieHeader(cookieHeader, REFRESH_TOKEN_COOKIE, rotatedTokens.refreshToken);
+    requestHeaders.set("cookie", cookieHeader);
+  }
 
-  // 开发模式：宽松 CSP（HMR 需要 eval/inline）
-  if (!isProd) {
+  // ---------- CSP（仅准备，不 return）----------
+  let csp: string | null = null;
+  if (isProd) {
+    const nonce = randomNonce();
+    requestHeaders.set("x-nonce", nonce);
+    csp = buildCsp(nonce, true);
+    requestHeaders.set("Content-Security-Policy", csp);
+  }
+
+  const res = makeResponse();
+  res.headers.set(REQUEST_ID_HEADER, requestId);
+  if (csp) {
+    res.headers.set("Content-Security-Policy", csp);
+  } else {
+    // 开发模式：宽松 CSP（HMR 需要 eval/inline）
     res.headers.set("Content-Security-Policy", buildCsp("", false));
   }
 
-  // ---------- CSRF：变更请求校验 ----------
+  // 静默续期成功：把新 token 写入响应 Cookie（浏览器侧生效）
+  if (rotatedTokens) {
+    const cookieOpts = {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax" as const,
+      path: "/",
+      domain: env.COOKIE_DOMAIN || undefined,
+    };
+    res.cookies.set(ACCESS_TOKEN_COOKIE, rotatedTokens.accessToken, {
+      ...cookieOpts,
+      maxAge: env.ACCESS_TOKEN_TTL,
+    });
+    res.cookies.set(REFRESH_TOKEN_COOKIE, rotatedTokens.refreshToken, {
+      ...cookieOpts,
+      maxAge: env.REFRESH_TOKEN_TTL,
+    });
+  }
+
+  // ---------- CSRF：变更请求校验（生产/开发均必须执行）----------
   const method = req.method.toUpperCase();
   const isMutation = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
   const isApi = pathname.startsWith("/api/");
 
   if (isApi && isMutation && !isCsrfExempt(pathname)) {
     if (!validateCsrf(req)) {
-      return NextResponse.json(
-        { error: { code: "CSRF_FAILED", message: "CSRF 校验失败，请刷新页面后重试" } },
+      // 文案走 error-i18n：英文原文 + 按请求语言本地化，
+      // 避免把中文写死在这里（proxy 不在 apiHandler 链路内，需自行本地化）。
+      const lang = langFromCookies((name) => req.cookies.get(name)?.value);
+      const errRes = NextResponse.json(
+        {
+          error: {
+            code: "CSRF_FAILED",
+            message: localizeErrorMessage("CSRF validation failed, please refresh and retry", lang),
+          },
+        },
         { status: 403, headers: { [REQUEST_ID_HEADER]: requestId } },
       );
+      if (csp) errRes.headers.set("Content-Security-Policy", csp);
+      return errRes;
     }
   }
 
@@ -122,16 +221,16 @@ export async function proxy(req: NextRequest) {
   if (isApi && method === "GET" && !req.cookies.get(CSRF_COOKIE)) {
     res.cookies.set(CSRF_COOKIE, generateCsrfToken(), {
       httpOnly: false,
-      secure: process.env.NODE_ENV === "production",
+      secure: isProd,
       sameSite: "lax",
       path: "/",
       maxAge: 24 * 3600,
     });
   }
 
-  // ---------- /admin 路由守卫 ----------
+  // ---------- /admin 路由守卫（生产/开发均必须执行）----------
   if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-    const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+    const token = rotatedTokens?.accessToken ?? req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
     const payload = token ? await verifyAccessToken(token) : null;
     const allowed = payload && (payload.role === "ADMIN" || payload.role === "SUPPORT");
     if (!allowed) {

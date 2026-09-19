@@ -14,7 +14,7 @@ export const PUT = apiHandler(async (req, ctx) => {
   const id = routeParam(ctx.params.id);
 
   const existing = await prisma.address.findFirst({ where: { id, userId: user.id } });
-  if (!existing) throw notFound("地址不存在");
+  if (!existing) throw notFound("Address not found");
 
   const input = await readJson(req, addressUpdateSchema);
   if (input.isDefault) {
@@ -38,7 +38,7 @@ export const DELETE = apiHandler(async (req, ctx) => {
   const id = routeParam(ctx.params.id);
 
   const existing = await prisma.address.findFirst({ where: { id, userId: user.id } });
-  if (!existing) throw notFound("地址不存在");
+  if (!existing) throw notFound("Address not found");
 
   await prisma.address.delete({ where: { id } });
   await audit({

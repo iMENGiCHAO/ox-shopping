@@ -9,6 +9,12 @@ type Ctx = {
   setLang: (l: Lang) => void;
   toggle: () => void;
   t: (key: string, params?: Record<string, string | number>) => string;
+  /**
+   * 站点品牌名 —— 由服务端 layout 注入（站点设置 → 环境变量 → 内置默认）。
+   * 客户端组件读不到站点设置，品牌名只走这一条通道；
+   * 需要品牌的文案一律写成 `t("... {brand} ...", { brand: siteName })`。
+   */
+  siteName: string;
 };
 
 const LangContext = React.createContext<Ctx | null>(null);
@@ -19,7 +25,16 @@ const LangContext = React.createContext<Ctx | null>(null);
  * 同步到 context state。这里不强行覆盖 RSC 已注入的值（避免 hydration mismatch）。
  */
 
-export function ShopLangProvider({ children, initialLang }: { children: React.ReactNode; initialLang: Lang }) {
+export function ShopLangProvider({
+  children,
+  initialLang,
+  siteName = "",
+}: {
+  children: React.ReactNode;
+  initialLang: Lang;
+  /** 站点品牌名（服务端注入） */
+  siteName?: string;
+}) {
   const router = useRouter();
   const [lang, setLangState] = React.useState<Lang>(initialLang);
 
@@ -72,7 +87,10 @@ export function ShopLangProvider({ children, initialLang }: { children: React.Re
     [lang],
   );
 
-  const value = React.useMemo<Ctx>(() => ({ lang, setLang, toggle, t }), [lang, setLang, toggle, t]);
+  const value = React.useMemo<Ctx>(
+    () => ({ lang, setLang, toggle, t, siteName }),
+    [lang, setLang, toggle, t, siteName],
+  );
 
   // 关键: key={lang} 强制 RSC 子树在语言变化时整体重挂，
   // 这样 SSR 静态文案的 fallback 内容也会被丢弃，重新使用新 lang 的 RSC payload。
@@ -94,6 +112,7 @@ export function useShopLang(): Ctx {
       setLang: () => {},
       toggle: () => {},
       t: (k: string, params?: Record<string, string | number>) => translate(k, "en", params),
+      siteName: "",
     };
   }
   return ctx;
@@ -102,6 +121,11 @@ export function useShopLang(): Ctx {
 /** Convenience hook — returns just `t` (bound to the current language). */
 export function useT() {
   return useShopLang().t;
+}
+
+/** Convenience hook — returns the server-injected site brand name. */
+export function useSiteName() {
+  return useShopLang().siteName;
 }
 
 export { LANG_LABEL, LANGS, LANG_SHORT };

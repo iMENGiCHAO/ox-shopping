@@ -24,6 +24,24 @@ export function parseSpecStock(raw: unknown): SpecStockMap {
   return out;
 }
 
+/**
+ * 属性组合里是否包含至少一个「显式售罄」的规格值（被追踪且为 0；未追踪值视为可用，
+ * 与 PDP 售罄划线 / notifyRestock 触发口径完全一致）。
+ * 到货通知登记的合法性判据（大爷指正的 bug）：整件有货的商品，只有含售罄值的组合
+ * 才是合法的通知对象——能直接买的组合登记后，下次任意补货触发 notifyRestock 时
+ * allAvailable 恒真，会立即向客户发出「从未售罄过」的错误到货邮件。
+ */
+export function hasSoldOutSpecValue(
+  specRaw: unknown,
+  attributes: Record<string, string>,
+): boolean {
+  const specStock = parseSpecStock(specRaw);
+  return Object.entries(attributes).some(([group, value]) => {
+    const n = specStock[group]?.[value];
+    return n !== undefined && n <= 0;
+  });
+}
+
 export interface SpecSelectionLike {
   name: string;
   value: string;

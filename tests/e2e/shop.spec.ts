@@ -7,13 +7,16 @@ import { test, expect } from "./fixtures";
 
 test.describe("购物全链路", () => {
   // dev 模式下首次编译各路由较慢，放宽整体超时
-  test.setTimeout(180_000);
+  // 360s：慢速机械卷上全链路实测 ~2.5m（订单页冷编译 21s）+ 数据自还原段
+  // ~40s（admin login/列表/PATCH 各步 4-21s），180s 余量不足会打断自还原
+  test.setTimeout(360_000);
 
   test("商品列表 → 详情 → 加购 → 结算 → 模拟支付 → 订单已支付", async ({ page }) => {
     // 登录
     await page.goto("/auth/login");
-    await page.getByLabel("邮箱").fill("user@example.com");
-    await page.getByLabel("密码").fill("User@123456");
+    // 原站形态：字段名是框内 placeholder（灰字），无框外 label
+    await page.getByPlaceholder("邮箱", { exact: true }).fill("user@example.com");
+    await page.getByPlaceholder("密码", { exact: true }).fill("User@123456");
     await page.getByRole("button", { name: /登录/ }).click();
     await page.waitForURL((url) => !url.pathname.includes("/auth/login"));
 
@@ -24,14 +27,20 @@ test.describe("购物全链路", () => {
       await page.waitForTimeout(400);
     }
 
-    // 首页 → 商品列表
-    await page.goto("/products");
-    await expect(page.locator("a[href^='/products/']").first()).toBeVisible({ timeout: 15_000 });
+    // 商品列表页 → 固定测试商品
+    // 注意：`/products` 与原站一致是 All collections 索引页（无商品卡），
+    // 商品网格在集合页 `/collections/<slug>`；中文界面下内部链接带 /zh 前缀，
+    // 因此用 href*= 而不是 href^=。
+    await page.goto("/collections/spacexai-collection");
+    await expect(page.locator("a[href*='/products/']").first()).toBeVisible({ timeout: 30_000 });
 
-    // 打开第一个商品详情
-    const firstCard = page.locator("a[href^='/products/']").first();
-    await firstCard.click();
-    await page.waitForURL(/\/products\/[a-z0-9-]+$/);
+    // 打开固定的测试商品（不再用"第一张卡"——E2E 反复购买会把它买到售罄，
+    // 使 PLP 第一张卡易主、PDP 视觉基线整页漂移；固定商品 + 跑完还原库存，数据零侵蚀）
+    const testCard = page.locator("a[href*='/products/kids-grok-to-understand-tee']").first();
+    await testCard.waitFor({ timeout: 30_000 });
+    await testCard.click();
+    // 允许 /zh 语言前缀
+    await page.waitForURL(/\/products\/[a-z0-9-]+\/?$/);
     await expect(page.getByRole("button", { name: /加入购物袋|加入购物车/ })).toBeVisible();
 
     // 加入购物袋
@@ -45,22 +54,81 @@ test.describe("购物全链路", () => {
     await page.getByRole("link", { name: /去结算|结算/ }).click();
     await page.waitForURL(/\/checkout/);
 
-    // 选择地址（种子数据已有默认地址）
+    // 结算：原站形态的**多步**结账（信息 → 运费 → 支付 → 确认）
+    // 登录用户邮箱已自动带入；地址表单需显式填写（已存地址要手动「一键带入」，
+    // E2E 统一走内联表单，行为与游客一致、不受种子地址字段完整性影响）
     await expect(page.getByText(/收货地址/).first()).toBeVisible();
-    await page.getByRole("button", { name: /提交订单|立即支付/ }).click();
+    await page.getByPlaceholder("名", { exact: true }).fill("E2E");
+    await page.getByPlaceholder("姓", { exact: true }).fill("Buyer");
+    await page.getByPlaceholder("详细地址").fill("123 Test St");
+    await page.getByPlaceholder("城市").fill("San Francisco");
+    await page.getByPlaceholder("邮政编码").fill("94105");
+    // 第二个 select 是「省/州」（第一个是国家/地区），美国地址为必填
+    await page.locator("select").nth(1).selectOption({ index: 1 });
+    await page.getByRole("button", { name: /继续填写配送信息/ }).click();
+    await expect(page.getByText(/配送方式/).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /继续支付/ }).click();
+    await expect(page.getByText(/支付方式/).first()).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: /继续确认订单/ }).click();
+    await page.getByRole("button", { name: /提交订单/ }).click();
 
     // 模拟支付页（dev 模式首次编译该路由可能较慢，放宽超时）
     await page.waitForURL(/\/checkout\/mock\//, { timeout: 60_000 });
-    await expect(page.getByText(/模拟支付/).first()).toBeVisible();
-    await page.getByRole("button", { name: /支付成功|模拟支付成功/ }).click();
+    await page
+      .getByRole("button", { name: /Mock payment successful|模拟支付成功|支付成功/ })
+      .click();
 
     // 结果页 → 订单详情
     await page.waitForURL(/\/checkout\/result\?/, { timeout: 60_000 });
-    await expect(page.getByText(/支付成功/).first()).toBeVisible();
-    await page.getByRole("link", { name: /查看订单|订单详情/ }).click();
+    await expect(page.getByText(/支付成功|Payment received/).first()).toBeVisible();
+    await page.getByRole("link", { name: /查看订单|订单详情|View order/ }).click();
 
     // 订单详情显示已支付
     await page.waitForURL(/\/orders\//, { timeout: 60_000 });
-    await expect(page.getByText("已支付").first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/已支付|Paid/).first()).toBeVisible({ timeout: 15_000 });
+
+    // 数据自还原：测试商品库存补回固定值（PDP/PLP 渲染与视觉基线稳定的关键）。
+    // 覆盖当前页面会话为 admin 后走 admin API；测试已断言完毕，会话覆盖无副作用。
+    await page.evaluate(async () => {
+      await fetch("/api/auth/csrf");
+      const csrf = () =>
+        document.cookie
+          .split("; ")
+          .find((c) => /csrf/i.test(c))
+          ?.split("=")[1] ?? "";
+      await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-csrf-token": csrf() },
+        body: JSON.stringify({
+          email: "admin@example.com",
+          password: "Admin@123456",
+          scope: "admin",
+        }),
+      });
+      const list = (await fetch("/api/admin/products?page=1&pageSize=50").then((r) =>
+        r.json(),
+      )) as { data?: { id: string; slug: string }[] };
+      const target = (list?.data ?? []).find((p) => p.slug === "kids-grok-to-understand-tee");
+      if (target) {
+        await fetch(`/api/admin/products/${target.id}/stock`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", "x-csrf-token": csrf() },
+          body: JSON.stringify({ stock: 50 }),
+        });
+      }
+    });
+  });
+
+  test("访客访问 /checkout 后快速导航不产生未捕获异常", async ({ page }) => {
+    // 回归：访客 401 + addrPromise 浮动拒绝曾以 pageerror 打到导航后的下一页
+    const pageErrors: string[] = [];
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
+
+    await page.goto("/checkout", { waitUntil: "domcontentloaded" });
+    await page.waitForTimeout(1_200);
+    await page.goto("/pages/faqs", { waitUntil: "domcontentloaded" }).catch(() => {});
+    await page.waitForTimeout(3_000);
+
+    expect(pageErrors).toEqual([]);
   });
 });

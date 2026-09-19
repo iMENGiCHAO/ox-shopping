@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
-import { AccountNavLink, type AccountNavIcon } from "@/components/shop/account-nav-link";
+import { AccountNavLink } from "@/components/shop/account-nav-link";
 import { getT } from "@/lib/shop-i18n-server";
 import { AccountLogoutButton } from "@/components/shop/account-logout-button";
+import { buildAccountNav } from "@/lib/account-nav";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -29,35 +30,9 @@ async function AccountShell({ children }: { children: React.ReactNode }) {
   if (!user) throw new Error("unreachable");
   const t = await getT();
 
-  const NAV: { href: string; label: string; shortLabel?: string; icon: AccountNavIcon }[] = [
-    { href: "/account/profile", label: t("Profile"), shortLabel: t("Profile"), icon: "user" },
-    {
-      href: "/account/addresses",
-      label: t("Shipping Address"),
-      shortLabel: t("Address"),
-      icon: "map-pin",
-    },
-    {
-      href: "/account/password",
-      label: t("Change Password"),
-      shortLabel: t("Password"),
-      icon: "lock",
-    },
-    { href: "/orders", label: t("My Orders"), shortLabel: t("Orders"), icon: "orders" },
-    {
-      href: "/account/notifications",
-      label: t("Notifications"),
-      shortLabel: t("Inbox"),
-      icon: "bell",
-    },
-    {
-      href: "/account/favorites",
-      label: t("My Favorites"),
-      shortLabel: t("Favorites"),
-      icon: "heart",
-    },
-    { href: "/account/coupons", label: t("My Coupons"), shortLabel: t("Coupons"), icon: "ticket" },
-  ];
+  // 统一账户导航（与 /account 布局共用同一份定义，顺序一致）：
+  // 个人资料 → 收货地址 → 我的订单 → 消息通知（修改密码已并入个人资料页）
+  const NAV = buildAccountNav(t);
 
   return (
     <div className="container py-6 md:py-8">

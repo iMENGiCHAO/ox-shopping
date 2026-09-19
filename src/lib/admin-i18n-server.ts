@@ -9,7 +9,7 @@ export async function getLang(): Promise<Lang> {
   const store = await cookies();
   const raw = store.get(COOKIE_KEY)?.value as Lang | undefined;
   if (raw && LANGS.includes(raw)) return raw;
-  return "en"; // default to English (aligns with the shop frontend being English)
+  return "zh"; // 后台锁定中文（与客户端 LangProvider 默认 zh 一致）
 }
 
 /** Server-side translator: returns a `t` function bound to the current cookie lang. */

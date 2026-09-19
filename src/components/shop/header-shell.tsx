@@ -6,13 +6,15 @@ import { usePathname } from "next/navigation";
 /**
  * 吸顶导航外壳：
  * - 向下滚动隐藏、向上滚动显示(shop.x.com 式)
- * - 集合页透明顶栏：页面顶部存在 [data-transparent-header] 且未滚动时，
- *   顶栏透明叠在 hero 上；一旦向下滚动即恢复实心黑（官方 is-solid 机制）
+ * - 透明顶栏：仅首页主 hero 可声明 [data-transparent-header] 且未滚动时透明叠在
+ *   hero 上；其余页面（分类/商品/搜索等）顶栏始终实心黑。
  */
 export function HeaderShell({ children }: { children: ReactNode }) {
   const [hidden, setHidden] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [allowTransparent, setAllowTransparent] = useState(false);
+  // 鼠标悬停顶栏 → 立即恢复实心黑（避免"搜索面板已展开、顶栏却透明"的观感 bug）
+  const [hovered, setHovered] = useState(false);
   const lastY = useRef(0);
   const pathname = usePathname();
 
@@ -57,7 +59,9 @@ export function HeaderShell({ children }: { children: ReactNode }) {
       <div
         data-testid="header-shell"
         data-hidden={hidden ? "true" : "false"}
-        data-transparent={allowTransparent && !scrolled ? "true" : "false"}
+        data-transparent={allowTransparent && !scrolled && !hovered ? "true" : "false"}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         className={`sticky top-0 z-40 transition-[transform,box-shadow] duration-300 ease-out motion-reduce:transition-none ${
           hidden ? "-translate-y-full" : "translate-y-0"
         } ${scrolled && !hidden ? "shadow-[0_1px_12px_rgba(0,0,0,0.18)]" : "shadow-none"}`}

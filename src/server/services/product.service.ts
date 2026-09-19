@@ -22,14 +22,42 @@ export interface ListProductsParams {
   excludeSlugs?: string[];
 }
 
+/**
+ * 集合归属条件 —— **「主分类命中」∪「product_collections 成员行」**。
+ *
+ * 原站 shop.x.com 的 collection 与 product_type 是两个概念，且同一件商品可同属多个
+ * 集合（实测 `/collections/mens` 里既有 X 线的 `The Core Tee`，也有 xAI 线的
+ * `Grok Logo Tee`）。`Product.categoryId` 只存一个归属，附加归属落
+ * `ProductCollection`，所以列表页 / 集合页 / 计数**都必须走这个并集口径**，
+ * 只看 `categoryId` 会漏掉一半商品。
+ */
+export function collectionMembershipWhere(categoryIds: string[]): Prisma.ProductWhereInput {
+  return {
+    OR: [
+      { categoryId: { in: categoryIds } },
+      { collections: { some: { categoryId: { in: categoryIds } } } },
+    ],
+  };
+}
+
+/** 把新条件与既有 `where.AND` 合并（保持可组合，避免覆盖调用方已设的条件） */
+function andWhere(
+  where: Prisma.ProductWhereInput,
+  extra: Prisma.ProductWhereInput,
+): Prisma.ProductWhereInput {
+  const prev = Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : [];
+  return { ...where, AND: [...prev, extra] };
+}
+
 export async function listProducts(params: ListProductsParams) {
-  const where: Prisma.ProductWhereInput = { status: "ACTIVE" };
+  let where: Prisma.ProductWhereInput = { status: "ACTIVE" };
 
   if (params.search) {
+    // 只匹配商品名（name 中文 / nameEn 英文）——对齐 shop.x.com 搜索体验：
+    // description/sku 命中会把描述里带词的无关商品都搜出来（实测 q=stainless/logo/black）。
     where.OR = [
       { name: { contains: params.search, mode: "insensitive" } },
-      { description: { contains: params.search, mode: "insensitive" } },
-      { sku: { contains: params.search, mode: "insensitive" } },
+      { nameEn: { contains: params.search, mode: "insensitive" } },
     ];
   }
 
@@ -48,10 +76,10 @@ export async function listProducts(params: ListProductsParams) {
       logger.warn({ err: (err as Error).message }, "[catalog] 分类解析失败，降级为空列表");
       return { rows: [], total: 0 };
     }
-    if (!category) throw notFound("分类不存在");
-    // 一级分类包含其子分类商品
+    if (!category) throw notFound("Category not found");
+    // 一级分类包含其子分类商品；归属按并集口径（主分类 ∪ 附加集合成员）
     const ids = [category.id, ...category.children.map((c) => c.id)];
-    where.categoryId = { in: ids };
+    where = andWhere(where, collectionMembershipWhere(ids));
   }
 
   if (params.minPrice !== undefined || params.maxPrice !== undefined) {
@@ -64,16 +92,18 @@ export async function listProducts(params: ListProductsParams) {
   if (params.inStockOnly) where.stock = { gt: 0 };
   if (params.excludeSlugs?.length) where.slug = { notIn: params.excludeSlugs };
 
-  const orderBy: Prisma.ProductOrderByWithRelationInput =
+  // 稳定排序：所有模式追加 id 决胜键——并列名次（soldCount/price 相同）时若无决胜键，
+  // Postgres 重启后返回顺序会漂移，导致列表页/推荐位换品、视觉基线误报
+  const orderBy: Prisma.ProductOrderByWithRelationInput[] =
     params.sort === "price_asc"
-      ? { price: "asc" }
+      ? [{ price: "asc" }, { id: "asc" }]
       : params.sort === "price_desc"
-        ? { price: "desc" }
+        ? [{ price: "desc" }, { id: "asc" }]
         : params.sort === "sales"
-          ? { soldCount: "desc" }
+          ? [{ soldCount: "desc" }, { id: "asc" }]
           : params.sort === "title"
-            ? { nameEn: "asc" }
-            : { createdAt: "desc" };
+            ? [{ nameEn: "asc" }, { id: "asc" }]
+            : [{ createdAt: "desc" }, { id: "asc" }];
 
   const cacheKey = productsCacheKey(
     createHash("md5")
@@ -107,20 +137,19 @@ export async function listProducts(params: ListProductsParams) {
     return { rows: [], total: 0 };
   }
 
-  // relevance：名称命中排前（组内保持官方顺序），其余在后 —— 对齐 Shopify 搜索体验
+  // relevance：名称前缀命中排最前，其次子串命中 —— 对齐 Shopify 搜索体验
   if (params.sort === "relevance" && params.search) {
     const q = params.search.toLowerCase();
     type Row = (typeof rows)[number];
     const withName = rows as Row[];
-    const scored = [...withName].sort((a, b) => {
-      const aHit = `${(a as { nameEn?: string | null }).nameEn ?? ""} ${(a as { name?: string }).name ?? ""}`
-        .toLowerCase()
-        .includes(q);
-      const bHit = `${(b as { nameEn?: string | null }).nameEn ?? ""} ${(b as { name?: string }).name ?? ""}`
-        .toLowerCase()
-        .includes(q);
-      return aHit === bHit ? 0 : aHit ? -1 : 1;
-    });
+    const score = (r: Row): number => {
+      const hay =
+        `${(r as { nameEn?: string | null }).nameEn ?? ""} ${(r as { name?: string }).name ?? ""}`.toLowerCase();
+      if (hay.startsWith(q)) return 0;
+      if (hay.includes(q)) return 1;
+      return 2;
+    };
+    const scored = [...withName].sort((a, b) => score(a) - score(b));
     await cacheSet(cacheKey, { rows: scored, total });
     return { rows: scored, total };
   }
@@ -138,7 +167,7 @@ export async function getProductBySlug(slug: string) {
       logger.warn({ err: (err as Error).message }, "[catalog] 商品详情读取失败");
       return null;
     });
-  if (!product || product.status !== "ACTIVE") throw notFound("商品不存在或已下架");
+  if (!product || product.status !== "ACTIVE") throw notFound("Product not found or no longer available");
   return product;
 }
 
@@ -147,7 +176,7 @@ export async function getProductById(id: string) {
     where: { id },
     include: { category: true },
   });
-  if (!product) throw notFound("商品不存在");
+  if (!product) throw notFound("Product not found");
   return product;
 }
 
@@ -158,9 +187,13 @@ export interface CategoryNode {
   slug: string;
   description: string | null;
   image: string | null;
+  /** `/collections` 集合卡片图（为空时回落 `image`） */
+  cardImage?: string | null;
   /** 落地页顶部全宽大横幅(独立于列表卡片图) */
   bannerImage?: string | null;
   sortOrder: number;
+  /** 首页横幅次序（1=左，2=右）；null = 不出现在首页横幅 */
+  homeSortOrder?: number | null;
   children: CategoryNode[];
   productCount?: number;
 }
@@ -177,13 +210,38 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
     .findMany({
       where: { isActive: true },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
-      include: { _count: { select: { products: { where: { status: "ACTIVE" } } } } },
     })
     .catch((err: unknown) => {
       logger.warn({ err: (err as Error).message }, "[catalog] 分类树读取失败，降级为空列表");
       return null;
     });
   if (!categories) return [];
+
+  /* 商品数走**并集口径**（主分类 ∪ 附加集合成员）。
+     不能用 `_count.products` —— 它只统计 `categoryId`，会把 Mens / Womens 这类
+     靠 `product_collections` 挂载的集合数成 0，导致 /collections 误判为「空集合」。
+     用 Set 去重，避免同一商品既命中主分类又有成员行时被数两次。 */
+  const [rows, members] = await Promise.all([
+    prisma.product.findMany({
+      where: { status: "ACTIVE" },
+      select: { id: true, categoryId: true },
+    }),
+    prisma.productCollection.findMany({
+      where: { product: { status: "ACTIVE" } },
+      select: { categoryId: true, productId: true },
+    }),
+  ]);
+  const membersByCategory = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const set = membersByCategory.get(r.categoryId) ?? new Set<string>();
+    set.add(r.id);
+    membersByCategory.set(r.categoryId, set);
+  }
+  for (const m of members) {
+    const set = membersByCategory.get(m.categoryId) ?? new Set<string>();
+    set.add(m.productId);
+    membersByCategory.set(m.categoryId, set);
+  }
 
   const byParent = new Map<string | null, CategoryNode[]>();
   for (const c of categories) {
@@ -194,10 +252,12 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
       slug: c.slug,
       description: c.description,
       image: c.image,
+      cardImage: c.cardImage,
       bannerImage: c.bannerImage,
       sortOrder: c.sortOrder,
+      homeSortOrder: c.homeSortOrder,
       children: [],
-      productCount: c._count.products,
+      productCount: membersByCategory.get(c.id)?.size ?? 0,
     };
     const list = byParent.get(c.parentId ?? null) ?? [];
     list.push(node);
@@ -221,63 +281,15 @@ export async function getCategoryBySlug(slug: string) {
       logger.warn({ err: (err as Error).message }, "[catalog] 分类详情读取失败");
       return null;
     });
-  if (!category || !category.isActive) throw notFound("分类不存在");
+  if (!category || !category.isActive) throw notFound("Category not found");
   return category;
-}
-
-/** 评分统计与Reviews列表 */
-
-export async function getRatingStats(productId: string) {
-  const grouped = await prisma.review.groupBy({
-    by: ["rating"],
-    where: { productId, isHidden: false },
-    _count: { _all: true },
-  });
-  const distribution = [5, 4, 3, 2, 1].map((rating) => ({
-    rating,
-    count: grouped.find((g) => g.rating === rating)?._count._all ?? 0,
-  }));
-  const total = distribution.reduce((s, d) => s + d.count, 0);
-  const avg = total === 0 ? 0 : distribution.reduce((s, d) => s + d.rating * d.count, 0) / total;
-  return {
-    average: Math.round(avg * 10) / 10,
-    total,
-    distribution,
-  };
-}
-
-export async function listReviews(
-  productId: string,
-  opts: { page: number; pageSize: number; rating?: number },
-) {
-  const where: Prisma.ReviewWhereInput = { productId, isHidden: false };
-  if (opts.rating) where.rating = opts.rating;
-  const [rows, total] = await Promise.all([
-    prisma.review.findMany({
-      where,
-      orderBy: { createdAt: "desc" },
-      skip: (opts.page - 1) * opts.pageSize,
-      take: opts.pageSize,
-      select: {
-        id: true,
-        rating: true,
-        title: true,
-        comment: true,
-        images: true,
-        isVerifiedPurchase: true,
-        createdAt: true,
-        user: { select: { name: true } },
-      },
-    }),
-    prisma.review.count({ where }),
-  ]);
-  return { rows, total };
 }
 
 export async function getRelatedProducts(productId: string, categoryId: string, limit = 4) {
   return prisma.product.findMany({
     where: { categoryId, status: "ACTIVE", id: { not: productId } },
-    orderBy: { soldCount: "desc" },
+    // id 决胜键保证并列 soldCount 时推荐位稳定（重启不漂移）
+    orderBy: [{ soldCount: "desc" }, { id: "asc" }],
     take: limit,
     select: {
       id: true,
@@ -298,7 +310,7 @@ export async function getHomeData() {
   const [hot, newest] = await Promise.all([
     prisma.product.findMany({
       where: { status: "ACTIVE" },
-      orderBy: { soldCount: "desc" },
+      orderBy: [{ soldCount: "desc" }, { id: "asc" }],
       take: 8,
       select: {
         id: true,
@@ -315,7 +327,7 @@ export async function getHomeData() {
     }),
     prisma.product.findMany({
       where: { status: "ACTIVE" },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       take: 8,
       select: {
         id: true,
@@ -333,23 +345,8 @@ export async function getHomeData() {
   return { hot, newest };
 }
 
-/** 有效Discount券(首页/Shopping Bag展示) */
-export async function listActiveCoupons() {
-  const now = new Date();
-  const coupons = await prisma.coupon.findMany({
-    where: {
-      isActive: true,
-      startsAt: { lte: now },
-      endsAt: { gte: now },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-  // 跨列比较(usedCount < usageLimit)在内存中过滤；Discount券数量有限，性能无影响
-  return coupons.filter((c) => c.usageLimit === 0 || c.usedCount < c.usageLimit).slice(0, 6);
-}
-
 export function requireProduct(result: unknown): asserts result is NonNullable<typeof result> {
-  if (!result) throw new ApiError(404, "NOT_FOUND", "商品不存在");
+  if (!result) throw new ApiError(404, "NOT_FOUND", "Product not found");
 }
 
 export { badRequest };

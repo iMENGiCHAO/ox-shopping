@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateTrackedStock,
   applySpecRestock,
+  hasSoldOutSpecValue,
   parseSpecStock,
   planSpecDeduction,
 } from "@/server/services/spec-stock";
@@ -121,5 +122,32 @@ describe("aggregateTrackedStock — 整件库存与规格库存一致性口径",
     expect(aggregateTrackedStock({})).toBeNull();
     expect(aggregateTrackedStock(null)).toBeNull();
     expect(aggregateTrackedStock({ Color: {} })).toBeNull();
+  });
+});
+
+describe("hasSoldOutSpecValue — 到货通知登记合法性（大爷指正的 bug：有货规格不可登记）", () => {
+  const spec = { Color: { White: 20, "Patterned Black": 0 } };
+
+  it("含显式售罄值的组合 → 合法登记对象（true）", () => {
+    expect(hasSoldOutSpecValue(spec, { Color: "Patterned Black" })).toBe(true);
+    // 多组商品：Color 售罄 + Size 未追踪（视为可用）→ 组合整体仍是合法通知对象
+    expect(hasSoldOutSpecValue(spec, { Color: "Patterned Black", Size: "M" })).toBe(true);
+  });
+
+  it("有货值 / 未追踪值 / 空组合 → 不是通知对象（false）", () => {
+    expect(hasSoldOutSpecValue(spec, { Color: "White" })).toBe(false);
+    expect(hasSoldOutSpecValue(spec, { Color: "Red" })).toBe(false); // 未追踪值视为可用
+    expect(hasSoldOutSpecValue(spec, {})).toBe(false);
+    expect(hasSoldOutSpecValue(null, { Color: "White" })).toBe(false); // 无规格库存追踪
+  });
+
+  it("负数库存解析后被钳为 0 → 仍判售罄（与 PDP 划线口径一致）", () => {
+    expect(hasSoldOutSpecValue({ Color: { Red: -3 } }, { Color: "Red" })).toBe(true);
+  });
+
+  it("非法结构输入不抛错（宽松解析）", () => {
+    expect(hasSoldOutSpecValue("junk", { Color: "White" })).toBe(false);
+    expect(hasSoldOutSpecValue({ Color: "junk" }, { Color: "White" })).toBe(false);
+    expect(hasSoldOutSpecValue([[1, 2]], { Color: "White" })).toBe(false);
   });
 });

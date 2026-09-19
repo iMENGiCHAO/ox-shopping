@@ -5,11 +5,10 @@ import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { formatPrice } from "@/components/shop/currency-server";
+import { formatOrderAmount } from "@/components/shop/currency-server";
 import { OrderActions } from "@/components/shop/order-actions";
-import { ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { firstImage } from "@/components/shop/types";
-import { formatSpecs } from "@/components/shop/types";
+import { formatSpecValues } from "@/components/shop/types";
 import { getT } from "@/lib/shop-i18n-server";
 
 export interface OrderCardItemData {
@@ -27,6 +26,8 @@ export interface OrderCardData {
   createdAt: string | Date;
   total: number | string;
   currency?: string;
+  /** 订单创建时的汇率快照（1 USD 兑订单币种），用于金额展示 */
+  exchangeRate?: number;
   items: OrderCardItemData[];
 }
 
@@ -36,7 +37,12 @@ export async function OrderCard({ order }: { order: OrderCardData }) {
   const t2 = t as (key: string, params?: Record<string, string | number>) => string;
   const lang = t("__lang__") === "zh" ? "zh" : "en";
   const dateLocale = lang === "zh" ? zhCN : enUS;
-  const totalText = await formatPrice(Number(order.total));
+  // 使用订单创建时的币种与汇率快照，而非当前用户币种
+  const totalText = formatOrderAmount(
+    Number(order.total),
+    order.currency ?? "USD",
+    order.exchangeRate ?? 1,
+  );
 
   return (
     <Card>
@@ -47,9 +53,18 @@ export async function OrderCard({ order }: { order: OrderCardData }) {
             {format(new Date(order.createdAt), "yyyy-MM-dd HH:mm", { locale: dateLocale })}
           </span>
         </div>
-        <StatusBadge status={order.status} labelMap={Object.fromEntries(
-          Object.entries(ORDER_STATUS_LABELS).map(([k, v]) => [k, t2(v)])
-        ) as Record<string, string>} />
+        <StatusBadge
+          status={order.status}
+          labelMap={{
+            PENDING_PAYMENT: t2("Payment pending"),
+            PAID: t2("Paid"),
+            PROCESSING: t2("Processing"),
+            SHIPPED: t2("Shipped"),
+            DELIVERED: t2("Delivered"),
+            CANCELLED: t2("Cancelled"),
+            REFUNDED: t2("Refunded"),
+          }}
+        />
       </CardHeader>
       <CardContent className="px-4 py-3">
         <div className="flex flex-wrap items-center gap-3">
@@ -77,17 +92,14 @@ export async function OrderCard({ order }: { order: OrderCardData }) {
           {order.items
             .map(
               (i) =>
-                `${i.productName}${formatSpecs(i.attributes) ? `(${formatSpecs(i.attributes)})` : ""} × ${i.quantity}`,
+                `${i.productName}${formatSpecValues(i.attributes) ? `(${formatSpecValues(i.attributes)})` : ""} × ${i.quantity}`,
             )
             .join(", ")}
         </p>
       </CardContent>
       <CardFooter className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3">
         <div className="text-sm">
-          {t2("Total:")}{" "}
-          <span className="text-base font-normal text-foreground">
-            {totalText}
-          </span>
+          {t2("Total:")} <span className="text-base font-normal text-foreground">{totalText}</span>
         </div>
         <div className="flex items-center gap-2">
           <OrderActions orderNumber={order.orderNumber} status={order.status} />

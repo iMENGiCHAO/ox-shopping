@@ -7,6 +7,8 @@
  * - 401 时可选跳转登录
  */
 import { CSRF_HEADER, CSRF_COOKIE } from "@/lib/constants";
+import { langFromCookies } from "@/lib/request-lang";
+import { translate } from "@/lib/shop-i18n";
 
 export class ApiClientError extends Error {
   constructor(
@@ -20,10 +22,14 @@ export class ApiClientError extends Error {
   }
 }
 
-function getCsrfToken(): string {
+function readCookie(name: string): string {
   if (typeof document === "undefined") return "";
-  const match = document.cookie.split("; ").find((c) => c.startsWith(`${CSRF_COOKIE}=`));
-  return match ? decodeURIComponent(match.slice(CSRF_COOKIE.length + 1)) : "";
+  const match = document.cookie.split("; ").find((c) => c.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+}
+
+function getCsrfToken(): string {
+  return readCookie(CSRF_COOKIE);
 }
 
 /** 确保 CSRF Cookie 存在(页面直接访问 /auth/login 等场景，首次变更请求前拉取) */
@@ -75,7 +81,10 @@ export async function apiFetchRaw<TBody = unknown>(
 
   if (!res.ok) {
     const err = (body as { error?: { code?: string; message?: string; details?: unknown } })?.error;
-    const message = err?.message ?? `请求失败(${res.status})`;
+    // 兜底文案按当前语言取字典（此前写死中文，英文站会漏出中文）
+    const message =
+      err?.message ??
+      translate("Request failed ({status})", langFromCookies(readCookie), { status: res.status });
     if (res.status === 401 && opts.redirectOn401) {
       window.location.href = "/auth/login?next=" + encodeURIComponent(window.location.pathname);
     }

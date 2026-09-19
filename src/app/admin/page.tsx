@@ -42,7 +42,9 @@ function StatCard({
             <p className="mt-2 truncate text-[26px] font-semibold leading-tight tracking-tight text-foreground">
               {value}
             </p>
-            {sub ? <p className="mt-1.5 truncate text-[12px] text-muted-foreground">{sub}</p> : null}
+            {sub ? (
+              <p className="mt-1.5 truncate text-[12px] text-muted-foreground">{sub}</p>
+            ) : null}
           </div>
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-secondary text-foreground/70">
             <Icon className="h-5 w-5" strokeWidth={1.75} />
@@ -59,6 +61,10 @@ export default async function AdminDashboardPage() {
   const stats = await getAdminStats();
 
   const trend = stats.trend.map((p) => ({ date: p.date, orders: p.orders, revenue: p.revenue }));
+  // 多币种汇总：按人民币等值降序展示各结算币种的原币种营收
+  const currencyRows = Object.entries(stats.revenueByCurrency ?? {}).sort(
+    (a, b) => b[1].cnyEquivalent - a[1].cnyEquivalent,
+  );
 
   return (
     <div className="space-y-8">
@@ -68,15 +74,15 @@ export default async function AdminDashboardPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={TrendingUp}
-          label={t("Total Revenue")}
-          value={formatMoney(stats.todayRevenue)}
-          sub={`${stats.todayOrders} ${t("Orders")}`}
+          label={t("Today's Revenue")}
+          value={formatMoney(stats.todayRevenue, "CNY")}
+          sub={`${stats.todayOrders} ${t("Orders")} · 汇率 1USD=${stats.usdToCnyRate.toFixed(2)}CNY`}
         />
         <StatCard
           icon={ShoppingCart}
           label={t("All-time Revenue")}
-          value={formatMoney(stats.revenue)}
-          sub={`${stats.paidOrderCount} ${t("Orders")}`}
+          value={formatMoney(stats.revenue, "CNY")}
+          sub={`${stats.paidOrderCount} ${t("Orders")} · 折合 $${stats.revenueUsd.toFixed(2)}`}
         />
         <StatCard
           icon={Package}
@@ -87,7 +93,7 @@ export default async function AdminDashboardPage() {
         <StatCard
           icon={Users}
           label={t("Pending Shipments")}
-          value={stats.pendingShipCount + stats.pendingRefundCount}
+          value={stats.pendingShipCount}
           sub={`${stats.pendingShipCount} ${t("Pending Shipments")} · ${stats.pendingRefundCount} ${t("Refunds")}`}
         />
       </div>
@@ -137,13 +143,63 @@ export default async function AdminDashboardPage() {
                   </p>
                 </div>
                 <span className="shrink-0 text-[13px] font-semibold">
-                  {formatMoney(Number(p.price))}
+                  {formatMoney(Number(p.price), "USD")}
                 </span>
               </div>
             ))}
           </CardContent>
         </Card>
       </div>
+
+      {/* Sales by currency — 多币种结算的原币种营收汇总（人民币等值折算展示） */}
+      <Card className="shadow-card">
+        <CardHeader>
+          <CardTitle className="text-[15px] font-semibold tracking-tight">
+            {t("Sales by Currency")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {currencyRows.length === 0 ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">{t("No data yet")}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("Currency")}</TableHead>
+                    <TableHead className="text-right">{t("Orders")}</TableHead>
+                    <TableHead className="text-right">{t("Revenue (original currency)")}</TableHead>
+                    <TableHead className="text-right">{t("CNY equivalent")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {currencyRows.map(([code, r]) => (
+                    <TableRow key={code}>
+                      <TableCell>
+                        <span className="rounded bg-secondary px-1.5 py-0.5 text-[12px] font-semibold">
+                          {code}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right">{r.count}</TableCell>
+                      <TableCell className="text-right font-medium">
+                        {formatMoney(r.total, code)}
+                      </TableCell>
+                      <TableCell className="text-right text-muted-foreground">
+                        ¥{r.cnyEquivalent.toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-muted-foreground">
+            {t(
+              "Revenue amounts use the exchange-rate snapshot captured at order time — paid orders never drift with live rates.",
+            )}
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Recent orders */}
       <Card className="shadow-card">
@@ -182,16 +238,19 @@ export default async function AdminDashboardPage() {
                       </Link>
                     </TableCell>
                     <TableCell>
-                      <div className="truncate text-[13px] font-medium">{order.user.name}</div>
+                      {/* 游客订单没有 user 关联，回落到订单联系邮箱与「游客」标识 */}
+                      <div className="truncate text-[13px] font-medium">
+                        {order.user?.name ?? t("Guest")}
+                      </div>
                       <div className="truncate text-[11px] text-muted-foreground">
-                        {order.user.email}
+                        {order.user?.email ?? order.contactEmail ?? "—"}
                       </div>
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={order.status} labelMap={{ ...ORDER_STATUS_LABELS }} />
                     </TableCell>
                     <TableCell className="font-medium">
-                      {formatMoney(Number(order.total))}
+                      {formatMoney(Number(order.total), order.currency || "USD")}
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-[13px] text-muted-foreground">
                       {order.createdAt.toLocaleString("en-US", {

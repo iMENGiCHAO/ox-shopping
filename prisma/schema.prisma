@@ -1,7 +1,6 @@
 // Prisma Schema — 生产级电商数据模型
 // 说明：在需求模型基础上补充了三个支撑模型：
 //   RefreshToken —— JWT refresh token 轮换与重放检测
-//   Favorite      —— 商品收藏（个人中心“收藏”功能）
 //   SiteSetting   —— 管理端“设置”页面持久化（站点名称、SEO 等）
 
 generator client {
@@ -42,17 +41,21 @@ enum OrderStatus {
   REFUNDED
 }
 
-enum CouponType {
-  PERCENTAGE
-  FIXED
-  FREE_SHIPPING
-}
-
 enum RefundStatus {
   REQUESTED
   APPROVED
   REJECTED
   REFUNDED
+}
+
+/// 折扣码类型：
+///  - PERCENTAGE：按折前小计打折（value=1..100 的百分数，可用 maxDiscount 封顶）
+///  - FIXED：固定减免金额（value 为基础币种 USD 金额）
+///  - FREE_SHIPPING：免运费（value 忽略，减免额 = 订单运费）
+enum CouponType {
+  PERCENTAGE
+  FIXED
+  FREE_SHIPPING
 }
 
 // ============ 用户 ============
@@ -68,19 +71,18 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   lastLoginAt   DateTime?
+  /// 注销申请时间（有值=申请处理中；admin 处理完成/驳回后清空）
+  deletionRequestedAt DateTime?
 
   addresses  Address[]
   cartItems  CartItem[]
   orders     Order[]         @relation("UserOrders")
   assignedOrders Order[]     @relation("OrderAssignee")
-  reviews    Review[]
-  favorites  Favorite[]
-  coupons    CouponRedemption[]
   refunds    Refund[]
+  couponRedemptions CouponRedemption[]
   auditLogs  AuditLog[]
   refreshTokens RefreshToken[]
   notifications Notification[]
-  priceAlerts PriceAlert[]
 
   @@index([status])
   @@map("users")
@@ -95,6 +97,12 @@ model Address {
   city         String
   district     String
   detail       String
+  /// 街道地址第二行（公寓/单元号）。结账页「Save this information for next time」写入。
+  line2        String?
+  /// 国家/地区 ISO alpha-2。历史数据为 null（当时只有国内地址）。
+  country      String?
+  /// 邮编。历史数据为 null。
+  postalCode   String?
   isDefault    Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -128,22 +136,62 @@ model Category {
   nameEn    String? // optional English name
   slug      String  @unique
   description String?
+  /// 首页横幅图（首页两块半宽 Collection 横幅取此图；也是落地页大横幅的兜底）
   image     String?
+  /// `/collections` 集合卡片图。为空时回落到 `image`。
+  /// 原站首页横幅是模特大片、集合卡片是灰底商品图 —— 两者不同，故单独一列，
+  /// 避免为了对齐集合卡片而改坏首页横幅。
+  cardImage String?
   /// 落地页顶部全宽大横幅(与列表卡片 image 相互独立)
   bannerImage String?
   parentId  String?
   sortOrder Int     @default(0)
+  /// 首页横幅顺序。非空 = 该集合出现在首页那两块半宽横幅里，值即左右次序（1=左，2=右）。
+  ///
+  /// 为什么与 `sortOrder` 分开：原站首页横幅是 `[ X Collection ]` + `[ SpaceXAI Collection ]`，
+  /// 而 `/collections` 的陈列顺序是 `Mens · SpaceXAI Collection · Womens · X Collection`
+  /// —— 两者顺序本就不同，用同一个字段无法同时表达。
+  homeSortOrder Int?
   isActive  Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
   children Category[] @relation("CategoryTree")
+  /// 以本分类为**主分类**的商品（每件商品恰好一个主分类）
   products Product[]
+  /// 集合成员关系（多对多）—— 一件商品可同时出现在多个集合里
+  memberships ProductCollection[]
 
   @@index([parentId])
   @@index([isActive, sortOrder])
   @@map("categories")
+}
+
+/// 商品 ↔ 集合 的多对多归属。
+///
+/// 为什么需要它：shop.x.com 的「collection」与「product_type」是两个概念。
+/// 原站 /collections 有 4 个集合（Mens / SpaceXAI Collection / Womens / X Collection），
+/// 且同一件商品可同时属于多个 —— 实测 `/collections/mens` 里既有 X 线的
+/// `The Core Tee` 也有 xAI 线的 `Grok Logo Tee`。单一的 `Product.categoryId`
+/// 表达不了这种重叠归属，故引入本表。
+///
+/// 归属判定统一走 `isInCollection()` / `collectionMembershipWhere()`
+/// （`src/server/services/product.service.ts`）：
+///   「主分类命中」∪「本表存在成员行」
+model ProductCollection {
+  productId  String
+  categoryId String
+  /// 集合内陈列顺序（原站按 /products.json 的先后；同序时回落 createdAt）
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId, sortOrder])
+  @@map("product_collections")
 }
 
 model Product {
@@ -179,11 +227,10 @@ model Product {
   updatedAt     DateTime      @updatedAt
 
   category   Category     @relation(fields: [categoryId], references: [id])
+  /// 附加集合归属（多对多）—— 与 `categoryId`（主分类）取并集构成完整归属
+  collections ProductCollection[]
   cartItems  CartItem[]
   orderItems OrderItem[]
-  reviews    Review[]
-  favorites  Favorite[]
-  priceAlerts PriceAlert[]
 
   @@index([slug])
   @@index([categoryId])
@@ -219,14 +266,25 @@ model CartItem {
 model Order {
   id              String      @id @default(cuid())
   orderNumber     String      @unique
-  userId          String
+  /// 下单用户；游客结账时为 null（此时联系邮箱见 contactEmail）
+  userId          String?
+  /// 订单联系邮箱：登录单取用户邮箱，游客单取结账页填写的邮箱。
+  /// 用于订单确认/发货/退款邮件，以及游客订单查询与每人限次券的统计口径。
+  contactEmail    String?
+  /// 游客订单查询令牌（登录单为 null）。订单详情页 /orders/[n]?token=xxx 凭此访问。
+  accessToken     String?     @unique
   status          OrderStatus @default(PENDING_PAYMENT)
   subtotal        Decimal     @db.Decimal(10, 2)
   shippingFee     Decimal     @default(0) @db.Decimal(10, 2)
   tax             Decimal     @default(0) @db.Decimal(10, 2)
   discount        Decimal     @default(0) @db.Decimal(10, 2)
+  /// 使用的折扣码 id / 券码快照（券被删改后订单仍可还原当时的优惠）
+  couponId        String?
+  couponCode      String?
   total           Decimal     @db.Decimal(10, 2)
-  currency        String      @default("CNY")
+  currency        String      @default("USD")
+  // 汇率快照：订单创建时 1 USD 兑订单币种的汇率，确保已结算订单金额不再随汇率变动
+  exchangeRate    Decimal     @default(1) @db.Decimal(12, 6)
   addressSnapshot Json // { recipientName, phone, province, city, district, detail }
   paymentProvider String? // stripe | mock
   paymentId       String? // Stripe PaymentIntent id
@@ -252,14 +310,16 @@ model Order {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  user           User              @relation("UserOrders", fields: [userId], references: [id])
+  user           User?             @relation("UserOrders", fields: [userId], references: [id])
+  coupon         Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
   items          OrderItem[]
-  redemptions    CouponRedemption[]
   refunds        Refund[]
+  couponRedemptions CouponRedemption[]
   shippingMethod ShippingMethod?   @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
   assignee       User?             @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
 
   @@index([orderNumber])
+  @@index([couponId])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([createdAt])
@@ -289,98 +349,10 @@ model OrderItem {
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  review  Review?
 
   @@index([orderId])
   @@index([productId])
   @@map("order_items")
-}
-
-// ============ 评价 ============
-
-model Review {
-  id                 String   @id @default(cuid())
-  userId             String
-  productId          String
-  orderItemId        String?  @unique
-  rating             Int // 1-5
-  title              String?
-  comment            String
-  images             Json     @default("[]")
-  isVerifiedPurchase Boolean  @default(true)
-  isHidden           Boolean  @default(false)
-  createdAt          DateTime @default(now())
-
-  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  orderItem OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
-
-  @@unique([userId, productId])
-  @@index([productId, isHidden, createdAt])
-  @@index([userId])
-  @@map("reviews")
-}
-
-// ============ 收藏 ============
-
-model Favorite {
-  id        String   @id @default(cuid())
-  userId    String
-  productId String
-  /// 收藏时浏览器的语种（zh/en），用于按用户原语种发降价通知邮件
-  lang      String?
-  createdAt DateTime @default(now())
-
-  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  product    Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  priceAlert PriceAlert?
-
-  @@unique([userId, productId])
-  @@index([userId])
-  @@map("favorites")
-}
-
-// ============ 优惠券 ============
-
-model Coupon {
-  id          String     @id @default(cuid())
-  code        String     @unique
-  type        CouponType
-  value       Decimal    @db.Decimal(10, 2) // 百分比(0-100) / 固定金额 / 0
-  minSpend    Decimal    @default(0) @db.Decimal(10, 2)
-  maxDiscount Decimal?   @db.Decimal(10, 2)
-  startsAt    DateTime
-  endsAt      DateTime
-  usageLimit  Int        @default(0) // 0 = 不限
-  usedCount   Int        @default(0)
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-
-  redemptions CouponRedemption[]
-
-  @@index([code])
-  @@index([isActive, startsAt, endsAt])
-  @@map("coupons")
-}
-
-model CouponRedemption {
-  id             String   @id @default(cuid())
-  couponId       String
-  userId         String
-  orderId        String
-  discountAmount Decimal  @db.Decimal(10, 2)
-  createdAt      DateTime @default(now())
-
-  coupon Coupon @relation(fields: [couponId], references: [id])
-  user   User   @relation(fields: [userId], references: [id])
-  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-
-  @@unique([couponId, orderId])
-  // 每位用户每张券限用一次（防重复薅羊毛）
-  @@unique([couponId, userId])
-  @@index([userId])
-  @@map("coupon_redemptions")
 }
 
 // ============ 退款 ============
@@ -388,7 +360,8 @@ model CouponRedemption {
 model Refund {
   id        String       @id @default(cuid())
   orderId   String
-  userId    String
+  /// 申请退款的用户；游客订单（Order.userId 为空）时为 null
+  userId    String?
   reason    String
   amount    Decimal      @db.Decimal(10, 2)
   status    RefundStatus @default(REQUESTED)
@@ -399,7 +372,7 @@ model Refund {
   updatedAt DateTime     @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  user  User  @relation(fields: [userId], references: [id])
+  user  User? @relation(fields: [userId], references: [id])
 
   @@index([orderId])
   @@index([status, createdAt])
@@ -437,6 +410,23 @@ model SiteSetting {
   updatedAt DateTime @updatedAt
 
   @@map("site_settings")
+}
+
+/// 支付渠道（可配置化 + 密钥加密存储）。
+/// config_encrypted = AES-256-GCM 加密后的配置 JSON 字符串，密钥来自环境变量。
+model PaymentChannel {
+  id              String   @id @default(cuid())
+  code            String   @unique // alipay | wechat | mock | stripe ...
+  name            String   // 后台/前台显示名
+  provider        String   // 对应 PaymentProvider.key 实现
+  enabled         Boolean  @default(false)
+  configEncrypted String
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled, sortOrder])
+  @@map("payment_channels")
 }
 
 /// 支付/退款流水日志（资金对账审计；只追加，不修改）
@@ -480,6 +470,10 @@ model Faq {
   id        String   @id @default(cuid())
   question  String   @db.VarChar(200)
   answer    String   @db.Text
+  /// 英文问答（可空 —— 为空时前台英文站点回落到 question/answer，
+  /// 与 Product.name/nameEn 同一套 pickName 语义，避免中文界面漏出英文、反之亦然）
+  questionEn String? @db.VarChar(200)
+  answerEn   String? @db.Text
   sortOrder Int      @default(0)
   published Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -522,13 +516,13 @@ model ShippingMethod {
 }
 
 /// 站内消息中心（个人中心"消息"页 + 顶栏角标）
-///  - type: order | refund | price_alert | system
+///  - type: order | refund | system
 ///  - 多语 title/body（zh fallback） + 客户 lang 切换显示
 ///  - unread=true 时算入角标；客户点开后自动 mark read
 model Notification {
   id        String   @id @default(cuid())
   userId    String
-  /// 消息类型：order | refund | price_alert | system
+  /// 消息类型：order | refund | system
   type      String
   /// 标题（zh fallback）
   title     String
@@ -550,28 +544,103 @@ model Notification {
   @@map("notifications")
 }
 
-/// 降价通知（与 Favorite 1:1：收藏 = 关注 = 降价通知订阅）
-/// 不存 email — 收件人直接从 User.email 拿
-model PriceAlert {
-  id        String   @id @default(cuid())
-  favoriteId String  @unique // 一对一：每个 favorite 自动对应一个 price_alert
-  productId String
-  userId    String
-  /// 已通知价（最新一次通知时的价格，避免重复发同一价位邮件）
-  notifiedAt   DateTime?
-  notifiedPrice Decimal? @db.Decimal(10, 2)
-  /// 订阅时浏览器的语种（zh/en），用于按用户原语种发降价通知邮件
-  lang      String?
-  /// true=已取消订阅（保留记录以便追溯；UI 不显示）
-  unsubscribed Boolean @default(false)
+/// 折扣码（优惠券）。金额字段一律以**基础币种 USD** 存储，
+/// 下单时按订单币种汇率换算后再从折前小计/运费中扣减，
+/// 与 order.service 的「USD 计算 → 换算为用户币种」口径保持一致。
+model Coupon {
+  id       String     @id @default(cuid())
+  /// 券码（统一大写存储，校验时对输入做 trim + upper）
+  code     String     @unique
+  type     CouponType
+  /// PERCENTAGE: 1..100 的百分数；FIXED: 减免金额(USD)；FREE_SHIPPING: 忽略
+  value    Decimal    @db.Decimal(10, 2)
+  /// 使用门槛：折前小计(USD) 达到该值才可用；0 = 无门槛
+  minSpend Decimal    @default(0) @db.Decimal(10, 2)
+  /// PERCENTAGE 的最大减免封顶(USD)；null = 不封顶
+  maxDiscount Decimal? @db.Decimal(10, 2)
+  /// 生效窗口
+  startsAt DateTime
+  endsAt   DateTime
+  /// 总可用次数；0 = 不限量
+  usageLimit Int      @default(0)
+  /// 已核销次数（订单取消/退款时回补）
+  usedCount  Int      @default(0)
+  /// 每人可用次数（登录单按 userId、游客单按 contactEmail 统计）；0 = 不限
+  perUserLimit Int    @default(1)
+  /// 是否在公开领券页展示（false = 仅凭码使用，不对外露出）
+  isPublic Boolean    @default(false)
+  /// 公开领券页的展示文案（多语，zh fallback）
+  title         String?
+  titleEn       String?
+  description   String?
+  descriptionEn String?
+  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  favorite  Favorite  @relation(fields: [favoriteId], references: [id], onDelete: Cascade)
-  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  redemptions CouponRedemption[]
+  orders      Order[]
 
-  @@index([productId, unsubscribed])
-  @@index([userId])
-  @@map("price_alerts")
+  @@index([code])
+  @@index([isActive, startsAt, endsAt])
+  @@index([isPublic, isActive])
+  @@map("coupons")
 }
 
+/// 核销记录：下单时写入，是「每人限次」与「已用次数」的唯一事实来源。
+/// 取消/退款时删除记录并回补 Coupon.usedCount，使券可再次使用。
+model CouponRedemption {
+  id             String   @id @default(cuid())
+  couponId       String
+  /// 登录单的持有人；游客单为 null
+  userId         String?
+  /// 游客单的统计口径（与 Order.contactEmail 一致）
+  email          String?
+  orderId        String
+  /// 实际减免金额（订单币种）
+  discountAmount Decimal  @db.Decimal(10, 2)
+  createdAt      DateTime @default(now())
+
+  coupon Coupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// 幂等键：同一券对同一订单只能核销一次
+  @@unique([couponId, orderId])
+  @@index([couponId, userId])
+  @@index([couponId, email])
+  @@map("coupon_redemptions")
+}
+
+
+
+/// 联系表单留言 —— 对应原站 `/pages/contact` 的三字段表单（Name / E-mail / Message）。
+///
+/// 为什么**落库**而不只发邮件：邮件通道可能未配置（`MAIL_PROVIDER=console`
+/// 时只打日志）或临时故障，只发邮件会静默丢单。落库保证留言不丢，
+/// 后台可随时查看与标记处理进度；邮件通知作为「有人找你」的提醒并行发送。
+model ContactMessage {
+  id      String @id @default(cuid())
+  name    String
+  email   String
+  message String
+  /// 提交时的站点语种（zh/en）—— 客服可按用户原语种回复
+  lang    String @default("en")
+  /// 处理状态：new | read | replied | spam
+  status  String @default("new")
+  /// 来源入口（contact-page / 其他内嵌表单），便于区分流量
+  source  String @default("contact-page")
+  /// 提交者 IP（限流与反滥用留痕；生产部署在可信反代后取 XFF 末跳）
+  ip      String?
+  /// 客服处理备注
+  note    String?
+  /// 是否已发过「新留言」通知邮件（避免重复打扰）
+  notified Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([email, createdAt])
+  @@map("contact_messages")
+}

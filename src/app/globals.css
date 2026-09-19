@@ -19,29 +19,275 @@
   }
 }
 
-/* 桌面端产品画廊/参数表：官方容器较窄，相对视口左缘多 30px 内缩；
-   右缘同样内缩 30px（与官方画廊内容右缘对齐） */
-@media (min-width: 1024px) {
-  .gallery-thumb-offset {
-    padding-left: 30px;
-    padding-right: 30px;
+/* ══════════════════════════════════════════════════════════════════════
+   版式栅格 —— 全部取自 shop.x.com 实测值（docs/PARITY_AUDIT §二之四）
+   改这里即可整站生效，页面里不再出现这些像素魔数。
+   ══════════════════════════════════════════════════════════════════════ */
+:root {
+  --shell-pad: 1.25rem; /* 20px — 移动端全宽容器内边距 */
+  --shell-max: 1600px; /* 超宽屏收敛上限（≤1600px 时与原站完全一致） */
+  --content-max: 45rem; /* 720px — 内容页正文列（FAQ / 政策） */
+  --content-pad: 1.25rem; /* 20px */
+
+  /* 顶栏高度 —— 单一事实来源：`.header-bar` 与认证页的
+     `min-height: calc(100vh - var(--header-h))` 都引用它。
+     原站实测：<700px = 59px；≥700px = 65px。 */
+  --header-h: 65px;
+
+  /* 认证页（登录/注册/找回密码/重置）垂直节奏 —— 原站 1200 视口实测：
+     登录页 H1 字形顶 y479、注册页 y416，两页内容块中心同为 y630.5
+     ≈ (65 + 1200) / 2 ⇒ 容器高 = 视口高 − 顶栏高，内容垂直居中。 */
+  --auth-max: 440px; /* 原站输入框实测宽 440px（左右贯通，无额外内缩） */
+  --auth-gap: 1rem; /* 16px — 相邻输入框间距（原站 17px） */
+  --auth-btn-gap: 1.25rem; /* 20px — 末个输入框 → 按钮（原站 21px） */
+
+  --pdp-col-gap: 5rem; /* 80px — PDP 主图列 ↔ 信息栏列 */
+  --pdp-thumb: 3.5rem; /* 56px — PDP 缩略图元素盒（内含 52px 图） */
+  --pdp-thumb-gap: 1rem; /* 16px — 缩略图盒间距（视觉图间距 20px） */
+  /* PDP 移动端圆点导航（原站 375 实测：主图底 → 圆点 24px；3 点总宽 50px = 3×6 + 2×16） */
+  --pdp-dots-mt: 1rem; /* 桌面沿用现值（原站桌面为缩略图轨，无圆点） */
+  --pdp-dots-gap: 0.5rem;
+  --pdp-dots-size: 0.5rem;
+  --pdp-title-size: 22px; /* 商品名（桌面实测 22px；移动端原站降到 18px） */
+
+  --plp-col-gap: 3.75rem; /* 60px — 集合页列间距（原站实测卡 408 宽、列 pitch 468） */
+  --plp-row-gap: 66px; /* 商品列表行间距 — 原站行 pitch 470px，减去卡片高 403.8 反推 */
+  /* 首页商品网格列间距：原站首页卡 440 宽、列 pitch 452（间距 12px），
+     与集合页（卡 408、间距 60）**刻意不同**——大爷 2026-09-20 指正两处间距不同，
+     此前本地把两处做成一致的 48px，与原站不符。 */
+  --home-col-gap: 0.75rem;
+  --plp-head-pt: 3.875rem; /* 62px — 页首(header 下沿)到标题行盒，原站字形 y137 */
+  --plp-head-gap: 7rem; /* 112px — 标题行盒到首行卡片顶，原站首图 y280 */
+  --plp-title-size: 1.75rem; /* 28px — 标题字号（原站桌面实测字形带高 22px） */
+  --plp-shell-pad: var(--shell-pad); /* 容器内边距：桌面与全局一致（48px） */
+  --collection-gap: 1.875rem; /* 30px — 集合页列/行间距 */
+  --collection-head-pt: 3.75rem; /* 60px — header 下沿到 H1 行盒，原站字形 y137 */
+  --collection-head-gap: 3.125rem; /* 50px — H1 行盒到卡片网格顶（校验后卡片顶 y214，与原站一致） */
+  --collection-cap-inset-x: 3rem; /* 48px — 卡片内标题左内缩（原站字形 x98，卡左缘 48） */
+  --collection-cap-inset-y: 2.5rem; /* 40px — 卡片内标题下内缩（原站字形底 y521，卡底缘 566） */
+  --collection-cap-size: 1.25rem; /* 20px — 卡片内标题字号（原站实测） */
+
+  /* 首页「All Products」区块 —— 原站实测：
+     桌面（1200 视口）标题字形 y478..496（宽 142 → ≈26px）、字形距横幅底 73px；
+     移动端（375 视口）标题字形 y269..284（宽 106 → ≈21px）、字形距横幅底 46px。 */
+  --home-title-size: 26px;
+  --home-head-pt: 66px; /* 横幅底 → 标题行盒（桌面） */
+  --home-grid-mt: 50px; /* 标题行盒 → 首行卡片顶（原站首图 y555） */
+
+  /* /cart 空态垂直节奏（原站 1200 视口实测：标题字形 y336 / 副标题 y383 / 按钮 y434） */
+  --cart-empty-pt: 16.5rem; /* 264px — header 下沿到标题行盒 */
+  --cart-empty-pb: 15.625rem; /* 250px */
+  --cart-empty-gap-1: 1.25rem; /* 20px — 标题 → 副标题 */
+  --cart-empty-gap-2: 2.125rem; /* 34px — 副标题 → 按钮 */
+  --cart-btn-pad-x: 1.75rem; /* 28px — 空态按钮水平内边距（原站按钮宽 174px） */
+
+  /* 页脚垂直节奏 —— 原站 1200 视口实测：行1 字形 y1085 / 行2 字形 y1162 / 总高 211 */
+  --footer-pt: 3.875rem; /* 62px — 页脚顶到链接行盒 */
+  --footer-row-gap: 3.375rem; /* 54px — 链接行盒 → 工具行 */
+  --footer-pb: 3.25rem; /* 52px — 工具行 → 页脚底 */
+  --footer-link-gap: 1.5rem; /* 24px — 链接行水平间距（原站行宽 845px 反解） */
+
+  /* 内容页正文（FAQ / 政策）—— 原站实测 15px / 行高 25px
+     段间距 20px：原站相邻两段的「字形底 → 下一段字形顶」为 32px，
+     而 15px/25px 的行内同距为 12px ⇒ 额外外边距 = 32 − 25 + 13 ≈ 20px */
+  --prose-size: 0.9375rem;
+  --prose-line: 1.5625rem;
+  --prose-block-gap: 1.25rem;
+
+  /* FAQ 页垂直节奏 —— 原站实测：H1 字形顶 y138、首段字形顶 y265（校验后对齐） */
+  --faq-head-pt: 63px; /* header 下沿 → H1 行盒；原站 H1 字形带 y138..155 */
+  --faq-head-gap: 91px; /* H1 行盒 → 正文首段；原站首段字形带 y265..278（左缘 x269） */
+}
+@media (min-width: 700px) {
+  :root {
+    --shell-pad: 3rem; /* 48px — 原站 700px 断点起 */
+  }
+}
+/* 移动端（<700px）—— 顶栏 59px + PLP 移动端专用节奏
+   原站 375 视口实测（iPX-plp.png）：标题字形 y107..123（≈21px 字号）、
+   首行商品图 y196、图 172×172、容器内边距 10、列距 10（10+173+10+172+10 = 375）、
+   行 pitch 272（= 卡片高 234 + 行距 38）。 */
+@media (max-width: 699px) {
+  :root {
+    --header-h: 59px;
+    --plp-title-size: 1.3125rem; /* 21px */
+    --plp-head-pt: 43px; /* 顶栏下沿(59) → 标题行盒 */
+    --plp-head-gap: 65px; /* 标题行盒 → 首行卡片顶 */
+    --plp-col-gap: 10px;
+    --plp-row-gap: 38px;
+    --plp-shell-pad: 10px; /* PLP 容器内边距：原站移动端只有 10px（其他页面 20px） */
+
+    /* PDP 移动端：主图满宽出血 375×375 且紧贴顶栏（原站实测 y59..434），
+       圆点距主图 24px、点径 6px、点距 16px。 */
+    --pdp-dots-mt: 24px;
+    --pdp-dots-gap: 16px;
+    --pdp-dots-size: 6px;
+    --pdp-title-size: 18px; /* 原站移动端实测：标题字形带高 14px（桌面 22px 的字形带为 21px） */
+
+    /* 首页「All Products」：原站移动端标题字形宽 106（桌面 142）⇒ ≈21px */
+    --home-title-size: 21px;
+    --home-head-pt: 41px;
+    --home-grid-mt: 40px; /* 原站移动端首图 y329（标题行盒底 290） */
   }
 }
 
-/* ── 顶栏（shop.x.com 对齐）：桌面 LOGO 固定左缘 48px；
-      移动端 LOGO 居中、右侧仅搜索+购物车图标 ── */
+/* PDP 移动端：主图满宽出血（负外边距抵消 .shell 的 20px 内边距），
+   并把 .shell 的 48px 上内边距清零 → 图片紧贴顶栏。 */
+@media (max-width: 699px) {
+  .pdp-shell {
+    padding-top: 0;
+  }
+  .pdp-media {
+    margin-inline: calc(-1 * var(--shell-pad));
+  }
+}
+/* PDP 移动端放大按钮（原站实测：主图右上角内缩 20px 的 36px 白圆 + 深色放大镜；
+   桌面端不显示 —— 桌面用放大镜光标提示，无此按钮） */
+.pdp-zoom-btn {
+  display: none;
+}
+@media (max-width: 699px) {
+  .pdp-zoom-btn {
+    display: inline-flex;
+  }
+}
+
+/* 全宽容器：内容宽 = 视口宽 − 2×48px（原站实测 1216 → 1120） */
+.shell {
+  width: 100%;
+  max-width: var(--shell-max);
+  margin-inline: auto;
+  padding-inline: var(--shell-pad);
+}
+
+/* PDP 容器：原站 PDP **比其它页更早居中收敛**（多视口实测，2026-09-20）：
+   1280 → 缩略图左缘 48（全宽 - 48 padding）
+   1440 → 左缘 90  = (1440-1356)/2 + 48
+   1920 → 左缘 330 = (1920-1356)/2 + 48
+   即 max-width 1356（内容区 1260 + 两侧 48 padding）+ 居中。
+   此前 PDP 走全宽 shell（1600 上限），导致 1280 以上缩略图/大图位置逐档偏离原站。
+   必须写在 .shell 之后：两者同为单类选择器，靠顺序取胜。 */
+.pdp-shell {
+  max-width: 1356px;
+}
+/* 内容页容器：720px 居中 + 20px 内边距（原站实测正文列 268..946） */
+.content-shell {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--content-pad);
+}
+
+/* ── 认证页外壳：内容在「顶栏下沿 → 视口底」区间垂直居中 ──
+   原站把 section 撑到 100vh − 顶栏高，故页脚被推到首屏之下（截图里看不到页脚）。 */
+.auth-shell {
+  display: flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - var(--header-h));
+  padding-inline: var(--shell-pad);
+}
+.auth-card {
+  width: 100%;
+  max-width: var(--auth-max);
+}
+/* 认证页表单：输入框间距 16px，末个输入框到按钮 20px（原站实测 17 / 21） */
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--auth-gap);
+  margin-top: 1.75rem; /* 28px — 副标题行盒 → 首个输入框（原站实测 27.5） */
+}
+.auth-form > button[type="submit"],
+.auth-form > .auth-submit {
+  margin-top: calc(var(--auth-btn-gap) - var(--auth-gap));
+}
+
+/* 店铺前台的 .container 不按断点封顶（Tailwind 默认会封到 1280/1360），
+   只在 --shell-max 之上收敛 —— 否则 1280–1600 区间会与原站错位。 */
+[data-shop-root] .container {
+  max-width: min(100%, var(--shell-max));
+}
+
+/* ── PDP 栅格：7fr / 80px / 3fr ──
+   校验：内容 1120 → 可用 1040 → 主图列 728 / 信息栏 312（与原站实测一致）
+
+   断点用 **1000px**，与原站一致（此前写 1024px，是唯一漏网的一处：
+   .plp-grid / .collection-grid / 页头三段式都已是 700 / 1000）。
+   实测证据（scripts/qa/qa-upstream-pdp-vs-header.mjs）：
+   用同一条取证通道同时看「页头 Logo 是否左对齐」与「PDP 是否两栏」，
+   两者在**同一请求宽**翻转 —— 页头断点已独立实测为 1000px，故 PDP 断点同为 1000px。
+   本地原先在 1000~1023px 是单栏，与原站两栏不符。 */
+.pdp-grid {
+  display: grid;
+  gap: 2rem;
+}
+@media (min-width: 1000px) {
+  .pdp-grid {
+    grid-template-columns: 7fr 3fr;
+    column-gap: var(--pdp-col-gap);
+    row-gap: 3.5rem;
+  }
+}
+
+/* ── 商品列表栅格：2 列（<700px）/ 3 列（≥700px）
+   列/行距全部走令牌：移动端 10/38，桌面 48/66（原站实测） */
+.plp-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--plp-col-gap);
+  row-gap: var(--plp-row-gap);
+}
+.home-grid {
+  column-gap: var(--home-col-gap);
+}
+
+@media (min-width: 700px) {
+  .plp-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* PLP 专用容器：移动端内边距 10px（原站实测），≥700px 回到全局 --shell-pad */
+.plp-shell {
+  padding-inline: var(--plp-shell-pad);
+}
+
+/* ── 集合页栅格：2 列（<700px）/ 3 列（≥700px），间距 30px ── */
+.collection-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+@media (min-width: 700px) {
+  .collection-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--collection-gap);
+  }
+}
+
+/* ── 顶栏三段式（原站实测，此前本地是"640 切对齐 / 768 切导航"的两段式）──
+   | 视口宽     | 高    | LOGO     | 右侧构成                                   |
+   | <700px     | 59px  | 居中     | 搜索 + 购物车（2 个图标）                   |
+   | 700–999px  | 65px  | 居中     | 账号 + 搜索 + 购物车（3 个图标）            |
+   | ≥1000px    | 65px  | 左对齐 48px | 币种 + Login + Search + Cart (n)（文字） |
+   两个断点：700px（高度 59→65、右侧 2→3 项）、1000px（居中→左对齐、图标→文字）。 */
 .header-bar {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 65px;
+  height: var(--header-h);
   padding: 0 20px;
   gap: 14px;
 }
 /* LOGO 上下各 6px padding：顶栏 65px − LOGO ~52px = 13px 剩余 → padding 各 6px。
    之前 4px 太紧，现在 6px 让 LOGO 与顶栏有更明显的呼吸空间。 */
 .header-logo {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   padding: 6px 0;
@@ -52,6 +298,7 @@
   gap: 14px;
   margin-left: auto;
 }
+/* 币种选择器：仅 ≥1000px 显示（700–999 原站只有 3 个图标，无币种） */
 .header-util-desktop {
   display: none;
 }
@@ -67,15 +314,28 @@
   height: 24px;
   display: block;
 }
-/* 账号图标：移动端显示；桌面端官方为纯文字（无图标） */
+/* 账号：<700px 无；700–999px 仅图标；≥1000px 仅文字 */
 .header-account-icon {
-  display: block;
+  display: none;
 }
-@media (min-width: 640px) {
+.header-account-text {
+  display: none;
+}
+/* 700–999px：65px + LOGO 仍居中 + 账号/搜索/购物车 3 个图标 */
+@media (min-width: 700px) {
   .header-bar {
     padding: 0 48px;
     gap: 20px;
   }
+  .header-utils {
+    gap: 20px;
+  }
+  .header-account-icon {
+    display: block;
+  }
+}
+/* ≥1000px：LOGO 左对齐 48px + 文字导航（币种 / Login / Search / Cart (n)） */
+@media (min-width: 1000px) {
   .header-logo {
     position: static;
     transform: none;
@@ -97,12 +357,8 @@
   .header-account-icon {
     display: none;
   }
-}
-@media (max-width: 639px) {
-  .header-logo {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
+  .header-account-text {
+    display: inline;
   }
 }
 
@@ -114,27 +370,35 @@
 [data-testid="header-shell"][data-transparent="true"] > header {
   background-color: transparent;
 }
+/* 搜索面板展开时顶栏强制实心黑：避免"菜单栏透明 + 搜索行黑色"的割裂观感。
+   注意必须追加 [data-transparent="true"] 提高特异性，否则会被上面的
+   [data-testid][data-transparent="true"] 规则(属性选择器×2)压过，导致透明态下搜索展开仍是透明。 */
+body.search-open [data-testid="header-shell"][data-transparent="true"] > header,
+body.search-open [data-testid="header-shell"] > header {
+  /* --ink 存的是 hsl() 的参数(如 "0 0% 0%")，必须用 hsl() 包裹，否则是无效颜色 → 回退透明 */
+  background-color: hsl(var(--ink));
+}
 /* 集合 hero 上顶：负边距拉到透明顶栏下方（图片垫底、标题仍在下缘） */
 .collection-hero-under-header {
-  margin-top: -65px;
+  margin-top: calc(-1 * var(--header-h));
 }
 
-/* 数量选择器（官方实测：输入框 40×25 / 15px、零圆角、步进钮 25×25） */
+/* 数量选择器（对齐官方 PDP：与规格框同高 46px、零圆角、方形步进钮） */
 .qty-control {
   border-radius: 0;
 }
 .qty-control input {
-  height: 25px;
-  width: 40px;
+  height: 46px;
+  width: 56px;
   font-size: 15px;
 }
 .qty-control button {
-  height: 25px;
-  width: 25px;
+  height: 46px;
+  width: 46px;
 }
 .qty-control svg {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 
 /* 28px 标题行高对齐官方（28 × 1.4 = 39.2px） */
@@ -175,15 +439,22 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 11%;
 
-    --muted: 0 0% 93.7%; /* #EFEFEF — product image ground */
+    --muted: 0 0% 93.7%; /* #EFEFEF — 浅灰面板 */
     --muted-foreground: 0 0% 45%; /* #737373 — secondary text */
+
+    /* 商品图底色 —— 原站实测 rgb(217,217,217)；此前注释误记为 --muted */
+    --ground: 0 0% 85.1%; /* #D9D9D9 */
+
+    /* 次级页面底色（集合页）—— 原站实测 rgb(239,239,239) */
+    --surface: 0 0% 93.7%; /* #EFEFEF */
+    --surface-subtle: 0 0% 93.7%;
 
     --border: 0 0% 86.7%; /* #DDDDDD rgb(221) — hairline, matches shop.x.com */
     --input: 0 0% 86.7%; /* #DDDDDD — 与官方输入框描边一致 */
     --ring: 0 0% 11%; /* black focus ring */
 
-    /* Primary — near-black, white text */
-    --primary: 0 0% 9%; /* #171717 */
+    /* Primary — 原站主按钮实测 rgb(28,28,28) = #1C1C1C */
+    --primary: 0 0% 11%; /* #1C1C1C */
     --primary-foreground: 0 0% 100%;
 
     /* Secondary — pale gray panel */
@@ -316,6 +587,9 @@
     --popover-foreground: 0 0% 98%;
     --muted: 0 0% 14%; /* #232323 */
     --muted-foreground: 0 0% 64%; /* #A3A3A3 */
+    --ground: 0 0% 14%;
+    --surface: 0 0% 7%;
+    --surface-subtle: 0 0% 7%;
     --border: 0 0% 18%; /* #2E2E2E */
     --input: 0 0% 18%;
     --ring: 0 0% 98%;
@@ -382,6 +656,32 @@
   .admin-ink {
     background-color: hsl(var(--ink));
     color: hsl(var(--ink-foreground));
+  }
+
+  /* PDP 商品描述排版 —— 原站实测：15px / 行高 25px / 段间距 30px
+     （此前为 13px / 21px / 16px，段间距与行高都偏紧） */
+  .desc-prose {
+    font-size: 0.9375rem;
+    line-height: 1.5625rem;
+    color: hsl(var(--foreground) / 0.8);
+  }
+  .desc-prose > p + p {
+    margin-top: 1.875rem;
+  }
+
+  /* 内容页正文（FAQ / 政策）—— 原站实测：正文列 679px、行距 24–25px、块间距 32px。
+     「加粗问题段 + 散文答案段」即官方形态（FAQ 无手风琴、无联系卡片）。 */
+  .prose-page {
+    font-size: var(--prose-size);
+    line-height: var(--prose-line);
+    color: hsl(var(--foreground) / 0.8);
+  }
+  .prose-page > * + * {
+    margin-top: var(--prose-block-gap);
+  }
+  .prose-page strong {
+    font-weight: 600;
+    color: hsl(var(--foreground));
   }
 
   /* Outline-button sweep: black fills left → right on hover (shop.x.com) */
@@ -458,5 +758,38 @@
   thead .sticky-col-left,
   thead .sticky-col-right {
     z-index: 20;
+  }
+}
+
+/* ── Admin 侧栏折叠（通过 body.admin-sidebar-collapsed class 控制）── */
+@media (min-width: 1024px) {
+  body.admin-sidebar-collapsed .admin-sidebar {
+    width: 72px !important;
+  }
+  body.admin-sidebar-collapsed .admin-main {
+    padding-left: 72px !important;
+  }
+  /* 折叠时隐藏侧栏文字和分组标题 */
+  body.admin-sidebar-collapsed .admin-sidebar nav > div {
+    display: none;
+  }
+  body.admin-sidebar-collapsed .admin-sidebar nav > div.space-y-0\.5 {
+    display: block;
+  }
+  body.admin-sidebar-collapsed .admin-sidebar .truncate {
+    display: none;
+  }
+  body.admin-sidebar-collapsed .admin-sidebar .flex-col.leading-tight {
+    display: none;
+  }
+  body.admin-sidebar-collapsed .admin-sidebar .gap-2\.5 {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  body.admin-sidebar-collapsed .admin-sidebar .px-5 {
+    padding-left: 0;
+    padding-right: 0;
+    justify-content: center;
   }
 }
