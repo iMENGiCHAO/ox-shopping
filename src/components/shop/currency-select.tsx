@@ -48,13 +48,32 @@ export function CurrencySelect({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2.5 text-xs opacity-65 transition-opacity hover:opacity-100"
+        /* 字号 11px / 行盒 16px —— 原站实测（页头 "USD $" 墨迹 31×9、页脚
+           "United States (USD $)" 墨迹 108×10；本地同为 `text-xs` 12px 时分别宽 8.3%）。
+           行盒保持 16px（`leading-4`），故纵向节奏与原来完全一致。 */
+        className="flex items-center gap-2.5 text-[11px] leading-4 opacity-65 transition-opacity hover:opacity-100"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        {withFlag ? <span className="text-base leading-none">{def.flag}</span> : null}
+        {withFlag ? (
+          /* 旗帜用**图片**而非 emoji —— 对齐原站（原站是 20×15 的 4:3 旗帜图，
+             取自 Shopify 的 `static/images/flags/<cc>.svg`）。本地自持同名 4:3 SVG：
+             `public/flags/<flagCode>.svg`。
+             ⚠️ 不要改回 emoji：Windows 的 Chrome/Firefox 不渲染国旗 emoji，
+             会退化成 "US" 两个字母（这是可上线的硬伤）。 */
+          <img
+            src={`/flags/${def.flagCode}.svg`}
+            alt=""
+            aria-hidden="true"
+            width={20}
+            height={15}
+            className="h-[15px] w-[20px] shrink-0"
+          />
+        ) : null}
         {showCountry ? `${def.country} (${code} ${def.symbol})` : `${code} ${def.symbol}`}
-        <ChevronDown className="h-2.5 w-2.5" />
+        {/* 箭头 16px —— 原站实测墨迹：页头 8×5、页脚 10×6；本地原 `h-2.5 w-2.5`（10px 盒）
+            只有 6×3。lucide ChevronDown 在 16px 盒下的墨迹约 9.3×5.3，两侧都更贴近。 */}
+        <ChevronDown className="h-4 w-4" />
       </button>
       {open ? (
         <ul

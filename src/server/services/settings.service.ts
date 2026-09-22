@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger";
 import { isLogoArtworkDark } from "@/lib/logo-contrast";
 import { cacheGet, cacheSet, cacheDel } from "@/lib/cache";
 import { env, brandFallback, supportEmailFallback } from "@/lib/env";
+import { LOW_STOCK_THRESHOLD } from "@/lib/inventory";
 
 /**
  * 站点设置：读取 SiteSetting(由管理端 /api/admin/settings 维护)。
@@ -31,6 +32,12 @@ export interface SiteSettings {
    * 后台「设置」或「商品详情」可改。
    */
   presaleNote: { zh: string; en: string };
+  /**
+   * 库存预警阈值（运营口径：stock ≤ 阈值计入低库存）。
+   * 后台「设置」可改（SiteSetting.lowStockThreshold）；缺省取 lib/inventory。
+   * 仪表盘低库存计数与后台商品低库存筛选共用此值，保证口径一致。
+   */
+  lowStockThreshold: number;
   policies: PolicyContentMap;
 }
 
@@ -63,6 +70,14 @@ function readPolicy(value: PolicyValue, key: PolicyKey): { zh: string; en: strin
     zh: typeof value.zh === "string" && value.zh ? value.zh : fallback.zh,
     en: typeof value.en === "string" && value.en ? value.en : fallback.en,
   };
+}
+
+/** 库存预警阈值：后台可配（0–999 整数）；非法/缺失回退 lib/inventory 缺省值 */
+function clampThreshold(raw: unknown): number {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw >= 0) {
+    return Math.min(999, Math.floor(raw));
+  }
+  return LOW_STOCK_THRESHOLD;
 }
 
 /**
@@ -181,6 +196,7 @@ async function computeSiteSettings(): Promise<SiteSettings> {
     siteLogoUrl,
     siteLogoDarkArtwork,
     presaleNote: readI18n(map.presaleNote, DEFAULT_PRESALE_NOTE_ZH, DEFAULT_PRESALE_NOTE_EN),
+    lowStockThreshold: clampThreshold(map.lowStockThreshold),
     policies: {
       accessibility: readPolicy(map.policyAccessibility as PolicyValue, "accessibility"),
       privacy: readPolicy(map.policyPrivacy as PolicyValue, "privacy"),

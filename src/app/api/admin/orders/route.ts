@@ -83,10 +83,15 @@ export const GET = apiHandler(async (req) => {
     });
   }
 
-  return jsonPaginated(rows.map(serializeOrder), {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.ceil(total / pageSize),
-  });
+  // 管理端专用端点：带上内部备注（adminNote 在 serializeOrder 里默认剥离，
+  // 因为该函数同时服务顾客侧接口——这里显式开启，详情抽屉才能读写内部备注）
+  return jsonPaginated(
+    rows.map((r) => serializeOrder(r, { includeInternal: true })),
+    {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  );
 });

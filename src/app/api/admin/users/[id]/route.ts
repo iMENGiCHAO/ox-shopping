@@ -91,7 +91,7 @@ export const GET = apiHandler(async (req, ctx) => {
 
   return json({
     user,
-    orders: orders.map(serializeOrder),
+    orders: orders.map((o) => serializeOrder(o)),
     notifyMe: notifyMeList.map((r) => ({
       ...r,
       product: r.productId ? (notifyProductMap.get(r.productId) ?? null) : null,

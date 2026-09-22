@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import {
   ACCESS_TOKEN_COOKIE,
+  PASSWORD_CHANGE_REQUIRED_COOKIE,
   REFRESH_TOKEN_COOKIE,
   REQUEST_ID_HEADER,
 } from "@/lib/constants";
@@ -10,6 +11,12 @@ import { randomNonce, buildCsp } from "@/lib/server/proxy-helpers";
 import { langFromCookies } from "@/lib/request-lang";
 import { localizeErrorMessage } from "@/lib/error-i18n";
 import { env } from "@/lib/env";
+import {
+  DIST_REF_COOKIE,
+  DIST_REF_COOKIE_TTL_DAYS,
+  isDistributionEnabled,
+} from "@/lib/distribution/contract";
+import { normalizeReferralInput, signRefCookie } from "@/lib/distribution/referral";
 
 /**
  * Next 16 Proxy（原 Middleware，已在 16.0 弃用 middleware 并改名为 proxy）：
@@ -38,6 +45,29 @@ const CSRF_EXEMPT_PREFIXES = [
   "/api/pay/notify/",
 ];
 const PUBLIC_PATHS = ["/healthz", "/favicon.ico", "/_next", "/uploads", "/fonts"];
+
+/**
+ * 强制改密期间唯一放行的页面路径（B-2）。
+ *   - 改密页自身：否则用户无处改密 = 账号被永久锁死；
+ *   - 登录页：会话过期/登出后必须有出口，否则「无会话 + 残留标记」会
+ *     在 login ↔ change-password 之间来回重定向。
+ */
+const PASSWORD_CHANGE_PAGE = "/auth/change-password";
+const PASSWORD_CHANGE_ALLOWED_PAGES = [PASSWORD_CHANGE_PAGE, "/auth/login"];
+
+/**
+ * 强制改密期间唯一放行的 API 前缀。
+ *   - `/api/auth/`：登录态自身的读写（me / logout / refresh / csrf / login）；
+ *   - `/api/user/password`：改密的唯一出口；
+ *   - `/api/currency`：公开汇率，改密页的 CurrencyProvider 需要（无鉴权、无用户数据）。
+ * 其余业务接口（购物车 / 订单 / 管理端 …）一律拒绝。
+ */
+const PASSWORD_CHANGE_ALLOWED_API = [
+  "/api/auth/",
+  "/api/user/password",
+  "/api/currency",
+  "/api/healthz",
+];
 
 function isCsrfExempt(pathname: string): boolean {
   return CSRF_EXEMPT_PREFIXES.some((p) => pathname.startsWith(p));
@@ -81,6 +111,20 @@ export async function proxy(req: NextRequest) {
   // ---------- 路由级 locale 识别 ----------
   const locale = parseLocalePrefix(pathname);
 
+  // ---------- 分销：推广标识捕获（隔离模块，只在启用时生效）----------
+  // 只做一件事：把 `?ref=`/`?distributor_id=`/`?invite=` 里的**随机推广码**
+  // 签名后写入 cookie，供注册/下单时归因。不改 URL、不查库、不影响渲染，
+  // 因此对商城是不可见的加法（DISTRIBUTION_ENABLED=false 时整段跳过）。
+  let distRefCookie: string | null = null;
+  if (isDistributionEnabled()) {
+    const raw =
+      req.nextUrl.searchParams.get("ref") ??
+      req.nextUrl.searchParams.get("distributor_id") ??
+      req.nextUrl.searchParams.get("invite");
+    const code = normalizeReferralInput(raw);
+    if (code) distRefCookie = signRefCookie(code);
+  }
+
   // ---------- 旧链接迁移：/products?category=<slug> → /collections/<slug> ----------
   // 原站集合页 URL 形态是 /collections/<slug>（2026-09-20 实测 200），本地历史形态
   // 是 /products?category=<slug>。在中间件层做 307，避免旧链接落到索引页造成死链体验；
@@ -89,11 +133,44 @@ export async function proxy(req: NextRequest) {
     const categorySlug = req.nextUrl.searchParams.get("category")?.trim();
     if (locale.rest === "/products" && categorySlug) {
       const prefix = locale.lang ? `/${locale.lang}` : "";
-      const target = new URL(
-        `${prefix}/collections/${encodeURIComponent(categorySlug)}`,
-        req.url,
-      );
+      const target = new URL(`${prefix}/collections/${encodeURIComponent(categorySlug)}`, req.url);
       return NextResponse.redirect(target, 307);
+    }
+  }
+
+  // ---------- 原站 URL 形态：/account/login · /account/register → 本地 /auth/* ----------
+  // 原站的登录/注册页就在 `/account/*` 下（2026-09-20 实测 `/account/register` = 200：
+  // 标题 `Create Account`、H1 `Sign up`、字段 First name / Last name / E-mail / Password）。
+  // 但本项目的 `/account/*` 是**登录后**的账户区（`account/layout.tsx` 带侧栏与鉴权），
+  // 登录/注册实际在 `/auth/*`。于是「照原站 URL 手输或收藏」会落到账户布局 → 404。
+  // 在此做 307 兜住这两个路径（只精确匹配，不影响 `/account/profile` 等真正的账户页）。
+  {
+    const AUTH_ALIASES: Record<string, string> = {
+      "/account/login": "/auth/login",
+      "/account/register": "/auth/register",
+    };
+    const target = AUTH_ALIASES[locale.rest];
+    if (target) {
+      const prefix = locale.lang ? `/${locale.lang}` : "";
+      return NextResponse.redirect(new URL(`${prefix}${target}`, req.url), 307);
+    }
+  }
+
+  // ---------- 原站 URL 形态：政策页别名 ----------
+  // 原站实测（2026-09-20）：政策页用的是 Shopify 约定 slug ——
+  //   `/policies/privacy-policy` 200、`/policies/refund-policy` 200；
+  //   而 `/policies/terms-of-service` 与 `/policies/shipping-policy` 都是 **404**
+  //   （原站的服务条款走主题页 `/pages/terms-and-conditions`）。
+  // 本地 slug 少了 `-policy` 后缀，故加 307 别名兜住原站 URL。
+  {
+    const POLICY_ALIASES: Record<string, string> = {
+      "/policies/privacy-policy": "/policies/privacy",
+      "/policies/refund-policy": "/policies/refund",
+    };
+    const target = POLICY_ALIASES[locale.rest];
+    if (target) {
+      const prefix = locale.lang ? `/${locale.lang}` : "";
+      return NextResponse.redirect(new URL(`${prefix}${target}`, req.url), 307);
     }
   }
 
@@ -152,7 +229,11 @@ export async function proxy(req: NextRequest) {
   if (rotatedTokens) {
     let cookieHeader = requestHeaders.get("cookie") ?? "";
     cookieHeader = upsertCookieHeader(cookieHeader, ACCESS_TOKEN_COOKIE, rotatedTokens.accessToken);
-    cookieHeader = upsertCookieHeader(cookieHeader, REFRESH_TOKEN_COOKIE, rotatedTokens.refreshToken);
+    cookieHeader = upsertCookieHeader(
+      cookieHeader,
+      REFRESH_TOKEN_COOKIE,
+      rotatedTokens.refreshToken,
+    );
     requestHeaders.set("cookie", cookieHeader);
   }
 
@@ -172,6 +253,18 @@ export async function proxy(req: NextRequest) {
   } else {
     // 开发模式：宽松 CSP（HMR 需要 eval/inline）
     res.headers.set("Content-Security-Policy", buildCsp("", false));
+  }
+
+  // 分销推广标识：写入签名 cookie（httpOnly；归因只在服务端做，前端拿不到也没必要拿）
+  if (distRefCookie) {
+    res.cookies.set(DIST_REF_COOKIE, distRefCookie, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      path: "/",
+      maxAge: DIST_REF_COOKIE_TTL_DAYS * 86_400,
+      domain: env.COOKIE_DOMAIN || undefined,
+    });
   }
 
   // 静默续期成功：把新 token 写入响应 Cookie（浏览器侧生效）
@@ -226,6 +319,43 @@ export async function proxy(req: NextRequest) {
       path: "/",
       maxAge: 24 * 3600,
     });
+  }
+
+  // ---------- 强制改密门控（B-2 临时密码首登）----------
+  // 管理员批准找回密码申请后会发放临时密码，并置位 `pwd_change_required` cookie。
+  // 在此之前，用户只能在改密页活动 —— 临时密码是一次性引导凭证，不先改密就
+  // 等于把弱凭证当长期凭证用。
+  //
+  // 与 DB 侧的分工：这里 O(1) 拦页面与明显越权的 API（体验 + 快速拒绝），
+  // 而对「手删 cookie 绕过」的兜底是 `requireUser()` 读 `mustChangePassword` 抛
+  // 403 PASSWORD_CHANGE_REQUIRED —— 两层缺一不可。
+  if (req.cookies.get(PASSWORD_CHANGE_REQUIRED_COOKIE)?.value === "1") {
+    const onChangePage = PASSWORD_CHANGE_ALLOWED_PAGES.includes(locale.rest);
+    const allowedApi = PASSWORD_CHANGE_ALLOWED_API.some((p) => pathname.startsWith(p));
+    if (!onChangePage && !allowedApi) {
+      if (isApi) {
+        const lang = langFromCookies((name) => req.cookies.get(name)?.value);
+        const errRes = NextResponse.json(
+          {
+            error: {
+              code: "PASSWORD_CHANGE_REQUIRED",
+              message: localizeErrorMessage(
+                "You must change your password before continuing",
+                lang,
+              ),
+            },
+          },
+          { status: 403, headers: { [REQUEST_ID_HEADER]: requestId } },
+        );
+        if (csp) errRes.headers.set("Content-Security-Policy", csp);
+        return errRes;
+      }
+      const changeUrl = new URL(
+        `${locale.lang ? `/${locale.lang}` : ""}${PASSWORD_CHANGE_PAGE}`,
+        req.url,
+      );
+      return NextResponse.redirect(changeUrl, 307);
+    }
   }
 
   // ---------- /admin 路由守卫（生产/开发均必须执行）----------

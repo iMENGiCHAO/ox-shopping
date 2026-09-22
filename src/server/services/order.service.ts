@@ -13,6 +13,7 @@ import { assertTransition, canTransition } from "@/lib/order-status";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { createNotification, notifyAdmins } from "@/server/services/notification.service";
+import { distributionBridge } from "@/server/services/distribution/bridge";
 import { logger } from "@/lib/logger";
 import {
   createCheckoutSession,
@@ -23,7 +24,7 @@ import { createMockPaymentUrl } from "@/lib/payment/mock";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { getProvider } from "@/lib/payment/providers";
 import { str } from "@/lib/payment/provider";
-import { effectivePaymentMode } from "@/lib/env";
+import { effectivePaymentMode, mockPaymentAllowedInProd } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { logPayment } from "@/server/services/payment-log.service";
@@ -32,7 +33,13 @@ import { assertValidSpecs } from "@/server/services/cart.service";
 import type { SpecSelection } from "@/server/services/cart.service";
 import { calculateShippingFee } from "@/server/services/shipping.service";
 import { getRateSnapshot } from "@/components/shop/currency-server";
-import { CURRENCY_COOKIE, DEFAULT_CURRENCY, parseCurrencyCode } from "@/components/shop/currency";
+import {
+  allocateLineAmounts,
+  allocateRateAmounts,
+  CURRENCY_COOKIE,
+  DEFAULT_CURRENCY,
+  parseCurrencyCode,
+} from "@/components/shop/currency";
 import {
   lockCouponInTx,
   commitCouponRedemptionInTx,
@@ -240,10 +247,6 @@ function d(n: number): Prisma.Decimal {
   return new Prisma.Decimal(n.toFixed(2));
 }
 
-function round2(n: Prisma.Decimal): number {
-  return Math.round(n.toNumber() * 100) / 100;
-}
-
 /**
  * 订单收货地址快照（与 Order.addressSnapshot 的 JSON 结构一一对应）。
  *
@@ -428,13 +431,28 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     const total = amounts.totalUsd;
     if (total < 0) throw badRequest("Order total is invalid");
 
-    // 多币种结算：将 USD 基础金额转换为用户选择的币种
-    // 转换后所有明细之和等于总金额，确保财务一致性
-    const subtotalUser = toUserCurrency(subtotal);
-    const shippingFeeUser = toUserCurrency(shippingFee);
-    const taxUser = toUserCurrency(tax);
-    const discountUser = toUserCurrency(discount);
-    const totalUser = toUserCurrency(total);
+    // 多币种结算：USD 基础金额 → 用户币种。
+    // ⚠️ 必须走 allocateRateAmounts（各分量独立舍入会让明细之和 ≠ 总额，差 1–2 分）。
+    // 恒等式 total = subtotal + shipping + tax − discount 在落库值上严格成立，
+    // 与结账页展示共用同一函数，保证「页面显示的就是实际扣款的」。
+    const amountsUser = allocateRateAmounts(
+      { subtotal, shipping: shippingFee, tax, discount },
+      exchangeRate,
+    );
+    const subtotalUser = amountsUser.subtotal;
+    const shippingFeeUser = amountsUser.shipping;
+    const taxUser = amountsUser.tax;
+    const discountUser = amountsUser.discount;
+    const totalUser = amountsUser.total;
+
+    // 行小计对齐：Σ 行小计 = 订单小计（订单页明细求和必须等于 Subtotal 行）
+    const lineSubtotalsUser = allocateLineAmounts(
+      input.items.map(
+        (item) => Number(freshById.get(item.productId)!.price) * item.quantity,
+      ),
+      subtotalUser,
+      exchangeRate,
+    );
 
     // 1. 库存扣减（商品级 + 规格级；普通单不足即失败，预售允许缺口并记录实际扣减量）
     interface ItemDeduction {
@@ -497,6 +515,10 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     }
 
     // 2. 创建订单（存储用户币种金额 + 汇率快照）
+    // COD（货到付款）：无线上支付环节，创建后直接进入「待处理」（PROCESSING）——
+    // 若按 PENDING_PAYMENT 创建，会被 expireStaleOrders 在 30 分钟后自动取消（COD 必死单），
+    // 且顾客会被带去线上支付页（在线支付 + 货到付款双重收款语义矛盾）。
+    // COD 单的支付提供方固定为 "cod"（现金交易，无网关）；退款为线下动作。
     const created = await tx.order.create({
       data: {
         orderNumber,
@@ -505,7 +527,7 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         contactEmail,
         // 游客订单查询令牌（登录单为 null，走账号鉴权）
         accessToken,
-        status: "PENDING_PAYMENT",
+        status: isCOD ? "PROCESSING" : "PENDING_PAYMENT",
         // 多币种结算：存储用户选择的币种金额
         subtotal: d(subtotalUser),
         shippingFee: d(shippingFeeUser),
@@ -523,6 +545,8 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         shippingMethodId,
         // 货到付款（运费不计入 total）
         isCashOnDelivery: isCOD,
+        // 到付参考金额落库：仓库/客服从订单即可见「送达时应收现金 = total + codFee」
+        codFee: isCOD ? d(shippingCalc.method.fee) : null,
         // 新订单默认未读（admin 进 /orders 后自动标记为已读）
         isUnread: true,
         addressSnapshot: {
@@ -535,13 +559,15 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
           postalCode: address.postalCode ?? "",
           detail: address.detail,
         },
-        paymentProvider: input.channelCode ?? effectivePaymentMode,
+        // COD（货到付款）现金交易无网关：paymentProvider 固定 "cod"；
+        // 在线单按所选渠道（payment_channels.code），缺省走 stripe/mock 自动模式
+        paymentProvider: isCOD ? "cod" : (input.channelCode ?? effectivePaymentMode),
         items: {
           create: input.items.map((item, idx) => {
             const p = productById.get(item.productId)!;
             const plan = plans[idx]!;
             const priceUsd = Number(freshById.get(item.productId)!.price);
-            // 订单条目价格也转换为用户币种，确保订单详情页显示一致
+            // 订单条目单价也转换为用户币种（订单详情页/管理端展示用）
             const priceUser = toUserCurrency(priceUsd);
             return {
               productId: p.id,
@@ -550,7 +576,8 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
               sku: p.sku,
               price: d(priceUser),
               quantity: item.quantity,
-              subtotal: d(Math.round(priceUser * item.quantity * 100) / 100),
+              // 行小计用对齐后的值：Σ 行小计 == 订单小计（不这样写会出现明细求和差 1 分）
+              subtotal: d(lineSubtotalsUser[idx]!),
               // 实际扣减记录（取消订单时精确回补的依据）
               stockDeducted: plan.stockDeducted,
               specDeducted:
@@ -608,6 +635,32 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     meta: { orderNumber, total: Number(order.total), status: order.status },
   });
 
+  // COD（货到付款）确认信：在线单在支付成功后由 markOrderPaid 发「订单已支付」；
+  // COD 单直接创建为 PROCESSING、永不经过 markOrderPaid——这里补发确认信，
+  // 否则顾客下单后收不到任何邮件（商业交付不可接受）。
+  if (order.isCashOnDelivery) {
+    const user = input.userId
+      ? await prisma.user.findUnique({ where: { id: input.userId } })
+      : null;
+    const mailTo = contactEmail ?? user?.email ?? null;
+    const due = Number(order.total) + (order.codFee == null ? 0 : Number(order.codFee));
+    if (mailTo) {
+      void sendMail({
+        to: mailTo,
+        template: "order-confirmed",
+        data: {
+          name: greetingName(user?.name, order),
+          orderNumber: order.orderNumber,
+          total: `${order.currency} ${due.toFixed(2)}`,
+          items: order.items.map((i) => ({ name: i.productName, quantity: i.quantity })),
+          orderUrl: orderUrlFor(order),
+          isCashOnDelivery: true,
+          codDue: `${order.currency} ${due.toFixed(2)}`,
+        },
+      });
+    }
+  }
+
   return order;
 }
 
@@ -637,6 +690,11 @@ export async function createPaymentUrl(
     // mock 渠道无需任何配置：即使没有渠道记录（未跑 migrate:payment-channels 的环境），
     // 也保持旧行为直接给站内模拟支付页，避免开发/演示下单被中断。
     if (!channel && providerKey === "mock") {
+      // 生产守卫（纵深防御）：mock 模式免费下单不允许在生产发生——
+      // 本地演示与测试（REQUIRE_STRONG_SECRETS=false）不受影响。
+      if (!mockPaymentAllowedInProd) {
+        throw badRequest("Mock payment is not available in production, please choose another one");
+      }
       return createMockPaymentUrl(order.orderNumber, order.accessToken);
     }
     if (!channel || !channel.enabled) {
@@ -645,6 +703,10 @@ export async function createPaymentUrl(
     const provider = getProvider(channel.provider);
     if (!provider.isConfigured(channel.config)) {
       throw badRequest("This payment method is not configured, please choose another one");
+    }
+    // 生产环境守卫：mock 渠道免费下单不允许在生产发生（纵深防御，与前台置灰同口径）
+    if (channel.code === "mock" && !mockPaymentAllowedInProd) {
+      throw badRequest("Mock payment is not available in production, please choose another one");
     }
     // 币种兜底校验（防绕过前端置灰直接提交）：国内网关仅支持 CNY，
     // 订单币种不匹配时按原币种金额传给网关必然金额错乱/被拒——直接拒绝。
@@ -880,20 +942,35 @@ export async function markOrderPaid(
     meta: { orderNumber, total: Number(order.total), status: "PAID" },
   });
 
+  // 分销（隔离模块）：按关系链计提佣金。走 bridge 接口 —— 开关关闭时零开销、
+  // 内部异常一律吞掉；即便这里整个失败，分销的分钟级对账也会把佣金补上。
+  await distributionBridge.onOrderPaid(order.id);
+
   return updated!;
 }
 
 /** 取消订单(按下单时的实际扣减记录精确恢复库存) */
 export async function cancelOrder(order: Order, byUserId?: string | null): Promise<Order> {
-  if (order.status !== "PENDING_PAYMENT") {
+  // COD（货到付款）特殊路径：未发货的 COD 单无资金往来（现金交易），
+  // 允许直接取消并回补库存——不必走退款流程（网关退款对现金交易无意义）。
+  const cancellable =
+    order.status === "PENDING_PAYMENT" ||
+    (order.isCashOnDelivery && order.status === "PROCESSING");
+  if (!cancellable) {
     throw badRequest("This order cannot be cancelled in its current state");
   }
   // 本次回补了库存的商品 id，事务提交后触发补货通知（若从售罄变有货）
   const restockedProductIds: string[] = [];
   const updated = await prisma.$transaction(async (tx) => {
-    // 条件更新做并发认领：只有仍是 PENDING_PAYMENT 的订单才会被取消并回补
+    // 条件更新做并发认领：只有仍处于可取消状态的订单才会被取消并回补
     const claimed = await tx.order.updateMany({
-      where: { id: order.id, status: "PENDING_PAYMENT" },
+      where: {
+        id: order.id,
+        OR: [
+          { status: "PENDING_PAYMENT" },
+          { status: "PROCESSING", isCashOnDelivery: true },
+        ],
+      },
       data: { status: "CANCELLED", cancelledAt: new Date() },
     });
     if (claimed.count === 0)
@@ -1013,6 +1090,18 @@ export async function updateOrderStatus(
   /** skipGatewayRefund：调用方已自行完成网关退款（如「退款审核」路径），仅需本地记账 */
   opts?: { skipGatewayRefund?: boolean },
 ): Promise<Order> {
+  // COD（货到付款）取消特殊路径：未发货的 COD 单无资金往来（现金交易），
+  // 允许直接取消并回补库存——不必走退款流程（网关退款对现金交易无意义）。
+  // 必须放在 canTransition 之前：静态状态机 PROCESSING → CANCELLED 禁止（在线单已进履约
+  // 走 REFUNDED），COD 的这个例外只能在动态检查里放行。
+  if (
+    to === "CANCELLED" &&
+    order.isCashOnDelivery &&
+    ["PENDING_PAYMENT", "PROCESSING"].includes(order.status)
+  ) {
+    return await cancelOrder(order, actor?.id ?? null);
+  }
+
   if (!canTransition(order.status, to)) {
     throw new ApiError(
       400,
@@ -1135,6 +1224,11 @@ export async function updateOrderStatus(
     });
   }
 
+  // 分销（隔离模块）：确认收货 → 该订单佣金立刻转为可提现（不必等持有期）
+  if (to === "DELIVERED") {
+    await distributionBridge.onOrderDelivered(order.id);
+  }
+
   return updated;
 }
 
@@ -1159,6 +1253,21 @@ async function refundEntireOrder(
 
   let refundRecordId: string | null = null;
   const restockedProductIds: string[] = [];
+
+  /* P0-3 修复：网关退款只能退「尚未退过的余额」。
+     病因：整单退款路径无论此前是否已部分退款，都按 `order.total` 发起全额网关退款 ——
+     「部分退款（50）→ 后台把订单改成已退款」会对同一笔支付退 100，超退的钱在本地
+     退款表里还查不到（记录被复用），账实不符且客户实收超过应付。
+     这里先算出累计已退款额，事务内创建记录时用「剩余可退额」，事务外只退剩余部分。 */
+  const priorRefundedAgg = await prisma.refund.aggregate({
+    where: { orderId: order.id, status: "REFUNDED" },
+    _sum: { amount: true },
+  });
+  const priorRefunded = Number(priorRefundedAgg._sum.amount ?? 0);
+  const refundableRemaining = Math.max(
+    0,
+    Math.round((Number(order.total) - priorRefunded) * 100) / 100,
+  );
 
   // Step 1: 事务内先完成状态变更 + 库存回补 + 退款记录（gatewayRefundId 暂空）
   const updated = await prisma.$transaction(async (tx) => {
@@ -1248,7 +1357,8 @@ async function refundEntireOrder(
           orderId: order.id,
           userId: order.userId,
           reason: "管理员后台整单退款",
-          amount: new Prisma.Decimal(Number(order.total).toFixed(2)),
+          // 只记「本次实际可退的余额」：此前已部分退款时不重复计入（否则退款表合计 > 订单总额）
+          amount: new Prisma.Decimal((refundableRemaining > 0 ? refundableRemaining : Number(order.total)).toFixed(2)),
           status: "REFUNDED",
           adminNote: actorId ? `actor=${actorId}` : null,
           // gatewayRefundId 暂空，事务提交后发起网关退款再回写
@@ -1296,32 +1406,53 @@ async function refundEntireOrder(
 
   // skipGatewayRefund：调用方（退款审核路径）已完成网关退款，此处只做本地记账，避免重复退款
   if (!opts?.skipGatewayRefund && refundProviderKey === "stripe" && order.paymentId) {
-    try {
-      // 渠道化 Stripe：后台配置了 stripe 渠道时按渠道密钥退款；否则回落 env 密钥
-      const stripeChannel = await getChannelRuntimeByCode("stripe");
-      const stripeKeys =
-        stripeChannel?.enabled && str(stripeChannel.config, "secretKey")
-          ? { secretKey: str(stripeChannel.config, "secretKey") }
-          : undefined;
-      const r = await createStripeRefund(order.paymentId, Number(order.total), stripeKeys);
-      gatewayRefundId = r.id;
-      // 回写网关退款 ID 到退款记录
-      if (refundRecordId) {
-        await prisma.refund.update({
-          where: { id: refundRecordId },
-          data: { gatewayRefundId },
-        });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "未知错误";
-      failRefund(
-        "stripe",
-        msg,
-        `订单 ${order.orderNumber} 已标记为退款，但 Stripe 网关退款失败：${msg}。请登录 Stripe 后台手动退款并核对。`,
-        `Order ${order.orderNumber} marked REFUNDED but Stripe refund failed: ${msg}. Please refund manually in Stripe dashboard.`,
+    if (refundableRemaining <= 0) {
+      // 已全额退过（例如此前部分退款累计已等于订单总额）→ 绝不能再退，只留日志
+      logger.info(
+        { orderId: order.id, orderNumber: order.orderNumber, priorRefunded },
+        "[refund] 订单已按累计全额退过款，本次跳过网关退款（防超退）",
       );
+    } else {
+      try {
+        // 渠道化 Stripe：后台配置了 stripe 渠道时按渠道密钥退款；否则回落 env 密钥
+        const stripeChannel = await getChannelRuntimeByCode("stripe");
+        const stripeKeys =
+          stripeChannel?.enabled && str(stripeChannel.config, "secretKey")
+            ? { secretKey: str(stripeChannel.config, "secretKey") }
+            : undefined;
+        // 只退「剩余可退额」（不是 order.total）——防部分退款后再整单退款造成超退（P0-3）
+        const r = await createStripeRefund(order.paymentId, refundableRemaining, stripeKeys);
+        gatewayRefundId = r.id;
+        // 回写网关退款 ID 到退款记录
+        if (refundRecordId) {
+          await prisma.refund.update({
+            where: { id: refundRecordId },
+            data: { gatewayRefundId },
+          });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "未知错误";
+        failRefund(
+          "stripe",
+          msg,
+          `订单 ${order.orderNumber} 已标记为退款，但 Stripe 网关退款失败：${msg}。请登录 Stripe 后台手动退款并核对。`,
+          `Order ${order.orderNumber} marked REFUNDED but Stripe refund failed: ${msg}. Please refund manually in Stripe dashboard.`,
+        );
+      }
     }
-  } else if (!opts?.skipGatewayRefund && refundProviderKey && refundProviderKey !== "mock") {
+  } else if (!opts?.skipGatewayRefund && refundProviderKey === "cod") {
+    // COD（货到付款）：现金交易无网关，退款为线下动作——只提示性记录，不告警
+    // （此前会走进渠道分支抛「渠道未启用」并触发「退款异常需人工处理」告警，对 COD 是噪音）。
+    logger.info(
+      { orderId: order.id, orderNumber: order.orderNumber },
+      "[refund] COD 现金订单退款为线下动作，已记录（无网关退款）",
+    );
+  } else if (
+    !opts?.skipGatewayRefund &&
+    refundProviderKey &&
+    refundProviderKey !== "mock" &&
+    refundableRemaining > 0
+  ) {
     // 真实渠道（alipay / wechat）走 Provider.refund；mock 无网关退款（保持现状）
     try {
       const channel = await getChannelRuntimeByCode(refundProviderKey);
@@ -1330,7 +1461,8 @@ async function refundEntireOrder(
       const paid = await provider.refund(
         {
           orderNumber: order.orderNumber,
-          amount: Number(order.total),
+          // 同 Stripe 分支：只退剩余可退额，防「部分退款 + 整单退款」超退（P0-3）
+          amount: refundableRemaining > 0 ? refundableRemaining : 0,
           gatewayId: order.paymentId ?? null,
           currency: order.currency,
         },
@@ -1389,6 +1521,9 @@ async function refundEntireOrder(
     entityId: order.id,
     meta: { orderNumber: order.orderNumber, from: order.status, gatewayRefundId },
   });
+
+  // 分销（隔离模块）：整单退款 → 佣金冲正（bridge 自带开关与异常隔离）
+  await distributionBridge.onOrderRefunded(order.id);
 
   return updated!;
 }
@@ -1503,6 +1638,9 @@ export async function markOrderRefundedByGateway(
     entityId: order.id,
     meta: { orderNumber: order.orderNumber, gatewayRefundId },
   });
+
+  // 分销（隔离模块）：网关退款 → 佣金冲正
+  await distributionBridge.onOrderRefunded(order.id);
 
   return updated!;
 }

@@ -21,16 +21,26 @@ export function serializeOrderItem(item: OrderItem) {
  * 一旦随列表响应（用户订单列表、后台订单列表、导出等）流出，
  * 拿到列表的任何一方都能直接打开他人订单详情。
  * 需要该令牌的唯一场景是「刚下单成功」那一次响应，由 /api/orders 显式单独返回。
+ *
+ * ⚠️ 同样默认剥掉 `adminNote`（运营内部备注）：本函数同时服务**顾客侧**接口
+ * （下单/取消/查单/确认收货），内部备注若随响应流出，等于把「已标记该客户为疑似
+ * 恶意退货」这类内部判断直接告诉顾客。仅管理端显式 `includeInternal: true` 时回填。
  */
-export function serializeOrder(order: Order & { items?: OrderItem[] }) {
-  const { accessToken: _accessToken, ...safe } = order;
+export function serializeOrder(
+  order: Order & { items?: OrderItem[] },
+  opts?: { includeInternal?: boolean },
+) {
+  const { accessToken: _accessToken, adminNote: _adminNote, ...safe } = order;
   return {
     ...safe,
+    ...(opts?.includeInternal ? { adminNote: order.adminNote ?? null } : {}),
     subtotal: num(order.subtotal),
     shippingFee: num(order.shippingFee),
     tax: num(order.tax),
     discount: num(order.discount),
     total: num(order.total),
+    // 货到付款参考金额（仅 COD 订单有值；非 COD 为 null）
+    codFee: order.codFee == null ? null : num(order.codFee),
     items: order.items?.map(serializeOrderItem),
   };
 }

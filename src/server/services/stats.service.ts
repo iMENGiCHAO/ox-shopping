@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { getRateSnapshot } from "@/components/shop/currency-server";
+import { getSiteSettings } from "@/server/services/settings.service";
 
 /**
  * 管理端仪表盘统计
@@ -17,7 +18,11 @@ import { getRateSnapshot } from "@/components/shop/currency-server";
 import type { Prisma } from "@prisma/client";
 
 /** 将订单金额转换为 USD（基础货币） */
-function toUsd(total: number | Prisma.Decimal, currency: string, exchangeRate: number | Prisma.Decimal | null): number {
+function toUsd(
+  total: number | Prisma.Decimal,
+  currency: string,
+  exchangeRate: number | Prisma.Decimal | null,
+): number {
   const amount = Number(total);
   const rate = Number(exchangeRate ?? 1);
   if (currency === "USD" || !rate || rate <= 0) return amount;
@@ -44,6 +49,10 @@ export async function getAdminStats() {
   const rateSnapshot = await getRateSnapshot();
   const usdToCny = rateSnapshot.rates["CNY"] ?? 7.2;
 
+  // 库存预警阈值（后台可配）——低库存计数与商品筛选共用同一口径，
+  // 否则「仪表盘说 7 个低库存、筛出来 5 个」这种数据打架必出现。
+  const { lowStockThreshold } = await getSiteSettings();
+
   // 查询所有已支付订单（包含币种和汇率快照）
   const paidOrders = await prisma.order.findMany({
     where: { paidAt: { not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } },
@@ -54,13 +63,20 @@ export async function getAdminStats() {
   const todayPaidOrders = paidOrders.filter((o) => o.paidAt && o.paidAt >= dayStart);
 
   // 计算总营收（先转换为 USD，再转换为 CNY）
-  const revenueUsd = paidOrders.reduce((sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate), 0);
-  const todayRevenueUsd = todayPaidOrders.reduce((sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate), 0);
+  const revenueUsd = paidOrders.reduce(
+    (sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate),
+    0,
+  );
+  const todayRevenueUsd = todayPaidOrders.reduce(
+    (sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate),
+    0,
+  );
   const revenue = Math.round(revenueUsd * usdToCny * 100) / 100;
   const todayRevenue = Math.round(todayRevenueUsd * usdToCny * 100) / 100;
 
   // 按币种分组统计（多币种汇总，显示原始币种金额）
-  const revenueByCurrency: Record<string, { total: number; count: number; cnyEquivalent: number }> = {};
+  const revenueByCurrency: Record<string, { total: number; count: number; cnyEquivalent: number }> =
+    {};
   for (const o of paidOrders) {
     const cur = o.currency || "USD";
     if (!revenueByCurrency[cur]) revenueByCurrency[cur] = { total: 0, count: 0, cnyEquivalent: 0 };
@@ -86,7 +102,9 @@ export async function getAdminStats() {
   ] = await Promise.all([
     prisma.order.count(),
     // 口径与营收一致：排除已取消/已退款，避免"营收不含退款单、订单数却含"的矛盾
-    prisma.order.count({ where: { paidAt: { not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } } }),
+    prisma.order.count({
+      where: { paidAt: { not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } },
+    }),
     prisma.user.count({ where: { role: "CUSTOMER" } }),
     prisma.product.count(),
     prisma.product.count({ where: { status: "ACTIVE" } }),
@@ -95,8 +113,10 @@ export async function getAdminStats() {
     prisma.order.count({ where: { createdAt: { gte: dayStart } } }),
     // 到货提醒订阅总数（需求信号指标，admin 可据此安排补货）
     prisma.notifyMe.count({ where: { status: "draft" } }),
-    // 低库存商品数（库存预警指标，stock <= 5 且 status = ACTIVE）
-    prisma.product.count({ where: { status: "ACTIVE", stock: { lte: 5 } } }),
+    // 低库存商品数（库存预警指标，stock ≤ 生效阈值且 status = ACTIVE）
+    prisma.product.count({
+      where: { status: "ACTIVE", stock: { lte: lowStockThreshold } },
+    }),
   ]);
 
   // 近 14 天销售趋势（先转换为 USD，再转换为 CNY）
@@ -110,9 +130,7 @@ export async function getAdminStats() {
   const trendOrders = paidOrders.filter((o) => o.paidAt && o.paidAt >= trendStart);
   const trend = days.map((d) => {
     const key = localDateKey(d);
-    const dayOrders = trendOrders.filter(
-      (o) => o.paidAt && localDateKey(o.paidAt) === key,
-    );
+    const dayOrders = trendOrders.filter((o) => o.paidAt && localDateKey(o.paidAt) === key);
     const dayUsd = dayOrders.reduce((s, o) => s + toUsd(o.total, o.currency, o.exchangeRate), 0);
     return {
       date: key,
@@ -159,5 +177,7 @@ export async function getAdminStats() {
     // 数据打通：营销与用户行为指标
     notifyMeCount,
     lowStockCount,
+    /** 当前生效的库存预警阈值（后台可配，前端展示口径与筛选联动用） */
+    lowStockThreshold,
   };
 }

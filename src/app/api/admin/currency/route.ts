@@ -18,12 +18,12 @@ export const GET = apiHandler(async () => {
   const [snapshot, overrides] = await Promise.all([getRateSnapshot(), loadOverrides()]);
   return json({
     snapshot,
-    currencies: CURRENCIES.map(({ code, name, country, symbol, flag }) => ({
+    currencies: CURRENCIES.map(({ code, name, country, symbol, flagCode }) => ({
       code,
       name,
       country,
       symbol,
-      flag,
+      flagCode,
     })),
     overrides,
   });

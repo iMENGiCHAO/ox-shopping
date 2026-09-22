@@ -1,6 +1,7 @@
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
 import { badRequest, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { getSessionUser, requireUser } from "@/lib/auth/session";
 import {
   createOrder,
@@ -18,6 +19,8 @@ import { orderCreateSchema } from "@/lib/validations/cart-order";
 import type { OrderStatus } from "@prisma/client";
 import { logger } from "@/lib/logger";
 import { getClientIp } from "@/lib/server/utils-server";
+import { distributionBridge } from "@/server/services/distribution/bridge";
+import { DIST_REF_COOKIE } from "@/lib/distribution/contract";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -56,12 +59,15 @@ export const GET = apiHandler(async (req) => {
     prisma.order.count({ where }),
   ]);
 
-  return jsonPaginated(rows.map(serializeOrder), {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.ceil(total / pageSize),
-  });
+  return jsonPaginated(
+    rows.map((o) => serializeOrder(o)),
+    {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+  );
 });
 
 /**
@@ -76,9 +82,14 @@ export const POST = apiHandler(async (req) => {
   const user = await getSessionUser();
   const input = await readJson(req, orderCreateSchema);
 
-  // 防刷单：登录用户按 userId 限流；游客没有稳定身份，退到 IP 维度限流
+  // 防刷单：登录用户按 userId 限流；游客没有稳定身份，退到 IP/指纹维度限流。
+  // 另加全站熔断（300 单/10 分钟），防游客标识轮换绕过单桶限额刷单。
   const rlKey = user ? `order-create:${user.id}` : `order-create-ip:${getClientIp(req)}`;
-  const rl = await rateLimit({ key: rlKey, limit: 5, windowSeconds: 600 });
+  const rl = await rateLimit({
+    key: rlKey,
+    ...RATE_LIMITS.orderCreate,
+    breakerKey: user ? undefined : RATE_LIMITS.orderCreate.breakerKey,
+  });
   if (!rl.ok) throw rateLimited();
 
   // 已登录时忽略前端传来的 contactEmail，一律以账号邮箱为准（防止伪造收件人）
@@ -114,10 +125,21 @@ export const POST = apiHandler(async (req) => {
     throw err;
   }
 
+  // 分销（隔离模块）：写订单归属快照（自然流量单也会落一条 natural 记录）。
+  // 走 bridge 接口：开关关闭时零开销、内部异常一律吞掉，绝不影响下单结果。
+  await distributionBridge.onOrderCreated({
+    orderId: order.id,
+    userId: user?.id ?? null,
+    refCookie: req.cookies.get(DIST_REF_COOKIE)?.value ?? null,
+    req,
+  });
+
   // 支付地址生成失败不阻断下单
+  // COD（货到付款）订单无线上支付环节：创建后即 PROCESSING，跳过支付地址生成
+  // （否则 createPaymentUrl 会因状态检查抛错、顾客被带去线上支付页）
   let paymentUrl: string | null = null;
   try {
-    paymentUrl = await createPaymentUrl(order, contactEmail ?? "");
+    paymentUrl = order.isCashOnDelivery ? null : await createPaymentUrl(order, contactEmail ?? "");
   } catch (err) {
     logger.warn(
       { err: (err as Error).message, orderId: order.id, userId: user?.id ?? null },

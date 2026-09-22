@@ -21,13 +21,14 @@ export function json<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json({ data } satisfies ApiResponse<T>, init);
 }
 
-/** 分页响应 */
+/** 分页响应（extra：附加元数据字段，如低库存阈值等与列表联动的口径信息） */
 export function jsonPaginated<T>(
   data: T[],
   pagination: { page: number; pageSize: number; total: number; totalPages: number },
   init?: ResponseInit,
+  extra?: Record<string, unknown>,
 ): NextResponse {
-  return NextResponse.json({ data, pagination }, init);
+  return NextResponse.json({ data, pagination, ...extra }, init);
 }
 
 /** 错误响应：{ error: { code, message, details } } */

@@ -7,6 +7,7 @@ import { retrieveCheckoutSession } from "@/lib/payment/stripe";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { str } from "@/lib/payment/provider";
 import { cancelOrder, expireStaleOrders, markOrderPaid } from "@/server/services/order.service";
+import { distributionBridge } from "@/server/services/distribution/bridge";
 
 /**
  * 进程内定时任务（Next instrumentation 启动，无需外部 cron）。
@@ -109,7 +110,19 @@ async function runAllJobs(): Promise<void> {
   }
 
   // 3. 掉单对账（仅 Stripe 模式有网关状态可查；mock 支付同步完成无此需求）
-  if (effectivePaymentMode === "stripe") {
+  // 门控必须覆盖两条收款路径：env Stripe（effectivePaymentMode）**或** 渠道化 Stripe
+  // （后台「支付渠道→Stripe」配置密钥收款）。若只看 env 模式，运营在 PAYMENT_MODE=mock/auto
+  // 下配置渠道密钥收款时，对账会被跳过——webhook 一旦丢失，钱已收、订单永不 PAID 且无兜底。
+  const stripeChannelReady = await (async () => {
+    try {
+      const channel = await getChannelRuntimeByCode("stripe");
+      return !!(channel?.enabled && str(channel.config, "secretKey"));
+    } catch {
+      /* DB 异常时按未配置处理（回落 env 判断） */
+      return false;
+    }
+  })();
+  if (effectivePaymentMode === "stripe" || stripeChannelReady) {
     try {
       // 渠道化 Stripe：后台配置并启用了 stripe 渠道时，用渠道密钥对账；否则 env
       let stripeKeys: { secretKey?: string } | undefined;
@@ -197,4 +210,12 @@ async function runAllJobs(): Promise<void> {
       logger.error({ err }, "[cron] Stripe 对账失败");
     }
   }
+
+  // 4. 分销对账补偿（隔离模块）：补归属 / 补佣金 / 冲正退款单 / 到期结算。
+  //    走 bridge：`DISTRIBUTION_ENABLED=false` 时立即返回，异常也只记录日志。
+  await distributionBridge.runReconcile();
+
+  // 5. 分销团队业绩日汇总（P2-12，幂等）：把"每次打开报表全表扫描"变成读小表。
+  //    每次调度都跑最近 2 天，既保证当日数据新鲜，也不怕漏跑。
+  await distributionBridge.runRollup();
 }
