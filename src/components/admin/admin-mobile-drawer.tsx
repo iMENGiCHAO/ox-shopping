@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   FolderTree,
+  Inbox,
+  KeyRound,
   LayoutDashboard,
   MessagesSquare,
   Package,
@@ -12,6 +14,7 @@ import {
   Rss,
   ScrollText,
   Settings,
+  Share2,
   ShoppingCart,
   Ticket,
   Truck,
@@ -36,11 +39,15 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/products", label: "商品", icon: Package },
   { href: "/admin/categories", label: "分类", icon: FolderTree },
   { href: "/admin/orders", label: "订单", icon: ShoppingCart },
+  { href: "/admin/contact-messages", label: "客服留言", icon: Inbox },
   { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
 ];
 
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/admin/notifications", label: "消息中心", icon: MessagesSquare },
+  // 与桌面侧栏同一份顺序：分销紧跟消息中心，找回密码在后
+  { href: "/admin/distribution", label: "分销", icon: Share2, adminOnly: true },
+  { href: "/admin/password-resets", label: "找回密码", icon: KeyRound, adminOnly: true },
   { href: "/admin/refunds", label: "退款", icon: RotateCcw, adminOnly: true },
   { href: "/admin/coupons", label: "折扣码", icon: Ticket, adminOnly: true },
   { href: "/admin/payment-channels", label: "支付渠道", icon: Wallet, adminOnly: true },
@@ -79,7 +86,7 @@ function SidebarLink({
       data-active={active}
       className={cn(
         "group relative flex h-9 items-center gap-2.5 rounded-md px-3 text-[13px] font-medium",
-        "transition-colors duration-150 ease-out outline-none",
+        "outline-none transition-colors duration-150 ease-out",
         "focus-visible:ring-2 focus-visible:ring-ring/40",
         active
           ? "bg-secondary text-foreground"
@@ -170,11 +177,7 @@ export function MobileDrawerContent({
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-5">
           <div className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/images/brand/admin-logo.png"
-              alt={brandName}
-              className="h-8 w-auto"
-            />
+            <img src="/images/brand/admin-logo.png" alt={brandName} className="h-8 w-auto" />
             <span className="text-[13px] font-semibold tracking-tight">{brandName}</span>
           </div>
           <button

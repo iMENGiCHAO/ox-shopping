@@ -6,6 +6,9 @@ import type { AccountNavIcon } from "@/components/shop/account-nav-link";
  * My Orders 放到顶行导致顺序跳变）。
  *
  * 修改密码已并入个人资料页（/account/profile 的 Change Password 卡片），不再单列。
+ * 分销/推广**刻意不在这里列入口**（大爷 2026-09-20 反馈：会在主站左侧多出一个「我的推广」，
+ * 显得杂乱且污染主站）——它只是个人资料页里的一张分享小卡片，成功后从卡片进入独立的
+ * `/distribution` 页面（自带外壳，不套店铺页头页脚）。
  */
 export interface AccountNavItem {
   href: string;

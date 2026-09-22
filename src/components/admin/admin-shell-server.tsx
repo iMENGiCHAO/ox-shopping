@@ -3,6 +3,8 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import {
   FolderTree,
+  Inbox,
+  KeyRound,
   LayoutDashboard,
   Menu,
   MessagesSquare,
@@ -11,6 +13,7 @@ import {
   Rss,
   ScrollText,
   Settings,
+  Share2,
   ShoppingCart,
   Ticket,
   Truck,
@@ -21,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { prisma } from "@/lib/prisma";
 import { brandFallback } from "@/lib/env";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { getLang } from "@/lib/shop-i18n-server";
@@ -47,6 +51,8 @@ interface NavItem {
   label: string;
   icon: LucideIcon;
   adminOnly?: boolean;
+  /** 待办角标（0/undefined 不显示）。目前用于「客服留言」未处理数 */
+  badge?: number;
 }
 
 /** 主导航（运营日常高频） */
@@ -55,12 +61,19 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/products", label: "商品", icon: Package },
   { href: "/admin/categories", label: "分类", icon: FolderTree },
   { href: "/admin/orders", label: "订单", icon: ShoppingCart },
+  // 客服留言是「有顾客在等回复」的待办，与到货提醒同列高频区
+  { href: "/admin/contact-messages", label: "客服留言", icon: Inbox },
   { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
 ];
 
 /** 运营管理（ADMIN 专属） */
 const ADMIN_NAV_ITEMS: NavItem[] = [
   { href: "/admin/notifications", label: "消息中心", icon: MessagesSquare },
+  // 分销是平台级资金模块（返佣/提现都要 ADMIN），子页面导航由模块内 layout 的二级 Tab 承担
+  { href: "/admin/distribution", label: "分销", icon: Share2, adminOnly: true },
+  // 找回密码申请是**有客户在等的待办**，与消息中心并排放最前
+  // （批准/驳回需要 ADMIN 权限，故 adminOnly）
+  { href: "/admin/password-resets", label: "找回密码", icon: KeyRound, adminOnly: true },
   { href: "/admin/refunds", label: "退款", icon: RotateCcw, adminOnly: true },
   { href: "/admin/coupons", label: "折扣码", icon: Ticket, adminOnly: true },
   { href: "/admin/payment-channels", label: "支付渠道", icon: Wallet, adminOnly: true },
@@ -112,10 +125,11 @@ function SidebarLink({
   collapsed?: boolean;
 }) {
   const Icon = item.icon;
+  const badge = item.badge && item.badge > 0 ? item.badge : 0;
   return (
     <Link
       href={item.href}
-      aria-label={item.label}
+      aria-label={badge > 0 ? `${item.label}（${badge} 条待处理）` : item.label}
       title={item.label}
       data-active={active}
       className={cn(
@@ -136,6 +150,19 @@ function SidebarLink({
         strokeWidth={1.75}
       />
       {!collapsed ? <span className="truncate">{item.label}</span> : null}
+      {/* 待办角标：展开态显示数字，折叠态退化为图标右上角小红点（不挤压布局） */}
+      {badge > 0 ? (
+        collapsed ? (
+          <span
+            aria-hidden
+            className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-destructive"
+          />
+        ) : (
+          <span className="ml-auto rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-4 text-destructive-foreground">
+            {badge > 99 ? "99+" : badge}
+          </span>
+        )
+      ) : null}
     </Link>
   );
 }
@@ -146,11 +173,14 @@ function SidebarContent({
   isAdmin,
   pathname,
   collapsed,
+  contactUnread = 0,
   brandName = BRAND_NAME,
 }: {
   isAdmin: boolean;
   pathname: string;
   collapsed?: boolean;
+  /** 「客服留言」未处理（status=new）数量，显示为侧栏待办角标 */
+  contactUnread?: number;
   /** 站点品牌名（来自站点设置，后台可改） */
   brandName?: string;
 }) {
@@ -169,11 +199,7 @@ function SidebarContent({
           className="flex h-9 items-center gap-2.5 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/images/brand/admin-logo.png"
-            alt={brandName}
-            className="h-9 w-auto shrink-0"
-          />
+          <img src="/images/brand/admin-logo.png" alt={brandName} className="h-9 w-auto shrink-0" />
           {!collapsed ? (
             <div className="flex flex-col leading-tight">
               <span className="text-[13px] font-semibold tracking-tight text-foreground">
@@ -199,7 +225,11 @@ function SidebarContent({
           {NAV_ITEMS.map((item) => (
             <SidebarLink
               key={item.href}
-              item={item}
+              item={
+                item.href === "/admin/contact-messages"
+                  ? { ...item, badge: contactUnread }
+                  : item
+              }
               active={isActive(pathname, item.href)}
               collapsed={collapsed}
             />
@@ -268,11 +298,21 @@ export async function AdminShellServer({
   const lang = await getLang();
   const brandName = pickLang(settings.siteName, lang).trim() || BRAND_NAME;
 
+  // 「客服留言」未处理数：让待办在侧栏可见（有顾客在等回复却没人知道 = 商业交付缺陷）
+  const contactUnread = await prisma.contactMessage
+    .count({ where: { status: "new" } })
+    .catch(() => 0);
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* ── 桌面固定侧栏 ───────────────────────────────────── */}
       <aside className="admin-sidebar fixed inset-y-0 left-0 z-30 hidden w-[264px] flex-col border-r border-border bg-card transition-[width] duration-200 ease-out lg:flex">
-        <SidebarContent isAdmin={isAdmin} pathname={pathname} brandName={brandName} />
+        <SidebarContent
+          isAdmin={isAdmin}
+          pathname={pathname}
+          brandName={brandName}
+          contactUnread={contactUnread}
+        />
         {/* 折叠按钮（侧栏底部，桌面） */}
         <div className="border-t border-border p-2">
           <AdminSidebarCollapseButton />

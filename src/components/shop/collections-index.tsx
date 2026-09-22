@@ -26,8 +26,8 @@ export async function CollectionsIndex() {
 
   return (
     <div className="flex-1 bg-surface">
-      <div className="shell pb-16 pt-[var(--collection-head-pt)]">
-        <h1 className="text-center text-[28px] font-normal leading-tight text-foreground">
+      <div className="shell pb-[var(--collection-pb)] pt-[var(--collection-head-pt)]">
+        <h1 className="collection-title text-center font-normal text-foreground">
           {t("All collections")}
         </h1>
 

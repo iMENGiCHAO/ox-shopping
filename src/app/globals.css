@@ -29,6 +29,19 @@
   --content-max: 45rem; /* 720px — 内容页正文列（FAQ / 政策） */
   --content-pad: 1.25rem; /* 20px */
 
+  /* ── 页面主标题（h1）—— 原站是**流式字号**，不是固定值 ──
+     2026-09-20 实测（4 个视口，线性拟合，斜率 0.007805 px/px）：
+       375 → **20px**、700 → 22.5366、999 → 24.8702、1216 → **26.5639**
+     ⇒ `calc(17.073px + 0.7805vw)`（在 375 与 1216 上均精确复现实测值）。
+     搜索页 / FAQ / 内容页（政策 · 无障碍声明 · 隐私选择）**同档**。
+     其余两档（同为实测）：PLP `calc(18.342px + 0.9756vw)`（22 → 30.2049）、
+     购物车空态 `calc(15.268px + 0.1951vw)`（16 → 17.641）。
+     ⚠️ 此前各处写死 `26.5639px` —— 桌面正确、移动端偏大 6.5px。 */
+  --page-title-size: calc(17.073px + 0.7805vw);
+  /* 主标题的上内边距也是响应式的：<1000 → 40px，≥1000 → 64px
+     （实测 h1 的 y：<1000 = 页头 59/65 + 40；≥1000 = 65 + 64）。 */
+  --page-title-pt: 40px;
+
   /* 顶栏高度 —— 单一事实来源：`.header-bar` 与认证页的
      `min-height: calc(100vh - var(--header-h))` 都引用它。
      原站实测：<700px = 59px；≥700px = 65px。 */
@@ -50,7 +63,11 @@
   --pdp-dots-size: 0.5rem;
   --pdp-title-size: 22px; /* 商品名（桌面实测 22px；移动端原站降到 18px） */
 
-  --plp-col-gap: 3.75rem; /* 60px — 集合页列间距（原站实测卡 408 宽、列 pitch 468） */
+  /* PLP 列间距是**响应式**的（原站实测二分：1395px → 48px，1400px → 60px）：
+     <1400 → **48px**（1216 下卡 341、列 pitch 389）；≥1400 → 60px（1440 下卡 408、列 pitch 468）。
+     ⚠️ 此前写成全局 60px —— 那是**在 1440 测到的值**，套到 1216 会让卡片变成 333（应 341）。
+     覆盖见下方 `@media (min-width: 1400px)`。 */
+  --plp-col-gap: 3rem; /* 48px */
   --plp-row-gap: 66px; /* 商品列表行间距 — 原站行 pitch 470px，减去卡片高 403.8 反推 */
   /* 首页商品网格列间距：原站首页卡 440 宽、列 pitch 452（间距 12px），
      与集合页（卡 408、间距 60）**刻意不同**——大爷 2026-09-20 指正两处间距不同，
@@ -58,14 +75,33 @@
   --home-col-gap: 0.75rem;
   --plp-head-pt: 3.875rem; /* 62px — 页首(header 下沿)到标题行盒，原站字形 y137 */
   --plp-head-gap: 7rem; /* 112px — 标题行盒到首行卡片顶，原站首图 y280 */
-  --plp-title-size: 1.75rem; /* 28px — 标题字号（原站桌面实测字形带高 22px） */
-  --plp-shell-pad: var(--shell-pad); /* 容器内边距：桌面与全局一致（48px） */
+  /* PLP 标题 —— 原站实测也是**流式字号**（4 视口线性拟合，斜率 0.009756 px/px）：
+     375 → **22px**、700 → 25.1707、999 → 28.0878、1216 → **30.2049**
+     ⇒ `calc(18.342px + 0.9756vw)`（两端均精确复现实测值）。
+     此前是两段式（移动 21px / 桌面 28px），两端都偏小。 */
+  --plp-title-size: calc(18.342px + 0.9756vw);
+  /* ⚠️ 这里**不要**再定义 `--plp-shell-pad: var(--shell-pad)` 这类间接令牌：
+     自定义属性里的 `var()` 在**声明它的元素**（这里是 `:root`）上就解析完了，
+     所以 `[data-shop-root] { --shell-pad: 32px }` 这种元素级覆盖**传不进来**。
+     曾因此让首页 / PLP 在 700–999px 仍是 48px（应 32px）。见下方 `.plp-shell` 规则。 */
   --collection-gap: 1.875rem; /* 30px — 集合页列/行间距 */
   --collection-head-pt: 3.75rem; /* 60px — header 下沿到 H1 行盒，原站字形 y137 */
   --collection-head-gap: 3.125rem; /* 50px — H1 行盒到卡片网格顶（校验后卡片顶 y214，与原站一致） */
   --collection-cap-inset-x: 3rem; /* 48px — 卡片内标题左内缩（原站字形 x98，卡左缘 48） */
   --collection-cap-inset-y: 2.5rem; /* 40px — 卡片内标题下内缩（原站字形底 y521，卡底缘 566） */
   --collection-cap-size: 1.25rem; /* 20px — 卡片内标题字号（原站实测） */
+  /* H1「All collections」—— 桌面 28px；移动端原站实测 **19.6px**（墨迹 120×14 vs
+     本地 28px 的 172×20，宽高比都指向 0.70）。取 20px。**响应式两档**，不是流式：
+     同页其它 H1 的流式斜率是 0.1951，而这里 20→28 需要 0.95，量级差 5 倍。 */
+  --collection-title-size: 1.75rem; /* 28px */
+  --collection-pb: 4rem; /* 64px — 末卡 → 页脚（桌面；移动端原站实测 35px，见 @media） */
+
+  /* /search 空态（无 q 时）—— 桌面实测：区块上下各 200px、H1 18px。
+     移动端原站 375 实测：H1 墨迹 y165..175（宽 49 ⇒ 约 16px）、输入框 y214..228、
+     页脚顶 341、页高 624 —— 写死 200/200 会让整块低 99px、页高多 210px。 */
+  --search-empty-pt: 200px;
+  --search-empty-pb: 200px;
+  --search-empty-title-size: 18px;
 
   /* 首页「All Products」区块 —— 原站实测：
      桌面（1200 视口）标题字形 y478..496（宽 142 → ≈26px）、字形距横幅底 73px；
@@ -75,17 +111,60 @@
   --home-grid-mt: 50px; /* 标题行盒 → 首行卡片顶（原站首图 y555） */
 
   /* /cart 空态垂直节奏（原站 1200 视口实测：标题字形 y336 / 副标题 y383 / 按钮 y434） */
-  --cart-empty-pt: 16.5rem; /* 264px — header 下沿到标题行盒 */
-  --cart-empty-pb: 15.625rem; /* 250px */
-  --cart-empty-gap-1: 1.25rem; /* 20px — 标题 → 副标题 */
-  --cart-empty-gap-2: 2.125rem; /* 34px — 副标题 → 按钮 */
+  /* 空态顶部内边距 —— **响应式**：原站实测 h1 的 y 在 375 → 199（页头 59 + **140**）、
+     1216 → 329（65 + **264**）。此前写死 264px → 移动端整块低 124px。
+     两点线性拟合（斜率 0.14744 px/px ⇒ **14.744vw**）：
+     `calc(84.71px + 14.744vw)`（375 → 140.0，1216 → 264.0）。
+     ⚠️ vw 换算：`k vw` 等于视口宽的 k%，即对应的 px/px 斜率是 **k ÷ 100**。
+     写成 `0.1474vw` 会小 100 倍（本轮踩过）。 */
+  --cart-empty-pt: calc(84.71px + 14.744vw);
+  /* 空态标题字号 —— 原站实测同样是**流式**：375 → **16px**、700 → 16.6341、
+     999 → 17.2176、1216 → **17.641** ⇒ `calc(15.268px + 0.1951vw)`。
+     此前写死 18px（两端都不对）。 */
+  --cart-empty-title-size: calc(15.268px + 0.1951vw);
+  /* 空态**上下内边距相等** —— 反解自原站两侧实测：
+     375 页脚顶 465 ⇒ pb=140（pt 也是 140）；1200 页脚顶 734 ⇒ pb≈263（pt 263.4）。
+     两条独立算出的 pb 都等于 pt ⇒ 直接复用 `--cart-empty-pt`。
+     此前写死 250px：移动端多 110px（本地页脚顶 597，应 465）。
+     ⚠️ 这里的 `var()` 是安全的：`--cart-empty-pt` 只在 `:root` 定义，没有元素级覆盖。 */
+  --cart-empty-pb: var(--cart-empty-pt);
+  --cart-empty-gap-1: 1.25rem; /* 20px — 标题 → 副标题（桌面；移动端 16，见 @media） */
+  --cart-empty-gap-2: 2.125rem; /* 34px — 副标题 → 按钮（桌面；移动端 25，见 @media） */
   --cart-btn-pad-x: 1.75rem; /* 28px — 空态按钮水平内边距（原站按钮宽 174px） */
+  /* 空态副标题 / 按钮 —— **响应式**：原站 375 实测副标题 11px、按钮文字 12px、按钮 158×43；
+     桌面（1216）是 15px / 14px / 175×46。此前移动端沿用桌面值 ⇒ 副标题墨迹宽 121（应 86）、
+     按钮 175×46（应 159×43）。字号用普通类（`.cart-empty-sub` / `.cart-empty-btn`），
+     不用 Tailwind 的 `text-[length:var()]`（那份写法静默不生成，见页脚同款注释）。 */
+  --cart-empty-sub-size: 15px;
+  --cart-empty-sub-line: 22.5px; /* 1.5× */
+  --cart-empty-btn-size: 14px;
+  --cart-empty-btn-h: 46px;
 
-  /* 页脚垂直节奏 —— 原站 1200 视口实测：行1 字形 y1085 / 行2 字形 y1162 / 总高 211 */
-  --footer-pt: 3.875rem; /* 62px — 页脚顶到链接行盒 */
-  --footer-row-gap: 3.375rem; /* 54px — 链接行盒 → 工具行 */
-  --footer-pb: 3.25rem; /* 52px — 工具行 → 页脚底 */
-  --footer-link-gap: 1.5rem; /* 24px — 链接行水平间距（原站行宽 845px 反解） */
+  /* 页脚垂直节奏 —— 桌面（≥700）用这一套。
+     ⚠️ 总高有**两个历史数字**：旧注释记 211，2026-09-20 用 thum.io 1200 图逐像素扫描得
+     **208**（本地当前 209）。差 1px 在扫描噪声内，未据此改动，留待单独一轮复核。
+     移动端（<700px）是**另一套值**（页脚高 283、链接行左对齐、字号 0.7rem），
+     见下方 `@media (max-width: 699px)`；这里全部走令牌，组件里不出现像素魔数。 */
+  --footer-pt: 3.9375rem; /* 63px — 页脚顶到链接行盒（原站 1200 实测行1 字形顶距顶 69） */
+  --footer-row-gap: 3.375rem; /* 54px — 链接行盒 → 工具行（原站工具行字形顶距顶 144） */
+  --footer-pb: 3.125rem; /* 50px — 工具行 → 页脚底（总高 208） */
+  --footer-link-gap: 1.25rem; /* 20px — 链接行水平间距。
+      2026-09-20 修正：原为 24px，注释写「原站行宽 845px 反解」——该反解有误。
+      同法逐间隙实测（两侧都是「字形墨迹间隙」）：
+        原站 1200 图 6 个间隙 = 21/21/22/21/22/22（⇒ CSS 约 20.5）
+        本地 1216 图 6 个间隙 = 25/25/26/25/25/24（⇒ 24，与令牌一致）
+      改 20px 后桌面链接行从 873 收到 849（原站墨迹 833，余差 +16 全部来自
+      本字体每项比原站宽 2~4px）。移动端有独立覆盖，不受影响。 */
+  --footer-link-gap-y: 1rem; /* 16px — 链接行纵向间距（桌面单行，仅兜底） */
+  --footer-link-size: 15px; /* 链接字号（原站 1200 实测） */
+  --footer-link-line: 24.75px; /* = 15px × 1.65。
+      ⚠️ 用 px 不要写 `1.546875rem`：rem 换算会得到 24.7501px，把桌面页脚整体顶高 1px。 */
+  --footer-tool-gap: 0.75rem; /* 12px — 工具行（国家/币种 ↔ 版权）纵向间距 */
+  --footer-tool-size: 11px; /* 工具行字号（国家/币种 + 版权）。
+      原站 375 与 1200 两侧实测都是 **11px**，本地原为 `text-xs`（12px）：
+      选择器文字墨迹宽 108 vs 本地 117（+8.3%，远大于本字体固有的 +2.6%）
+      ⇒ 字号比 0.92 ⇒ 11.0px。行盒仍是 16px，故**纵向节奏不受影响**。 */
+  --footer-pad-x: 0px; /* 桌面不叠加：左右内边距交给 `.shell`（700–999 是 32、≥1000 是 48） */
 
   /* 内容页正文（FAQ / 政策）—— 原站实测 15px / 行高 25px
      段间距 20px：原站相邻两段的「字形底 → 下一段字形顶」为 32px，
@@ -110,12 +189,80 @@
 @media (max-width: 699px) {
   :root {
     --header-h: 59px;
-    --plp-title-size: 1.3125rem; /* 21px */
+
+    /* 页脚移动端 —— 原站 375 实测（thum.io iPhoneX 整页图逐像素扫描，
+       与本地同法扫描对照；页脚高 283 与先前独立测得的 283 一致）：
+         · 总高 283、底色纯黑
+         · 链接行**左对齐**（三行字形左缘同为 x=25 ⇒ 容器内边距 24）
+         · 链接字号 0.7rem（= 桌面 15px 的 0.7467×，7 个标签宽度比全部命中）
+         · 行 pitch 42.5（行1 字形顶距顶 44 / 行2 87 / 行3 129）
+         · 选择器字形顶距顶 184、版权 229、版权字形底距底 45
+       桌面值是 62/54/52 + 15px 居中，**不要**把它们一起改掉。 */
+    --footer-pt: 2.4375rem; /* 39px — 页脚顶 → 链接行盒（行1 字形顶距顶 44） */
+    --footer-row-gap: 2.4375rem; /* 39px — 链接行盒 → 工具行（选择器字形顶距顶 184） */
+    --footer-pb: 2.59375rem; /* 41.5px — 版权行盒 → 页脚底（版权字形顶距顶 229、总高 283） */
+    --footer-link-gap: 1.5625rem; /* 25px — 水平间距。
+        原站字形间隙是 29（⇒ CSS 约 26.7），但本字体在 11.2px 下的**字身框**比原站宽约 1px：
+        用 26 会把第 4 条 `Privacy Policy` 挤到下一行（折成 3/3/1，而原站是 **4/2/1**）。
+        取 25 保住折行；代价是行 1 右端比原站短约 4px。 */
+    --footer-link-gap-y: 1.5rem; /* 24px — 行 pitch 42.5 = 行高 18.48 + 24 */
+    --footer-link-size: 11.2px; /* = 0.7rem，桌面 15px 的 0.7467×（7 个标签宽度比全部命中） */
+    --footer-link-line: 18.48px; /* = 11.2px × 1.65（与桌面同比例）；同桌面，用 px 避免 rem 换算误差 */
+    --footer-tool-gap: 1.71875rem; /* 27.5px — 选择器 → 版权（版权字形顶距顶 229）。
+        工具行字号从 12px 收到 11px 后，字在 16px 行盒里更居中 ⇒ 墨迹下移 1px，故此处 −1 补回。 */
+    --footer-pad-x: 1.5rem; /* 24px — 页脚自己的左右内边距（内容页 20、网格页 10 之外的第三种） */
+
+    /* /cart 空态移动端 —— 原站 375 实测（thum.io iPhoneX 图逐像素扫描，与本地同法）：
+         副标题墨迹 86×7（本地 15px 时 121×14）⇒ 11px
+         按钮 159×43（本地 46 高）⇒ 43；按钮文字墨迹 99（本地 14px 时 117）⇒ 12px
+         字形带顶：标题 205 / 副标题 245 / 按钮 282（本地改前 206 / 250 / 301） */
+    --cart-empty-gap-1: 1rem; /* 16px — 标题 → 副标题 */
+    --cart-empty-gap-2: 1.5625rem; /* 25px — 副标题 → 按钮 */
+    --cart-empty-sub-size: 11px;
+    --cart-empty-sub-line: 16.5px; /* 1.5× */
+    --cart-empty-btn-size: 12px;
+    --cart-empty-btn-h: 43px;
+
+    /* /collections 移动端 —— 原站 375 实测：
+         单列、卡片 335×335、行距 24；H1 墨迹 y106..119（宽 120 ⇒ 20px）、卡顶 169；
+         卡内标签墨迹 x42..82 / 底 479（卡底 504）⇒ 内缩约 22/21、字号约 18px */
+    --collection-gap: 1.5rem; /* 24px — 单列的**行**间距 */
+    --collection-head-pt: 2.5rem; /* 40px — header 下沿 → H1 行盒（H1 墨迹顶 106） */
+    --collection-head-gap: 2.625rem; /* 42px — H1 行盒 → 首卡顶（59+40+28+42 = 169 ✓） */
+    --collection-cap-size: 1.125rem; /* 18px — 卡内标签（桌面 20px） */
+    --collection-cap-inset-x: 1.375rem; /* 22px（桌面 48px） */
+    --collection-cap-inset-y: 1.3125rem; /* 21px（桌面 40px） */
+    --collection-title-size: 1.25rem; /* 20px（桌面 28px） */
+    --collection-pb: 2.1875rem; /* 35px — 末卡底(1581) → 页脚(1616) → 页高 1899 ✓ */
+
+    /* /search 空态移动端 —— 原站 375：H1 墨迹顶 165、输入框 214、页脚顶 341、页高 624。
+       按「pt + H1行盒22 + mt20 + 输入48 + pb = 341 − 59」反解 ⇒ pt ≈ pb ≈ 100。 */
+    --search-empty-pt: 100px;
+    --search-empty-pb: 93px;
+    --search-empty-title-size: 16px;
+
+    /* 内容页正文移动端字号 —— 原站 375 实测墨迹高 13~14（本地 14px 时 13 ✓）。
+       ⚠️ **行距不要在这里改**：政策页移动端仍是 25（原站 a11y 行 pitch 25 ✓），
+       只有 **FAQ 页**是 18 —— 两者共用 `.prose-page`，FAQ 靠额外的 `.faq-prose` 分流。 */
+    --prose-size: 0.875rem; /* 14px */
+    --faq-head-gap: 4rem; /* 64px — H1 行盒 → 正文首段（原站首段墨迹 203） */
+
+    /* PLP 标题字号不再需要移动端覆盖 —— 已改为流式 `calc(...vw)`（见上方定义），
+       该公式在 375px 下本身就给出原站实测的 22px。 */
+
     --plp-head-pt: 43px; /* 顶栏下沿(59) → 标题行盒 */
     --plp-head-gap: 65px; /* 标题行盒 → 首行卡片顶 */
     --plp-col-gap: 10px;
     --plp-row-gap: 38px;
-    --plp-shell-pad: 10px; /* PLP 容器内边距：原站移动端只有 10px（其他页面 20px） */
+    /* /search 结果网格的**移动端**间距 —— 必须显式覆盖：
+       `.search-grid` 用固定值覆盖了 `.plp-grid` 的移动端 10/38，若不覆盖，
+       移动端会沿用桌面的 48/64 —— 实测 375px 下卡片只有 154px 宽（应 173，
+       与原站一致）。这两个令牌的基准值在下方 `@layer base` 里，而本块**无层**，
+       优先级更高，所以放这里能生效。 */
+    --search-result-col-gap: 10px;
+    --search-result-row-gap: 38px;
+    /* PLP 容器内边距：原站移动端只有 10px（其他页面 20px）。
+       该值直接写在下方 `.plp-shell` 规则里（不走令牌，原因见那条规则的注释）。 */
 
     /* PDP 移动端：主图满宽出血 375×375 且紧贴顶栏（原站实测 y59..434），
        圆点距主图 24px、点径 6px、点距 16px。 */
@@ -158,6 +305,93 @@
   max-width: var(--shell-max);
   margin-inline: auto;
   padding-inline: var(--shell-pad);
+}
+
+/* 页脚链接排版：字号/行高走令牌（桌面 15px / 24.75px，移动端 11.2px / 18.48px）。
+   ⚠️ 不要改回 Tailwind 的 `text-[length:var(--footer-link-size)]` —— 本项目这份
+   Tailwind 不会为 `var()` 形式的任意值生成字号/行高工具类（`leading-[var(--x)]` 同理），
+   会**静默**不生成、让链接回落到继承的 16px/24px。用普通类最稳。 */
+.footer-link {
+  font-size: var(--footer-link-size);
+  line-height: var(--footer-link-line);
+}
+
+/* 页脚工具行（国家/币种 + 版权）字号 —— 原站两侧实测都是 11px，而组件里写的是
+   `text-xs`（12px）。用后代选择器提高特异性盖过 Tailwind 工具类（0,1,1 > 0,1,0），
+   且**只作用于页脚**：同一个 `CurrencySelect` 在页头也用，页头不该被改。
+   只覆盖 font-size，不动 line-height（仍是 16px）⇒ 纵向节奏不变。 */
+.footer-tool button,
+.footer-tool p {
+  font-size: var(--footer-tool-size);
+}
+
+/* /cart 空态的副标题与按钮文字：字号走令牌（桌面 15/14、移动端 11/12）。
+   同 `.footer-link` —— 不用 Tailwind 的 `text-[length:var()]`，那份写法静默不生成。 */
+.cart-empty-sub {
+  font-size: var(--cart-empty-sub-size);
+  line-height: var(--cart-empty-sub-line);
+}
+.cart-empty-btn {
+  font-size: var(--cart-empty-btn-size);
+  /* 高度也放这里 —— Tailwind 的 `h-[var(--x)]` 同样不生成（与 `text-[length:var()]` 同族），
+     只写 font-size 时按钮会塌成内容高度 18px（原站 43/46）。 */
+  height: var(--cart-empty-btn-h);
+}
+
+/* 集合页 H1 字号（桌面 28 / 移动端 20）—— 同 `.footer-link`，走普通类不走 Tailwind 任意值。
+   ⚠️ 行高必须显式写：Tailwind 的 `text-[28px]` 这类**任意值字号**会**附带 `line-height: 1.4`**
+   （此前靠它拿到 39.2 的行盒）。只换成普通类 + `leading-tight` 会变成 1.25 ⇒ 行盒少 4.2px
+   ⇒ 卡片顶 214 → 210（qa:layout 会报红）。1.4 × 28 = 39.2，65+60+39.2+50 = 214.2 ✓ */
+.collection-title {
+  font-size: var(--collection-title-size);
+  line-height: 1.4;
+}
+
+/* /search 空态区块（桌面 200/200 + H1 18px；移动端 100/100 + 16px）。
+   用普通类而不是 `pt-[var(--x)]`/`text-[length:var()]` —— 后者在这份 Tailwind 上不生成。 */
+.search-empty {
+  padding-top: var(--search-empty-pt);
+  padding-bottom: var(--search-empty-pb);
+}
+.search-empty-title {
+  font-size: var(--search-empty-title-size);
+}
+
+/* FAQ 页正文的**移动端行距**（原站 375 行 pitch 18；桌面与政策页一样是 25）。
+   两页共用 `.prose-page`，所以靠这个额外的类分流。
+   段间距同步收窄：原站段间墨迹间隙 24~27（本地 20 时是 37）。 */
+@media (max-width: 699px) {
+  .faq-prose {
+    line-height: 18px;
+  }
+  .faq-prose > * + * {
+    margin-top: 18px;
+  }
+}
+
+/* PDP 描述（`.desc-prose`）移动端 —— 原站 375 实测行 pitch **18**（本地 15/25 时是 25）。
+   字号按**行数**反推：同一段文字（166 字符）在 335px 容器里，原站排 3 行、本地 14px 排 4 行
+   ⇒ 原站 ≈ 14 × (810/1036) ≈ **11px**（用两边的墨迹总宽 810 / 1036 比，与墨迹高比 10/13 一致）。
+   段间距 18 ⇒ 段间墨迹间隙 36（原站 34 ✓）。 */
+@media (max-width: 699px) {
+  .desc-prose {
+    font-size: 11px;
+    line-height: 18px;
+  }
+  .desc-prose > p + p {
+    margin-top: 18px;
+  }
+}
+
+/* 页脚移动端（原站 375 实测）：链接行**左对齐**（桌面是居中）、左右内边距 24px。
+   必须写在 `.shell` 之后 —— 同为单类选择器，靠顺序取胜。 */
+@media (max-width: 699px) {
+  .footer-nav {
+    justify-content: flex-start;
+  }
+  .footer-shell {
+    padding-inline: var(--footer-pad-x);
+  }
 }
 
 /* PDP 容器：原站 PDP **比其它页更早居中收敛**（多视口实测，2026-09-20）：
@@ -208,6 +442,52 @@
    只在 --shell-max 之上收敛 —— 否则 1280–1600 区间会与原站错位。 */
 [data-shop-root] .container {
   max-width: min(100%, var(--shell-max));
+  /* 与 `.shell` 统一为单一事实来源。
+     Tailwind 的 container 内边距是「DEFAULT 20px / ≥640px 起 48px」，
+     但原站在 640–699 区间是 **20px**、700–999 是 **32px** —— 用 Tailwind 的值会两处都不对。
+     改用 `--shell-pad` 后 `.container` 与 `.shell` 的内边距完全一致。 */
+  padding-inline: var(--shell-pad);
+}
+
+/* ── 店面容器内边距：原站是**三级曲线**（2026-09-20 Playwright 实测，多页复核）──
+   | 视口      | 内容页 | 商品网格页（首页 / PLP / 搜索） |
+   | <700px    | 20px   | 10px（由 `--plp-shell-pad` / `--search-page-pad` 单独给） |
+   | 700–999px | **32px** | **32px** |
+   | ≥1000px   | 48px   | 48px |
+
+   实测：首页 / PLP / 搜索页的商品网格 x 在 375/500/699 均为 10、700/767/999 均为 32、
+   1000/1216 均为 48；FAQ 等内容页在 <700 是 20。
+   ⚠️ 此前本地「700px 起直接给 48px」，导致 **700–999 区间整站宽 16px**。
+   用 `[data-shop-root]` 限定在店面 —— 后台沿用 48px，不受影响。 */
+@media (min-width: 700px) and (max-width: 999px) {
+  [data-shop-root] {
+    --shell-pad: 2rem; /* 32px */
+  }
+}
+
+/* /search 页外层内边距（该页不用 .shell/.container，自己一层）—— 与商品网格页同曲线 */
+:root {
+  --search-page-pad: 10px;
+}
+@media (min-width: 700px) {
+  :root {
+    --search-page-pad: 32px;
+  }
+}
+@media (min-width: 1000px) {
+  :root {
+    --search-page-pad: 48px;
+    /* 主标题上内边距：<1000 是 40px（实测 h1 y=105 = 页头 65 + 40），
+       ≥1000 变 64px（y=129 = 65 + 64）。 */
+    --page-title-pt: 64px;
+  }
+}
+
+/* PLP 列间距在 ≥1400px 时放宽到 60px（原站实测：1395 → 48，1400 → 60） */
+@media (min-width: 1400px) {
+  :root {
+    --plp-col-gap: 3.75rem; /* 60px */
+  }
 }
 
 /* ── PDP 栅格：7fr / 80px / 3fr ──
@@ -249,21 +529,39 @@
   }
 }
 
-/* PLP 专用容器：移动端内边距 10px（原站实测），≥700px 回到全局 --shell-pad */
-.plp-shell {
-  padding-inline: var(--plp-shell-pad);
+/* /search 结果网格：列/行距换成搜索页自己的实测值（见 `--search-result-*` 令牌）。
+   与 `.plp-grid` 同构（列数、断点一致），只覆盖间距。 */
+.search-grid {
+  column-gap: var(--search-result-col-gap);
+  row-gap: var(--search-result-row-gap);
 }
 
-/* ── 集合页栅格：2 列（<700px）/ 3 列（≥700px），间距 30px ── */
+/* PLP 专用容器：移动端内边距 10px（原站实测），≥700px 回到全局 --shell-pad */
+/* PLP 专用容器：移动端内边距 10px（原站实测），≥700px 回到全局 `--shell-pad`。
+   ⚠️ 必须**直接在规则里**引用 `--shell-pad`（在元素上解析），
+   不能经过 `:root` 上的中间令牌 —— 那样 `[data-shop-root]` 的元素级覆盖会失效。 */
+.plp-shell {
+  padding-inline: 10px;
+}
+@media (min-width: 700px) {
+  .plp-shell {
+    padding-inline: var(--shell-pad);
+  }
+}
+
+/* ── 集合页栅格：**1 列**（<700px）/ 3 列（≥700px）。
+   2026-09-20 修正：此前移动端是 2 列 —— 与原站不符。原站 375 实测（thum.io 整页图，
+   用「深色 T 恤照片 bbox」反推卡片：两个方向独立算都得 337，取容器内边距 20 ⇒ **335 方**）：
+   单列、卡片 335×335、行距 **24**（卡顶 169 / 887，pitch 718 = 335 + 24）。
+   2 列时卡片只有 160 方、页面高 890（原站 1899）。 */
 .collection-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--collection-gap);
 }
 @media (min-width: 700px) {
   .collection-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--collection-gap);
   }
 }
 
@@ -448,6 +746,60 @@ body.search-open [data-testid="header-shell"] > header {
     /* 次级页面底色（集合页）—— 原站实测 rgb(239,239,239) */
     --surface: 0 0% 93.7%; /* #EFEFEF */
     --surface-subtle: 0 0% 93.7%;
+
+    /* ── 页头搜索面板（原站实测）────────────────────────────────────
+       取证方式：Playwright 直连 shop.x.com，1216×900 / deviceScaleFactor 1，
+       点开页头搜索并输入查询后量取（2026-09-20）。
+       ⚠️ 该通道能对原站做交互取证，是唯一能拿到联想面板真实形态的办法；
+       在此之前用的 thum.io 只能抓静态整页，量不到面板。 */
+    --search-row-h: 76px; /* 搜索行：24 上下内边距 + 28 输入框 + 24 */
+    --search-pad-y: 24px;
+    --search-pad-x: 48px; /* 与页头 logo 左缘对齐（.container 实测 x=48） */
+    --search-icon-gap: 20px; /* grid 20px / 1fr / 16px 的列间距 */
+    --search-input-h: 28px;
+    --search-input-fs: 17.64px; /* 原站 input 计算字号（类 h5） */
+    --search-close-size: 16px;
+    --search-sidebar-w: 250px;
+    --search-col-gap: 40px; /* 左栏 ↔ 右栏 */
+    --search-tab-pad-b: 10px; /* 激活 tab 下划线（box-shadow 0 1px 0 #fff）的位置 */
+    --search-tab-gap: 70px; /* Products x=338 / Pages x=455 */
+    --search-divider: #262626; /* rgb(38,38,38)；左右两栏各一段，40px 栏距处断开 */
+    --search-panel-top: 33px; /* 分隔线 → 内容（195 → 228） */
+    --search-grid-gap: 24px;
+    --search-card-title-mt: 20px; /* 图底 417 → 标题字形顶 437 */
+    --search-card-price-mt: 3px;
+    --search-btn-h: 46px;
+    --search-btn-pad-x: 28px;
+    --search-btn-mt: 49px; /* 网格底 481 → 按钮顶 530 */
+    --search-pages-indent: 19px; /* Pages 列表文字 x=357 = 338 + 19 */
+    --search-pages-gap: 20px; /* 行距 37 = 行高 17 + 20 */
+    /* /search 结果网格：原站 `product-list` 实测（主列 830 宽）
+       → 3 列 **244.656px**、列距 **48**、行距 **64**。
+       ⚠️ 必须与 `.plp-grid` 的令牌分开：那个 60px 是**集合页**（卡 408 / pitch 468）的实测值，
+       而 `/collections/all` 与搜索页都是 48 —— 三个页面三种间距。 */
+    --search-result-col-gap: 48px;
+    --search-result-row-gap: 64px;
+    /* 工具栏 —— 原站 `collection-toolbar full-bleed` 实测：整幅、sticky、高 54、白底，
+       上下各一条 1px 线 rgb(221,221,221)；按钮 11px、`padding: 18px 46px`、高 54。
+       ≥1000px 只有 `Sort by`（右缘贴视口右缘，无左分隔线）；
+       <1000px 是 `Sort by` + `Filter` 两个单元格，各带一条左分隔线。 */
+    --search-toolbar-h: 54px;
+    --search-toolbar-btn-fs: 11px;
+    --search-toolbar-btn-pad-x: 46px;
+    /* 筛选抽屉（<1000px）—— 原站 `facets-drawer drawer--sm` 实测：
+       右侧 400 宽黑色面板；头部 `Filters` 17.0244px + 关闭按钮；
+       正文内边距 20；底部固定一个**全宽**白底黑字 `View results`（360×46、14px）。 */
+    --search-drawer-w: 400px;
+    --search-drawer-pad: 20px;
+    --search-drawer-pad-b: 16px; /* 底部按钮下缘到面板底：原站 900−884 = 16 */
+    --search-drawer-head-h: 65px;
+    --search-drawer-title-fs: 17.0244px;
+    --search-apply-h: 46px;
+    --search-apply-fs: 14px;
+    /* 开关（`In stock only`）—— 原站是 `input.switch` **36×16**（不是复选框）。
+       ⚠️ 曾据文本代理的 markdown `- [x]` 误判成复选框，实测推翻。 */
+    --search-switch-w: 36px;
+    --search-switch-h: 16px;
 
     --border: 0 0% 86.7%; /* #DDDDDD rgb(221) — hairline, matches shop.x.com */
     --input: 0 0% 86.7%; /* #DDDDDD — 与官方输入框描边一致 */
@@ -742,6 +1094,15 @@ body.search-open [data-testid="header-shell"] > header {
     background-color: hsl(var(--card));
     border-right: 1px solid hsl(var(--border));
   }
+  /* 第二左 sticky 列（订单表：批量选择列宽 40px 之后的订单号列）。
+     不加偏移会让两列在横向滚动时重叠。 */
+  .sticky-col-left-2 {
+    position: sticky;
+    left: 40px;
+    z-index: 10;
+    background-color: hsl(var(--card));
+    border-right: 1px solid hsl(var(--border));
+  }
   .sticky-col-right {
     position: sticky;
     right: 0;
@@ -756,6 +1117,7 @@ body.search-open [data-testid="header-shell"] > header {
     z-index: 11;
   }
   thead .sticky-col-left,
+  thead .sticky-col-left-2,
   thead .sticky-col-right {
     z-index: 20;
   }
@@ -792,4 +1154,58 @@ body.search-open [data-testid="header-shell"] > header {
     padding-right: 0;
     justify-content: center;
   }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * 现代面板作用域（大爷 2026-09-20 要求：「线条和框框太简单粗糙，要有流行的圆角」）
+ *
+ * 为什么用「属性作用域 + 覆盖工具类」而不是改全局令牌：
+ *   商城前台（商品/购物车/结账）必须保持 shop.x.com 的**方角无阴影**视觉
+ *   （`--radius: 0`），那是大爷第一条铁律「不要改废本网店的面目」。
+ *   而「账户概览」与「分销中心」是**面板型界面**，大爷明确要求现代圆角。
+ *   因此这里只在带 `data-modern-cards`（账户概览）/ `data-dist-center`（分销中心）
+ *   的容器内把圆角与阴影调成现代值 —— 不影响容器外的任何商城页面，
+ *   也不改 `Card` / `Button` 等共享组件的定义。
+ *
+ * `.rounded-md` 在这些区域统一升到 10px（按钮/输入框/卡片一起圆润，观感才一致），
+ * `rounded-full` / `rounded-lg` 等其它档位不受影响。
+ * ──────────────────────────────────────────────────────────────────────────── */
+[data-modern-cards],
+[data-dist-center] {
+  --panel-radius: 0.875rem;
+  --panel-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 32px -18px rgba(16, 24, 40, 0.18);
+}
+
+[data-modern-cards] .rounded-md,
+[data-dist-center] .rounded-md {
+  border-radius: 0.625rem;
+}
+
+[data-modern-cards] .shadow-card,
+[data-dist-center] .shadow-card {
+  box-shadow: var(--panel-shadow);
+}
+
+/* 大面板（卡片/表格容器）：更圆、更柔、带一点悬浮感 */
+[data-modern-cards] .panel,
+[data-dist-center] .panel {
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  transition:
+    box-shadow 0.18s ease-out,
+    border-color 0.18s ease-out;
+}
+
+[data-modern-cards] a.panel:hover,
+[data-dist-center] a.panel:hover {
+  box-shadow:
+    0 2px 4px rgba(16, 24, 40, 0.05),
+    0 18px 40px -20px rgba(16, 24, 40, 0.24);
+}
+
+/* 表格容器内圆角裁切，避免首末行直角捅出卡片 */
+[data-modern-cards] .panel table,
+[data-dist-center] .panel table {
+  border-radius: inherit;
+  overflow: hidden;
 }

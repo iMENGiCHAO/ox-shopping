@@ -101,11 +101,13 @@ try {
     "前台中文页显示后台编辑的中文内容",
     await page.getByText("QA11 双语关联验证：中文内容 v1").isVisible(),
   );
-  // 页脚逐字对齐原站实测（2026-09-20 直连 shop.x.com 导出全部 <a>）：共 6 条，
-  // 没有 Your Privacy Choices 第 7 条，也没有退款政策
+  // 页脚逐字对齐原站实测（2026-09-20 二次复核，三条独立通道）：共 7 条，
+  // 含 Your Privacy Choices（CCPA 入口）；没有退款政策。
+  // 旧断言「原站 6 条」依据的是「导出 <footer> 内全部 <a>」——
+  // 原站第 7 条并不在 <footer> 元素内，那次导出漏掉了它。
   ok(
-    "前台页脚为原站 6 条且不含「您的隐私选择」",
-    (await page.getByRole("link", { name: "您的隐私选择" }).count()) === 0,
+    "前台页脚含原站第 7 条「您的隐私选择」",
+    (await page.getByRole("link", { name: "您的隐私选择" }).count()) === 1,
   );
   ok(
     "前台页脚不含退款政策入口（原站店铺页脚无此项）",
@@ -117,8 +119,8 @@ try {
     await page.getByText("QA11 bilingual linkage: English content v1").isVisible(),
   );
   ok(
-    "前台页脚不含 Your Privacy Choices（原站 6 条）",
-    (await page.getByRole("link", { name: "Your Privacy Choices" }).count()) === 0,
+    "前台页脚含 Your Privacy Choices（原站 7 条）",
+    (await page.getByRole("link", { name: "Your Privacy Choices" }).count()) === 1,
   );
   // 退款政策已按原站移出页脚，但页面本身必须仍可直接访问（售后退款必需）
   await gotoStable(page, `${BASE}/policies/refund`);

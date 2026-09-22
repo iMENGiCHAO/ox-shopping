@@ -6,17 +6,41 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Loader2 } from "lucide-react";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
+import { SearchTabButton } from "@/components/shop/search-tab-button";
 import { useT } from "@/components/shop/lang-provider";
 import { useCurrency } from "@/components/shop/currency-provider";
 import type { ProductCardData } from "@/components/shop/types";
 
 /**
- * SearchOverlay — shop.x.com 官方同构（实测）：
- * 点击顶栏 Search → 头部下方展开全宽黑色接管面板：
- * - 搜索行 h≈77：放大镜图标 + 无边框输入框（18px 白字，placeholder "Search..."）+ 右侧 16px 关闭按钮
- * - 输入 ≥2 字符后下方出现联想区：左侧 240px 侧栏放 "Suggestions"(12px 白/65) 标题与查询链接，
- *   右侧主列 4 列商品卡片网格（方图 245px + 白色标题/价格），列距 ~24
- * - Enter 提交跳转 /search?q=；Esc / 点击遮罩 / Close 关闭
+ * SearchOverlay —— 页头联想面板，**逐项对齐原站实测**。
+ *
+ * 取证方式（2026-09-20）：Playwright 直连 shop.x.com，1216×900 / deviceScaleFactor 1，
+ * 点开页头搜索并输入查询后量取几何与像素。所有尺寸见 globals.css 的 `--search-*` 令牌。
+ *
+ * ── 空态（查询 < 2 字符）─────────────────────────────────────────────
+ * 面板**只有一条搜索行**（高 76，紧贴 65px 页头下沿），下方是页面本身、**不加任何遮罩**。
+ * 实测：打开面板前后扫描整个文档，都没有大面积半透明覆盖层。
+ * ⚠️ 此前本组件在空态渲染了两条 `[ X Collection ] Shop All` 入口 —— 那是**误读**：
+ * 那两条其实是首页 hero 横幅（就在面板透明区后面透出来），原站面板里没有它们。
+ *
+ * ── 搜索行 ─────────────────────────────────────────────────────────
+ * `grid-template-columns: 20px 1fr 16px`，列间距 20，容器左右内边距 48；
+ * 输入框高 28、字号 17.64px（原站 input 的计算字号）。
+ *
+ * ── 结果态 ─────────────────────────────────────────────────────────
+ * 面板黑色区域**随内容高度**（不是铺满视口）：
+ * - 左栏 250px：`Suggestions`（12px / 白 65%）
+ * - 栏距 40px，右栏顶部是 `Products` / `Pages` 两个 tab（12px 白字、下内边距 10px，
+ *   激活项用 `box-shadow: 0 1px 0 #fff` 作下划线）
+ * - tab 行下方 1px 分隔线 `rgb(38,38,38)`：**左右两栏各一段**，在 40px 栏距处断开
+ * - Products：4 列网格，卡片图 189×189（底色 rgb(217,217,217) = `bg-ground`），
+ *   标题与价格均 12px 且**居中**；网格下方**居中**一个白底黑字按钮 `View all results`
+ * - Pages：圆点列表，15px 白字，行距 37px，**没有** `View all results`
+ *
+ * 未复刻项：原站左栏 `Suggestions` 下方还有一个查询词 `mark`，
+ * 实测其计算样式是 `color: rgb(0,0,0)` 且无背景 —— 即**黑字黑底、实际不可见**
+ * （像素采样 (52,231) 为纯黑确认）。渲染一个不可见元素没有意义，故本地不渲染，
+ * 视觉效果与原站一致。
  */
 export function SearchOverlay() {
   const [open, setOpen] = useState(false);
@@ -26,6 +50,8 @@ export function SearchOverlay() {
     { type: "page" | "faq" | "sizechart"; title: string; href: string }[]
   >([]);
   const [searching, setSearching] = useState(false);
+  /** 原站 tab：Products / Pages。默认 Products。 */
+  const [tab, setTab] = useState<"products" | "pages">("products");
   const inputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const t = useT();
@@ -49,7 +75,7 @@ export function SearchOverlay() {
     };
   }, [open]);
 
-  /* Predictive search — debounced */
+  /* Predictive search — debounced。原站面板只展示 4 个商品（实测），故 pageSize=4。 */
   useEffect(() => {
     if (!open) return;
     const q = value.trim();
@@ -64,7 +90,7 @@ export function SearchOverlay() {
     const timer = setTimeout(async () => {
       try {
         const [prodRes, pageRes] = await Promise.all([
-          fetch(`/api/products?q=${encodeURIComponent(q)}&pageSize=8&status=ACTIVE`, {
+          fetch(`/api/products?q=${encodeURIComponent(q)}&pageSize=4&status=ACTIVE`, {
             signal: ctrl.signal,
           }),
           fetch(`/api/search/pages?q=${encodeURIComponent(q)}`, { signal: ctrl.signal }),
@@ -119,45 +145,47 @@ export function SearchOverlay() {
 
       {open && mounted
         ? createPortal(
-            <div
-              className="fixed inset-x-0 bottom-0 top-[var(--header-h)] z-50 bg-black/40"
-              role="dialog"
-              aria-modal="true"
-              aria-label={t("Search")}
-              onClick={() => setOpen(false)}
-            >
-              {/* 内容层：空态透出页面（官方 header-search 无结果时下方透明）；
-                  输入 ≥2 字符后整层实心黑（官方 .header-search::part(content) 实心） */}
+            <>
+              {/* 点击面板外关闭用的**透明**层。原站没有可见遮罩（实测无半透明覆盖层），
+                  所以这里必须保持透明 —— 加 bg-black/40 会与原站不一致。 */}
               <div
-                className={`relative flex h-full flex-col overflow-y-auto ${
-                  q.length >= 2 ? "bg-black" : "bg-transparent"
-                }`}
+                className="fixed inset-0 z-40"
+                onClick={() => setOpen(false)}
+                aria-hidden="true"
+              />
+              {/* 面板：黑色区域随内容高度，不铺满视口 */}
+              <div
+                className="fixed inset-x-0 top-[var(--header-h)] z-50 bg-black"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("Search")}
               >
-                {/* 搜索行 — 紧贴顶栏下沿，h-[77px]，不透明黑底（官方实测 0,0,0）。
-                    用 `.shell`（20/48px 内边距）而不是 `.container`：
-                    面板经 Portal 挂到 body，已不在 [data-shop-root] 作用域内，
-                    `.container` 的 20px 内边距会让放大镜与顶栏 LOGO（x=48）错位 28px。 */}
-                <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="bg-black">
-                  <div className="shell flex h-[77px] items-center gap-4">
-                    <Search className="h-5 w-5 shrink-0 text-white/65" strokeWidth={1.25} />
-                    <input
-                      ref={inputRef}
-                      value={value}
-                      onChange={(e) => setValue(e.target.value)}
-                      placeholder={t("Search...")}
-                      aria-label={t("Search")}
-                      autoComplete="off"
-                      autoCorrect="off"
-                      className="h-full w-full bg-transparent text-[18px] font-normal text-white outline-none placeholder:text-white/40"
-                    />
-                    {searching ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/50" />
-                    ) : null}
+                {/* 搜索行 — grid 20 / 1fr / 16，列间距 20，行高 76 */}
+                <form onSubmit={submit} className="shell">
+                  <div className="grid h-[var(--search-row-h)] grid-cols-[20px_1fr_16px] items-center gap-x-[var(--search-icon-gap)]">
+                    <Search className="h-5 w-5 text-white/65" strokeWidth={1.25} />
+                    <div className="relative">
+                      <input
+                        ref={inputRef}
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        placeholder={t("Search...")}
+                        aria-label={t("Search")}
+                        autoComplete="off"
+                        autoCorrect="off"
+                        className="h-[var(--search-input-h)] w-full bg-transparent text-[length:var(--search-input-fs)] font-normal text-white outline-none placeholder:text-white/40"
+                      />
+                      {/* 加载指示：**绝对定位**，不参与 grid 列宽计算，
+                          以免破坏 20/1fr/16 三段式 */}
+                      {searching ? (
+                        <Loader2 className="pointer-events-none absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-white/50" />
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       onClick={() => setOpen(false)}
                       aria-label={t("Close search")}
-                      className="shrink-0 p-2 text-white transition-opacity hover:opacity-65"
+                      className="relative h-4 w-4 text-white transition-opacity after:absolute after:-inset-2 after:content-[''] hover:opacity-65"
                     >
                       <svg
                         width="16"
@@ -172,118 +200,112 @@ export function SearchOverlay() {
                   </div>
                 </form>
 
-                {/* 空态（原站实测 2026-09-20）：两个集合入口**整幅并排**，
-                    文字形如 `[ X Collection ] Shop All`，点击直达对应集合页 */}
-                {q.length < 2 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2">
-                    {[
-                      { href: "/collections/x-collection", label: "X Collection" },
-                      { href: "/collections/spacexai-collection", label: "SpaceXAI Collection" },
-                    ].map((c) => (
-                      <Link
-                        key={c.href}
-                        href={c.href}
-                        onClick={() => setOpen(false)}
-                        className="flex items-center justify-center gap-2 py-6 text-[15px] text-white transition-opacity hover:opacity-65"
-                      >
-                        <span className="tracking-[0.06em]">[ {t(c.label)} ]</span>
-                        <span>{t("Shop All")}</span>
-                      </Link>
-                    ))}
-                  </div>
-                ) : null}
-
-                {/* 联想区 — 左 240px 侧栏（Suggestions + 查询链接）/ 右侧商品网格 */}
+                {/* 结果区 —— 查询 < 2 字符时不渲染任何内容（原站空态只有搜索行）
+                    两栏栅格：左栏 250（Suggestions）＋ 栏距 40 ＋ 右栏。
+                    ⚠️ tabpanel 必须落在**右栏**（`col-start-2`）：原站的商品网格与
+                    Pages 列表都在右栏（x=338 起、宽 830），因此 4 列卡片各 189px、
+                    `View all results` 也居中于右栏（x=677）。
+                    此前把 tabpanel 放在整幅宽度，导致卡片变成 262px、
+                    按钮居中到 534 —— 两处都因此错位。 */}
                 {q.length >= 2 ? (
-                  <div className="shell flex flex-col gap-10 pb-16 pt-6 lg:flex-row lg:gap-[54px]">
-                    <div className="w-full shrink-0 lg:w-[240px]">
-                      <p className="text-[12px] font-normal leading-normal text-white/65">
+                  <div className="shell pb-12">
+                    <div className="grid grid-cols-[var(--search-sidebar-w)_1fr] gap-x-[var(--search-col-gap)]">
+                      <p className="border-b border-[var(--search-divider)] pb-[var(--search-tab-pad-b)] pt-6 text-[12px] leading-5 text-white/65">
                         {t("Suggestions")}
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => submit()}
-                        className="mt-3 block text-left text-[15px] text-white underline-offset-4 hover:underline"
+                      <div
+                        className="flex gap-x-[var(--search-tab-gap)] border-b border-[var(--search-divider)] pt-6"
+                        role="tablist"
+                        aria-label={t("Search")}
                       >
-                        {q}
-                      </button>
-                      {/* 官方联想含 Pages 结果：静态页面 / FAQ / 商品参数对照表 */}
-                      {pageResults.length > 0 ? (
-                        <div className="mt-5">
-                          <p className="text-[12px] font-normal leading-normal text-white/65">
-                            {t("Pages")}
-                          </p>
-                          <ul className="mt-2 space-y-2">
-                            {pageResults.map((pg, i) => (
-                              <li key={`${pg.href}-${i}`}>
-                                <Link
-                                  href={pg.href}
-                                  onClick={() => setOpen(false)}
-                                  className="block text-[15px] text-white underline-offset-4 hover:underline"
-                                >
-                                  {pg.title}
-                                  {pg.type === "sizechart" ? (
-                                    <span className="ml-2 text-[11px] uppercase tracking-[0.08em] text-white/45">
-                                      {t("Size Charts")}
-                                    </span>
-                                  ) : null}
-                                  {pg.type === "faq" ? (
-                                    <span className="ml-2 text-[11px] uppercase tracking-[0.08em] text-white/45">
-                                      FAQ
-                                    </span>
-                                  ) : null}
-                                </Link>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {/* 官方联想底部入口：查看全部搜索结果 */}
-                      <Link
-                        href={`/search?q=${encodeURIComponent(q)}`}
-                        onClick={() => setOpen(false)}
-                        className="mt-6 inline-block text-[15px] text-white underline underline-offset-4 hover:opacity-65"
-                      >
-                        {t("View all results")}
-                      </Link>
-                    </div>
+                        <SearchTabButton
+                          active={tab === "products"}
+                          tone="on-dark"
+                          onClick={() => setTab("products")}
+                        >
+                          {t("Products")}
+                        </SearchTabButton>
+                        <SearchTabButton
+                          active={tab === "pages"}
+                          tone="on-dark"
+                          onClick={() => setTab("pages")}
+                        >
+                          {t("Pages")}
+                        </SearchTabButton>
+                      </div>
 
-                    <div className="min-w-0 flex-1">
-                      {results.length > 0 ? (
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-10 sm:grid-cols-3 lg:grid-cols-4">
-                          {results.map((p) => (
-                            <Link
-                              key={p.id}
-                              href={`/products/${p.slug}`}
-                              onClick={() => setOpen(false)}
-                              className="group block"
-                            >
-                              <span className="relative block aspect-square overflow-hidden bg-white/[0.06]">
-                                <ImageWithFallback
-                                  src={firstImage(p)}
-                                  alt=""
-                                  fill
-                                  sizes="(max-width:640px) 45vw, 245px"
-                                  className="object-contain p-3"
-                                />
-                              </span>
-                              <span className="mt-3 block truncate text-[15px] text-white">
-                                {typeof p.name === "string" ? p.name : JSON.stringify(p.name)}
-                              </span>
-                              <span className="mt-0.5 block text-[13px] tabular-nums text-white/65">
-                                {format(Number(p.price))}
-                              </span>
-                            </Link>
-                          ))}
+                      {tab === "products" ? (
+                        <div className="col-start-2 pt-[var(--search-panel-top)]" role="tabpanel">
+                          {results.length > 0 ? (
+                            <>
+                              <div className="grid grid-cols-4 gap-x-[var(--search-grid-gap)]">
+                                {results.map((p) => (
+                                  <Link
+                                    key={p.id}
+                                    href={`/products/${p.slug}`}
+                                    onClick={() => setOpen(false)}
+                                    className="group block text-center"
+                                  >
+                                    <span className="relative block aspect-square overflow-hidden bg-ground">
+                                      <ImageWithFallback
+                                        src={firstImage(p)}
+                                        alt=""
+                                        fill
+                                        sizes="189px"
+                                        className="object-cover"
+                                      />
+                                    </span>
+                                    <span className="mt-[var(--search-card-title-mt)] block truncate text-[12px] leading-5 text-white">
+                                      {typeof p.name === "string" ? p.name : JSON.stringify(p.name)}
+                                    </span>
+                                    <span className="mt-[var(--search-card-price-mt)] block text-[12px] leading-[21px] text-white/65">
+                                      {format(Number(p.price))}
+                                    </span>
+                                  </Link>
+                                ))}
+                              </div>
+                              {/* View all results —— 居中于右栏的白底黑字按钮（原站实测 151×46） */}
+                              <div className="mt-[var(--search-btn-mt)] text-center">
+                                <Link
+                                  href={`/search?q=${encodeURIComponent(q)}&type=product`}
+                                  onClick={() => setOpen(false)}
+                                  className="inline-flex h-[var(--search-btn-h)] items-center bg-white px-[var(--search-btn-pad-x)] text-[14px] text-black transition-opacity hover:opacity-85"
+                                >
+                                  {t("View all results")}
+                                </Link>
+                              </div>
+                            </>
+                          ) : searching ? null : (
+                            <p className="text-[15px] text-white/65">{t("No results found.")}</p>
+                          )}
                         </div>
-                      ) : searching ? null : (
-                        <p className="py-10 text-[15px] text-white/65">{t("No results found.")}</p>
+                      ) : (
+                        /* Pages tab：圆点列表 15px、行距 37（行高 17 + 间距 20），无按钮 */
+                        <ul
+                          role="tabpanel"
+                          className="col-start-2 mt-0 list-disc pl-[var(--search-pages-indent)] pt-[var(--search-panel-top)] text-[15px] leading-[17px] text-white"
+                        >
+                          {pageResults.map((pg, i) => (
+                            <li
+                              key={`${pg.href}-${i}`}
+                              className={i > 0 ? "mt-[var(--search-pages-gap)]" : ""}
+                            >
+                              <Link
+                                href={pg.href}
+                                onClick={() => setOpen(false)}
+                                className="underline-offset-4 hover:underline"
+                              >
+                                {pg.title}
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
                       )}
                     </div>
                   </div>
                 ) : null}
               </div>
-            </div>,
+            </>,
             document.body,
           )
         : null}

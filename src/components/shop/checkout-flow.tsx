@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronLeft, Loader2, MapPin, Truck, CreditCard, X } from "lucide-react";
 import { apiFetch } from "@/lib/fetch-client";
 import { useCurrency } from "@/components/shop/currency-provider";
+import { allocateRateAmounts, formatAmount } from "@/components/shop/currency";
 import { useShopLang, useT } from "@/components/shop/lang-provider";
 import { formatSpecValues, type ShopAddress } from "@/components/shop/types";
 import { COUNTRIES, DEFAULT_COUNTRY, countryStates, getCountry } from "@/lib/countries";
@@ -155,7 +156,7 @@ export function CheckoutFlow({
   defaultEmail,
   savedAddresses,
 }: CheckoutFlowProps) {
-  const { format, code: currencyCode } = useCurrency();
+  const { format, code: currencyCode, rate } = useCurrency();
   const t = useT();
   const { lang } = useShopLang();
 
@@ -351,8 +352,23 @@ export function CheckoutFlow({
   // 小计（实测：Subtotal $70.00 / Total USD $70.00，运费未计入）。选定配送方式后才计入运费。
   // 若此步就把默认运费加进 Total，会出现「Shipping 行说未计算、Total 却已多一笔」的自相矛盾。
   const shippingKnown = step !== "information";
-  const total = round2(Math.max(0, subtotal + (shippingKnown ? shippingFee : 0) - discountUsd));
+  // 说明：USD 口径的 `total` 不再单独保留 —— 展示一律走下方 shown（分配后用户币种值），
+  // 避免出现「同一屏两个总额」的口径分叉（服务端落库同样以 allocateRateAmounts 为准）。
   const toFreeShipping = freeOver > 0 && subtotal < freeOver ? round2(freeOver - subtotal) : 0;
+
+  // 汇总区展示值：与服务端落库（order.service → allocateRateAmounts）共用同一分配规则，
+  // 保证「各明细之和 = 总额」且与实付一致（各分量独立舍入会出现明细和差 1 分）。
+  // 说明：刻意**不包 useMemo** —— 纯整数分运算、开销可忽略，而 React Compiler 会拒绝
+  // 保留依赖了渲染期派生值（shippingFee 等）的手工 memo（lint 报 Compilation Skipped）。
+  const shown = allocateRateAmounts(
+    {
+      subtotal,
+      shipping: shippingKnown ? shippingFee : 0,
+      discount: discountUsd,
+    },
+    rate,
+  );
+  const showUser = (userAmount: number) => formatAmount(userAmount, currencyCode);
 
   /** 下单/试算用的条目（与服务端 orderItemInputSchema 同形） */
   const orderItems = useCallback(
@@ -515,6 +531,12 @@ export function CheckoutFlow({
       return;
     }
     if (step === "payment") {
+      // COD（货到付款）跳过支付环节：现金交易无线上支付渠道可选，
+      // 服务端会按 COD 创建订单（直接进入待处理），不生成支付地址
+      if (currentMethod?.isCashOnDelivery) {
+        setStep("review");
+        return;
+      }
       // 没有任何可用渠道时不允许拦路：下单走服务端 mock 兜底
       const hasAvailable = payChannels.some((c) => c.available);
       if (hasAvailable && !selectedChannel) {
@@ -543,6 +565,8 @@ export function CheckoutFlow({
         paymentUrl: string | null;
         /** 游客查单令牌：仅创建成功时下发一次，跳支付页必须带上 */
         orderToken: string | null;
+        /** 后端回传的订单序列化对象（COD 判断 + 订单号跳转用） */
+        order?: { orderNumber: string; isCashOnDelivery?: boolean | null } | null;
       }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -574,6 +598,12 @@ export function CheckoutFlow({
           url.searchParams.set("token", res.orderToken);
         }
         // 跳转前不重置 submitting：浏览器即将卸载本页，保持 disabled 防止重复下单
+        window.location.href = url.toString();
+      } else if (res?.order?.isCashOnDelivery) {
+        // COD（货到付款）：无支付页——直接跳订单详情页看「到付金额」与后续进度
+        const url = new URL(`/orders/${res.order.orderNumber}`, window.location.origin);
+        if (res.orderToken) url.searchParams.set("token", res.orderToken);
+        // 同上：跳转前保持 disabled，防重复下单
         window.location.href = url.toString();
       } else {
         toast.success(t("Order submitted"));
@@ -656,7 +686,9 @@ export function CheckoutFlow({
               className={cn("h-4 w-4 transition-transform", summaryOpen && "rotate-180")}
             />
           </span>
-          <span className="text-[14px] font-semibold text-black">{format(total)}</span>
+          <span className="text-[14px] font-semibold text-black">
+            {showUser(Math.max(0, shown.total))}
+          </span>
         </button>
 
         <div className={cn(summaryOpen ? "block" : "hidden", "lg:block")}>
@@ -771,7 +803,9 @@ export function CheckoutFlow({
                   注意：这里刻意**不用** space-y——Tailwind 的 space-y 生成的选择器含两个 :not 伪类，
                   特异性高于单类的 mt-[Npx]，会把 Total 行的 mt-[21px] 压回 11px。故逐行写外边距。 */}
               <div className="mt-[21px]">
-                <SummaryRow label={t("Subtotal")} value={format(subtotal)} />
+                {/* 汇总各行的金额一律用 shown（已按汇率分配、恒等式成立）；
+                    此处**不能**再用 format(usd)，否则各分量独立舍入导致明细和差 1 分 */}
+                <SummaryRow label={t("Subtotal")} value={showUser(shown.subtotal)} />
                 <SummaryRow
                   className="mt-[11px]"
                   label={t("Shipping")}
@@ -785,7 +819,7 @@ export function CheckoutFlow({
                     ) : freeShippingByThreshold ? (
                       t("Free shipping")
                     ) : (
-                      format(shippingFee)
+                      showUser(shown.shipping)
                     )
                   }
                 />
@@ -793,7 +827,7 @@ export function CheckoutFlow({
                   <SummaryRow
                     className="mt-[11px]"
                     label={t("Discount")}
-                    value={`−${format(discountUsd)}`}
+                    value={`−${showUser(shown.discount)}`}
                     valueClassName="text-[#707070]"
                   />
                 ) : null}
@@ -808,7 +842,7 @@ export function CheckoutFlow({
                       {currencyCode}
                     </span>
                     <span className="text-[16px] font-bold leading-none text-black">
-                      {format(total)}
+                      {showUser(Math.max(0, shown.total))}
                     </span>
                   </span>
                 </div>

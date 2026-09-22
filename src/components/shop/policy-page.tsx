@@ -23,13 +23,21 @@ export async function PolicyPage({
 }) {
   const t = await getT();
   return (
-    <div className="content-shell py-10">
-      <h1 className="mb-2 text-2xl font-bold">{title}</h1>
-      <p className="mb-6 text-sm text-muted-foreground">
+    <div className="content-shell pb-10 pt-[var(--page-title-pt)]">
+      {/* 原站实测：H1 **居中**、字号是**流式**的（375 → 20px，1216 → 26.5639px，
+          见 globals.css 的 `--page-title-size`）；行盒 37px；上内边距也是响应式的
+          （<1000 → 40px，≥1000 → 64px，见 `--page-title-pt`）。
+          此前写死「左对齐 24px @y105」→ 桌面字号偏小、移动端偏大。 */}
+      <h1 className="text-center text-[length:var(--page-title-size)] font-normal leading-[37px] text-foreground">
+        {title}
+      </h1>
+      {/* 说明：原站这几页**没有** "Last updated" 行 —— 这是本地刻意保留的
+          （政策页标注更新时间的通行做法），已随标题一起居中。 */}
+      <p className="mt-4 text-center text-sm text-muted-foreground">
         {t("Last updated:")} {updatedAt}
       </p>
       {/* 官方样式：无边框卡片，正文直接排版（15px / 行高 25px / 块间距 32px） */}
-      <div className="prose-page max-w-none [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-foreground [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-5">
+      <div className="prose-page mt-8 max-w-none [&_h2]:text-base [&_h2]:font-bold [&_h2]:text-foreground [&_strong]:text-foreground [&_ul]:list-disc [&_ul]:pl-5">
         {children}
       </div>
       {footer ? <div className="mt-10">{footer}</div> : null}

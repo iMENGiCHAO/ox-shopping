@@ -6,7 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
-  return { title: t("All collections") };
+  // 原站实测：该页 `<title>` 是 **`Collections`**，而 H1 是 `All collections` —— 两者不同。
+  // 本地此前用 h1 当标题（`All collections`），已按原站改为 `Collections`。
+  return { title: t("Collections") };
 }
 
 /**

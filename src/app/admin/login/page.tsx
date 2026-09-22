@@ -61,6 +61,12 @@ function LoginForm() {
         return;
       }
       window.dispatchEvent(new CustomEvent("auth:login"));
+      // 临时密码首登：员工账号同样受强制改密门控，先去改密再回后台
+      if (user.mustChangePassword) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign("/auth/change-password");
+        return;
+      }
       toast.success(`${t("Welcome back")}, ${user.name}`);
       // 整页导航：登录后 /admin 共享 layout 需从"登录分支"切到"侧栏分支"，
       // router.push() 不会重新渲染共享 layout（表现为只有仪表盘、无侧栏，

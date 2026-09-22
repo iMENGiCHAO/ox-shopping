@@ -33,7 +33,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/macrohard-rugby-shirt-0.jpg","/images/xcom2/macrohard-rugby-shirt-1.jpg","/images/xcom2/macrohard-rugby-shirt-2.jpg","/images/xcom2/macrohard-rugby-shirt-3.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","M","XL"]}],
-    description: "The Macrohard Rugby Shirt is crafted from premium heavyweight fleece fabric (65% cotton / 30% polyester / 5% elastane) that delivers exceptional softness, durability, and structure while offering subtle stretch for comfort. The dark gray fleece is elevated with a contrasting light gray collar and a clean, athletic fit along with bold light gray Macrohard and Colossus branding along the chest and sleeves. This unisex heavyweight fleece rugby shirt offers a relaxed, modern silhouette. Please refer to the Size Chart below for best sizing and fit guidelines.",
+    description: "The Macrohard Rugby Shirt is crafted from premium heavyweight fleece fabric (65% cotton / 30% polyester / 5% elastane) that delivers exceptional softness, durability, and structure while offering subtle stretch for comfort. The dark gray fleece is elevated with a contrasting light gray collar and a clean, athletic fit along with bold light gray Macrohard and Colossus branding along the chest and sleeves. \n\nThis unisex heavyweight fleece rugby shirt offers a relaxed, modern silhouette. Please refer to the Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "Macrohard Oversized Jersey Shirt",
@@ -47,7 +47,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/macrohard-jersey-shirt-0.jpg","/images/xcom2/macrohard-jersey-shirt-1.jpg","/images/xcom2/macrohard-jersey-shirt-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","XL"]}],
-    description: "The Macrohard Oversized Jersey Shirt is made from 95% cotton / 5% elastane and features bold Macrohard and Colossus embroidered branding across the chest. It is finished with contrasting gray ribbing on the collar, sleeve cuffs, and hem plus sporty gray sleeve stripes. This tee has a significantly oversized and boxy fit, so it is recommended to size down depending on how you want it to fit. The model in the photo is wearing a size M for reference. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Macrohard Oversized Jersey Shirt is made from 95% cotton / 5% elastane and features bold Macrohard and Colossus embroidered branding across the chest. It is finished with contrasting gray ribbing on the collar, sleeve cuffs, and hem plus sporty gray sleeve stripes. \n\nThis tee has a significantly oversized and boxy fit, so it is recommended to size down depending on how you want it to fit. The model in the photo is wearing a size M for reference. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "Macrohard Remove Before Flight Keychain",
@@ -75,7 +75,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/kids-grok-to-understand-tee-copy-0.jpg","/images/xcom2/kids-grok-to-understand-tee-copy-1.jpg","/images/xcom2/kids-grok-to-understand-tee-copy-2.jpg"],
     attributes: [{"name":"Size","values":["2T","4T","6","8","10","12"],"selectable":true,"soldOutValues":["6"]}],
-    description: "Cozy, durable, and ready for little universe explorers, the Kids Grok to Understand Hoodie features a bold Grok wordmark extending up the right side and a small left chest Grok logo with the iconic “Understand the Universe” statement below it. The top of the hood features an xAI logo which displays to others when the hood is down. It is made from 65% Cotton / 30% Polyester / 5% Elastane. See Size Chart below for best sizing and fit guidelines.",
+    description: "Cozy, durable, and ready for little universe explorers, the Kids Grok to Understand Hoodie features a bold Grok wordmark extending up the right side and a small left chest Grok logo with the iconic “Understand the Universe” statement below it. The top of the hood features an xAI logo which displays to others when the hood is down. \n\nIt is made from 65% Cotton / 30% Polyester / 5% Elastane. \n\nSee Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "Kids Grok to Understand Tee",
@@ -89,7 +89,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/kids-grok-to-understand-tee-0.jpg","/images/xcom2/kids-grok-to-understand-tee-1.jpg","/images/xcom2/kids-grok-to-understand-tee-2.jpg"],
     attributes: [{"name":"Size","values":["2T","4T","6","8","10","12"],"selectable":true,"soldOutValues":["8","10"]}],
-    description: "Cozy, durable, and ready for little universe explorers, the Kids Grok to Understand Tee features a bold Grok wordmark extending up the right side and a small left chest Grok logo with the iconic “Understand the Universe” statement below it. It is made from 95% cotton and 5% elastane. See Size Chart below for best sizing and fit guidelines.",
+    description: "Cozy, durable, and ready for little universe explorers, the Kids Grok to Understand Tee features a bold Grok wordmark extending up the right side and a small left chest Grok logo with the iconic “Understand the Universe” statement below it. \n\nIt is made from 95% cotton and 5% elastane. \n\nSee Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "xAI Multi Tumbler",
@@ -103,7 +103,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-multi-tumbler-0.jpg","/images/xcom2/xai-multi-tumbler-1.jpg","/images/xcom2/xai-multi-tumbler-2.jpg","/images/xcom2/xai-multi-tumbler-3.jpg","/images/xcom2/xai-multi-tumbler-4.jpg","/images/xcom2/xai-multi-tumbler-5.jpg"],
     attributes: [{"name":"Color","values":["Patterned Black","White"],"selectable":true,"soldOutValues":["Patterned Black"]}],
-    description: "The xAI Multi Tumbler is a premium 20 oz tumbler built for everyday use at home, in the office, or on the go. It is crafted from durable powder-coated stainless steel and finished with an engraved xAI logo for a clean, elevated look. It is double wall insulated and also features an anti-slip silicone foot. This tumbler comes with two interchangeable lids so that it can be used with the included straw or as a water bottle with a handle lid.",
+    description: "The xAI Multi Tumbler is a premium 20 oz tumbler built for everyday use at home, in the office, or on the go. It is crafted from durable powder-coated stainless steel and finished with an engraved xAI logo for a clean, elevated look. It is double wall insulated and also features an anti-slip silicone foot. \n\nThis tumbler comes with two interchangeable lids so that it can be used with the included straw or as a water bottle with a handle lid.",
   },
   {
     name: "xAI Thermal Beanie",
@@ -117,7 +117,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-thermal-beanie-0.jpg","/images/xcom2/xai-thermal-beanie-1.jpg"],
     attributes: [],
-    description: "Designed for comfort, the xAI Thermal Beanie is an ultra soft seamless knit cuff beanie featuring flecked fabric and a reflective HD silicone xAI logo. Made from thermal knit premium acrylic. One size fits most.",
+    description: "Designed for comfort, the xAI Thermal Beanie is an ultra soft seamless knit cuff beanie featuring flecked fabric and a reflective HD silicone xAI logo. \n\nMade from thermal knit premium acrylic. One size fits most.",
   },
   {
     name: "xAI Hydration Vessel",
@@ -173,7 +173,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-dark-ani-tee-0.jpg","/images/xcom2/xai-dark-ani-tee-1.jpg","/images/xcom2/xai-dark-ani-tee-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","M","L","3XL"]}],
-    description: "The Dark Ani tee features an anime-style weathered graphic of the Grok companion Ani fused with a futuristic digital interface aesthetic. Made from 95% cotton and 5% elastane. The shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Dark Ani tee features an anime-style weathered graphic of the Grok companion Ani fused with a futuristic digital interface aesthetic. Made from 95% cotton and 5% elastane. \n\nThe shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "xAI Human Connection Tee",
@@ -187,7 +187,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-human-connection-tee-0.jpg","/images/xcom2/xai-human-connection-tee-1.jpg","/images/xcom2/xai-human-connection-tee-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["L","XL","3XL"]}],
-    description: "The Human Connection tee features a futuristic high-contrast glitch portrait of a human face fused with UI and schematic fragments, capturing the space where humanity meets machine. Made from 95% cotton and 5% elastane. The shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Human Connection tee features a futuristic high-contrast glitch portrait of a human face fused with UI and schematic fragments, capturing the space where humanity meets machine. Made from 95% cotton and 5% elastane. \n\nThe shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "X Signature Crew Sock Set",
@@ -215,7 +215,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/x-beanie-0.jpg","/images/xcom2/x-beanie-1.jpg"],
     attributes: [],
-    description: "Designed for comfort, the X Thermal Beanie is an ultra soft thermal seamless knit cuff beanie with a channel stitch rubber embossed patch featuring the X logo. Made from thermal knit premium acrylic. One size fits most.",
+    description: "Designed for comfort, the X Thermal Beanie is an ultra soft thermal seamless knit cuff beanie with a channel stitch rubber embossed patch featuring the X logo. \n\nMade from thermal knit premium acrylic. One size fits most.",
   },
   {
     name: "The Core X Crewneck",
@@ -229,7 +229,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/the-core-x-crewneck-0.jpg","/images/xcom2/the-core-x-crewneck-1.jpg","/images/xcom2/the-core-x-crewneck-2.jpg","/images/xcom2/the-core-x-crewneck-3.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","S","M","L","XL","3XL"]}],
-    description: "The Core X Crewneck is made from a soft and luxurious dual face fleece material and features a raised, high-density silicone X logo on the left chest. Made from 70% Cotton / 25% Polyester / 5% Elastane. The unisex fit leans on classic styling. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Core X Crewneck is made from a soft and luxurious dual face fleece material and features a raised, high-density silicone X logo on the left chest. Made from 70% Cotton / 25% Polyester / 5% Elastane. \n\nThe unisex fit leans on classic styling. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "Grok Trucker Hat",
@@ -243,7 +243,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/grok-trucker-hat-0.jpg","/images/xcom2/grok-trucker-hat-1.jpg","/images/xcom2/grok-trucker-hat-2.jpg","/images/xcom2/grok-trucker-hat-3.jpg"],
     attributes: [],
-    description: "The Grok Trucker Hat features a 3D silicone black Grok logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. Comes in a single size with an adjustable snap closure so that one size fits most.",
+    description: "The Grok Trucker Hat features a 3D silicone black Grok logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. \n\nComes in a single size with an adjustable snap closure so that one size fits most.",
   },
   {
     name: "xAI Trucker Hat",
@@ -257,7 +257,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-trucker-hat-0.jpg","/images/xcom2/xai-trucker-hat-1.jpg","/images/xcom2/xai-trucker-hat-2.jpg","/images/xcom2/xai-trucker-hat-3.jpg"],
     attributes: [],
-    description: "The xAI Trucker Hat features a 3D silicone white xAI logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. Comes in a single size with an adjustable snap closure so that one size fits most.",
+    description: "The xAI Trucker Hat features a 3D silicone white xAI logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. \n\nComes in a single size with an adjustable snap closure so that one size fits most.",
   },
   {
     name: "Grok Dad Hat",
@@ -271,7 +271,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-dad-hat-copy-0.jpg","/images/xcom2/xai-dad-hat-copy-1.jpg","/images/xcom2/xai-dad-hat-copy-2.jpg","/images/xcom2/xai-dad-hat-copy-3.jpg"],
     attributes: [],
-    description: "The Grok Dad Hat is a relaxed, classic fit hat that features a custom stamped metal buckle and an HD silicone black Grok logo on the front. The interior has a printed logo crown lining and moisture wicking quilted padding. Comes in a single size with an adjustable buckle strap so that one size fits most.",
+    description: "The Grok Dad Hat is a relaxed, classic fit hat that features a custom stamped metal buckle and an HD silicone black Grok logo on the front. The interior has a printed logo crown lining and moisture wicking quilted padding. \n\nComes in a single size with an adjustable buckle strap so that one size fits most.",
   },
   {
     name: "xAI Dad Hat",
@@ -285,7 +285,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/xai-dad-hat-0.jpg","/images/xcom2/xai-dad-hat-1.jpg","/images/xcom2/xai-dad-hat-2.jpg","/images/xcom2/xai-dad-hat-3.jpg","/images/xcom2/xai-dad-hat-4.jpg"],
     attributes: [],
-    description: "The xAI Dad Hat is a relaxed, classic fit hat that features a custom stamped metal buckle and an HD silicone white xAI logo on the front. The interior has a printed logo crown lining and moisture wicking quilted padding. Comes in a single size with an adjustable buckle strap so that one size fits most.",
+    description: "The xAI Dad Hat is a relaxed, classic fit hat that features a custom stamped metal buckle and an HD silicone white xAI logo on the front. The interior has a printed logo crown lining and moisture wicking quilted padding. \n\nComes in a single size with an adjustable buckle strap so that one size fits most.",
   },
   {
     name: "The Grok Hoodie",
@@ -299,7 +299,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/the-grok-hoodie-0.jpg","/images/xcom2/the-grok-hoodie-1.jpg","/images/xcom2/the-grok-hoodie-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["S","M","XL","2XL","3XL"]}],
-    description: "The Grok Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised black silicone Grok logo on the left chest. The unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
+    description: "The Grok Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised black silicone Grok logo on the left chest. \n\nThe unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
   },
   {
     name: "The xAI Hoodie",
@@ -313,7 +313,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/the-xai-hoodie-0.jpg","/images/xcom2/the-xai-hoodie-1.jpg","/images/xcom2/the-xai-hoodie-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["M","L","XL"]}],
-    description: "The xAI Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised white silicone xAI logo on the left chest. The unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
+    description: "The xAI Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised white silicone xAI logo on the left chest. \n\nThe unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
   },
   {
     name: "xAI Logo Tee",
@@ -327,7 +327,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/grok-logo-tee-copy-1-0.jpg","/images/xcom2/grok-logo-tee-copy-1-1.jpg","/images/xcom2/grok-logo-tee-copy-1-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["S","M","L","XL"]}],
-    description: "Designed for fit, comfort and style, the xAI Logo short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone white xAI logo on the left chest. The shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
+    description: "Designed for fit, comfort and style, the xAI Logo short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone white xAI logo on the left chest. \n\nThe shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "Understand The Universe Tee",
@@ -355,7 +355,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/grok-logo-tee-0.jpg","/images/xcom2/grok-logo-tee-1.jpg","/images/xcom2/grok-logo-tee-2.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["M","L","XL","2XL"]}],
-    description: "Designed for fit, comfort and style, the Grok short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone Grok logo on the left chest. The shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
+    description: "Designed for fit, comfort and style, the Grok short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone Grok logo on the left chest. \n\nThe shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "The Core Hoodie",
@@ -369,7 +369,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/unisex-3d-x-logo-hoodie-0.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-1.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-2.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-3.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-4.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-5.jpg","/images/xcom2/unisex-3d-x-logo-hoodie-6.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["S","M","L"]},{"name":"Color","values":["Black","White"],"selectable":true}],
-    description: "The Core Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised black silicone X logo on the left chest. The unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
+    description: "The Core Hoodie is made from 65% Cotton / 30% Polyester / 5% Elastane and features a raised black silicone X logo on the left chest. \n\nThe unisex fit elevates the classic hoodie with modern design lines. See Size Chart below for best sizing and fit guidelines. Wash inside out for best results.",
   },
   {
     name: "The Retro Crewneck",
@@ -383,7 +383,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: true,
     images: ["/images/xcom2/unisex-retro-x-com-crewneck-pre-sale-0.jpg","/images/xcom2/unisex-retro-x-com-crewneck-pre-sale-1.jpg","/images/xcom2/unisex-retro-x-com-crewneck-pre-sale-2.jpg","/images/xcom2/unisex-retro-x-com-crewneck-pre-sale-3.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["S","M"]}],
-    description: "The Retro Crewneck is made from 65% Cotton / 30% Polyester / 5% Elastane and features the original X retro logo on the center chest and x.com on the nape. The dual face fleece material has a soft and luxurious feel and undergoes a wash process that gives each piece its own unique vintage distressing. The unisex fit leans on classic oversized styling. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Retro Crewneck is made from 65% Cotton / 30% Polyester / 5% Elastane and features the original X retro logo on the center chest and x.com on the nape. The dual face fleece material has a soft and luxurious feel and undergoes a wash process that gives each piece its own unique vintage distressing. \n\nThe unisex fit leans on classic oversized styling. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "The Retro Tee",
@@ -397,7 +397,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: true,
     images: ["/images/xcom2/unisex-retro-x-com-short-sleeve-tee-pre-sale-0.jpg","/images/xcom2/unisex-retro-x-com-short-sleeve-tee-pre-sale-1.jpg","/images/xcom2/unisex-retro-x-com-short-sleeve-tee-pre-sale-2.jpg","/images/xcom2/unisex-retro-x-com-short-sleeve-tee-pre-sale-3.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","S","M","L","XL","2XL","3XL"]}],
-    description: "The Retro Tee short sleeve shirt is made from 95% cotton / 5% elastane and features the original X retro logo on the center chest as well as x.com on the left sleeve. The dual face fleece material has a luxurious feel and undergoes a wash process that gives each piece its own unique vintage distressing. The unisex fit leans on classic oversized styling. See Size Chart below for best sizing and fit guidelines.",
+    description: "The Retro Tee short sleeve shirt is made from 95% cotton / 5% elastane and features the original X retro logo on the center chest as well as x.com on the left sleeve. The dual face fleece material has a luxurious feel and undergoes a wash process that gives each piece its own unique vintage distressing. \n\nThe unisex fit leans on classic oversized styling. See Size Chart below for best sizing and fit guidelines.",
   },
   {
     name: "The Core Dad Hat",
@@ -425,7 +425,7 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/x-embroidery-trucker-cap-0.jpg","/images/xcom2/x-embroidery-trucker-cap-1.jpg","/images/xcom2/x-embroidery-trucker-cap-2.jpg","/images/xcom2/x-embroidery-trucker-cap-3.jpg"],
     attributes: [],
-    description: "The Core Trucker Hat features a 3D X logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. Comes in a single size with an adjustable snap closure so that one size fits most. Complete the look with The Core Tee.",
+    description: "The Core Trucker Hat features a 3D X logo on the front and adjustable snapback closure on the back. Designed with a lightweight, breathable mesh backing and curved visor. \n\nComes in a single size with an adjustable snap closure so that one size fits most. \n\nComplete the look with The Core Tee.",
   },
   {
     name: "The Core Tee",
@@ -439,6 +439,6 @@ export const xcomProducts: ProductSeedX[] = [
     isPresale: false,
     images: ["/images/xcom2/x-icon-t-shirt-0.jpg","/images/xcom2/x-icon-t-shirt-1.jpg"],
     attributes: [{"name":"Size","values":["XS","S","M","L","XL","2XL","3XL"],"selectable":true,"soldOutValues":["XS","S","L","XL","2XL","3XL"]}],
-    description: "Designed for fit, comfort and style, the Core short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone X logo on the left chest. The shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines. Complete the look with the Core Trucker Hat.",
+    description: "Designed for fit, comfort and style, the Core short sleeve tee is made from 95% cotton and 5% elastane and features an understated 3D silicone X logo on the left chest. \n\nThe shirt has a boxy fit. See Size Chart below for best sizing and fit guidelines. \n\nComplete the look with the Core Trucker Hat.",
   },
 ];

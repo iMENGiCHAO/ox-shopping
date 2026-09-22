@@ -66,7 +66,13 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     title: {
       default: siteName,
-      template: `%s | ${siteName}`,
+      /* 原站实测（2026-09-20，Playwright 直连）：**所有页面的 `<title>` 都不带品牌后缀** ——
+         `/collections/all` → `Products`、`/pages/faqs` → `FAQs`、`/cart` → `Your Shopping Cart`、
+         `/collections` → `Collections`。
+         此前这里是 `%s | ${siteName}`，会给每个子页面标题追加 `| 品牌名`，与原站不符。
+         `default` 仍取站点名（原站首页标题就是店名，如 `Official SpaceXAI Shop`），
+         只是**不再给子页面追加后缀**。 */
+      template: "%s",
     },
     description,
     keywords,

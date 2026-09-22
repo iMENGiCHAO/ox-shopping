@@ -13,7 +13,8 @@ interface CurrencyDef {
   name: string;
   country: string;
   symbol: string;
-  flag: string;
+  /** ISO 3166-1 alpha-2（小写）—— 旗帜图取 `public/flags/<flagCode>.svg`（4:3） */
+  flagCode: string;
 }
 
 interface Snapshot {
@@ -149,7 +150,15 @@ export function CurrencyManager() {
             {currencies.map((c) => (
               <tr key={c.code} className="border-b last:border-b-0">
                 <td className="px-3 py-2">
-                  <span className="mr-2">{c.flag}</span>
+                  {/* 旗帜用图片（与前台同一套资源）：emoji 在 Windows 上不渲染 */}
+                  <img
+                    src={`/flags/${c.flagCode}.svg`}
+                    alt=""
+                    aria-hidden="true"
+                    width={16}
+                    height={12}
+                    className="mr-2 inline-block h-3 w-4 align-[-1px]"
+                  />
                   <span className="font-medium">{c.code}</span>
                   <span className="ml-2 text-xs text-muted-foreground">
                     {c.country} ({c.symbol})

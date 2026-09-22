@@ -15,6 +15,8 @@ import { useT } from "@/components/shop/lang-provider";
 
 interface LoginResponse {
   user: { name: string; email: string };
+  /** 管理员已发放临时密码：本次登录后必须立即改密（B-2） */
+  mustChangePassword?: boolean;
 }
 
 /** Login form (client) */
@@ -48,9 +50,16 @@ export function LoginForm({ next }: { next: string }) {
         method: "POST",
         body: JSON.stringify(values),
       });
-      toast.success(t("Welcome back, {name}!", { name: res.user?.name ?? "user" }));
       // Notify global state (cart merge, etc.)
       window.dispatchEvent(new CustomEvent("auth:login"));
+      // 临时密码首登：不显示「欢迎回来」而是直接送去改密页
+      // （服务端已置强制改密 cookie，其它页面本来也会被中间件弹回这里）
+      if (res.mustChangePassword) {
+        // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+        window.location.assign("/auth/change-password");
+        return;
+      }
+      toast.success(t("Welcome back, {name}!", { name: res.user?.name ?? "user" }));
       // 整页导航：登录后共享 layout（Header/UserMenu）是服务端渲染的，
       // router.push() 在同一 layout 内导航不会重新渲染 layout，
       // 导致顶栏仍显示 Login 直到手动刷新。整页导航确保服务端重新读取会话。

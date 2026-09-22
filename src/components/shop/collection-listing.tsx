@@ -36,8 +36,17 @@ export async function CollectionListing({ categorySlug }: { categorySlug: string
   const catLabel = (c: { name: string; nameEn?: string | null }) =>
     pickName(c.name, c.nameEn ?? null, lang);
 
-  // 分类落地页大横幅：优先 Category.bannerImage，未设置时回落列表卡片图 image。
-  const heroImage = currentCategory?.bannerImage || currentCategory?.image || "";
+  /**
+   * 分类落地页大横幅：**只认 `bannerImage`（横图）**。
+   *
+   * 原站实测（2026-09-20，1440 视口）：
+   *   · `/collections/x-collection`（上传了横图）→ **没有任何 h1**，只有图；
+   *   · `/collections/mens`（没上传横图）→ **h1 = "Mens"**，居中显示分类名。
+   * 也就是说「有没有名字」取决于**横图**，与列表卡片图（`image`）无关。
+   * 此前写成 `bannerImage || image` 回落：只有卡片图的分类也会渲染大横幅并把分类名吃掉，
+   * 与大爷指出的原站行为不符（大爷 2026-09-20 反馈）。
+   */
+  const heroImage = currentCategory?.bannerImage || "";
 
   return (
     <div className="pb-16">

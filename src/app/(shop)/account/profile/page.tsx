@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { DistributionShareCard } from "@/components/shop/distribution/share-card";
 import {
   Form,
   FormControl,
@@ -41,7 +42,7 @@ export default function ProfilePage() {
 
   const handleChangeEmail = async () => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail.trim())) {
-      toast.error("Please enter a valid new email address");
+      toast.error(t("Please enter a valid new email address"));
       return;
     }
     setChangingEmail(true);
@@ -54,10 +55,12 @@ export default function ProfilePage() {
       setNewEmail("");
       setConfirmPassword("");
       toast.success(
-        "Sign-in email updated — other devices will need to sign in again with the new email",
+        t("Sign-in email updated — other devices will need to sign in again with the new email"),
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update, please try again later");
+      toast.error(
+        err instanceof Error ? err.message : t("Failed to update, please try again later"),
+      );
     } finally {
       setChangingEmail(false);
     }
@@ -187,7 +190,7 @@ export default function ProfilePage() {
                   <Input value={email} readOnly disabled />
                 </FormControl>
                 <FormDescription>
-                  To change your sign-in email, use the “Change sign-in email” section below.
+                  {t("To change your sign-in email, use the Change sign-in email section below.")}
                 </FormDescription>
               </FormItem>
               <Button type="submit" disabled={saving}>
@@ -198,27 +201,31 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
+      {/* 分享赚佣金小卡片（大爷定制形态：不是左侧主入口，只是一张能复制链接的小卡；
+          成功推广后卡片里才出现「进入分销中心」，点开是独立页面，不跟商城搅在一起） */}
+      <DistributionShareCard />
+
       {/* 修改登录邮箱 —— 需验证当前密码，成功后全端重新登录 */}
       <Card>
         <CardHeader>
-          <CardTitle>Change sign-in email</CardTitle>
+          <CardTitle>{t("Change sign-in email")}</CardTitle>
           <CardDescription>
-            Your sign-in email is your account ID. Changes require your current password; once
-            updated, you&apos;ll be signed out on other devices and must sign in again with the new
-            email.
+            {t(
+              "Your sign-in email is your account ID. Changes require your current password; once updated, you'll be signed out on other devices and must sign in again with the new email.",
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <label htmlFor="current-email" className="text-sm font-medium">
-                Current sign-in email
+                {t("Current sign-in email")}
               </label>
               <Input id="current-email" value={email} readOnly disabled />
             </div>
             <div className="space-y-1.5">
               <label htmlFor="new-email" className="text-sm font-medium">
-                New email
+                {t("New email")}
               </label>
               <Input
                 id="new-email"
@@ -231,14 +238,14 @@ export default function ProfilePage() {
             </div>
             <div className="space-y-1.5 sm:col-span-2 sm:col-start-1">
               <label htmlFor="confirm-password" className="text-sm font-medium">
-                Current password
+                {t("Current password")}
               </label>
               <Input
                 id="confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Enter your current password to confirm"
+                placeholder={t("Enter your current password to confirm")}
                 autoComplete="current-password"
               />
             </div>
@@ -248,7 +255,7 @@ export default function ProfilePage() {
             disabled={changingEmail || !newEmail.trim() || !confirmPassword}
             onClick={() => void handleChangeEmail()}
           >
-            {changingEmail ? "Submitting…" : "Confirm changes"}
+            {changingEmail ? t("Submitting…") : t("Confirm changes")}
           </Button>
         </CardContent>
       </Card>

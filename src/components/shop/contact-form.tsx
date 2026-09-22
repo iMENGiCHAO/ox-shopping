@@ -78,7 +78,8 @@ export function ContactForm() {
                 <Input
                   {...field}
                   autoComplete="name"
-                  className="h-[46px] text-[15px] placeholder:text-foreground"
+                  placeholder={t("Name")}
+                  className="h-12 text-[15px] placeholder:text-foreground"
                 />
               </FormControl>
               <FormMessage />
@@ -98,7 +99,8 @@ export function ContactForm() {
                   type="email"
                   inputMode="email"
                   autoComplete="email"
-                  className="h-[46px] text-[15px] placeholder:text-foreground"
+                  placeholder={t("E-mail")}
+                  className="h-12 text-[15px] placeholder:text-foreground"
                 />
               </FormControl>
               <FormMessage />
@@ -113,7 +115,12 @@ export function ContactForm() {
             <FormItem>
               <FormLabel className="text-[13px] text-foreground">{t("Message")}</FormLabel>
               <FormControl>
-                <Textarea {...field} rows={6} className="min-h-[140px] text-[15px]" />
+                <Textarea
+                  {...field}
+                  rows={6}
+                  placeholder={t("Message")}
+                  className="min-h-[140px] text-[15px] placeholder:text-foreground"
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

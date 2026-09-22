@@ -2,6 +2,7 @@ import { apiHandler, json, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { getClientIp } from "@/lib/server/utils-server";
 import { getLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings } from "@/server/services/settings.service";
@@ -37,7 +38,11 @@ export const POST = apiHandler(async (req) => {
   const input = await readJson(req, schema);
   const ip = getClientIp(req);
 
-  const rl = await rateLimit({ key: `contact:${ip}`, limit: 5, windowSeconds: 3600 });
+  // 单标识 5 次/小时 + 全站熔断 200 次/小时（留言会发内部邮件，防标识轮换刷邮件配额）
+  const rl = await rateLimit({
+    key: `contact:${ip}`,
+    ...RATE_LIMITS.contact,
+  });
   if (!rl.ok) throw rateLimited("Too many messages, please try again later");
 
   // 蜜罐命中：静默丢弃

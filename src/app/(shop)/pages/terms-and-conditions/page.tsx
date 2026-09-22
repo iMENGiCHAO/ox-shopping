@@ -25,7 +25,7 @@ export default async function TermsAndConditionsPage() {
   const t = await getT();
   const lang = await getLang();
   return (
-    <PolicyPage title={t("Terms of Service")} updatedAt={t("As last published")}>
+    <PolicyPage title={t("Terms and Conditions")} updatedAt={t("As last published")}>
       {renderPolicyMarkdown(getPolicyText(settings.policies, "terms", lang))}
     </PolicyPage>
   );

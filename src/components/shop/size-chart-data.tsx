@@ -15,6 +15,17 @@ const KIDS = ["Size", "2T", "4T", "6", "8", "10", "12"];
 
 /** 抓取自 shop.x.com 线上（后台逐品配置的镜像） */
 const SIZE_CHARTS: Record<string, SizeChartTable> = {
+  /* The Core Tee（/products/x-icon-t-shirt）—— 2026-09-21 从原站 PDP 取回。
+     此前注册表里没有它，而 DB 的 sizeChart 也为空 ⇒ `sizeChart` 解析成 null ⇒
+     **整个 Size Chart 区块不渲染**（原站在加购按钮下方有一行 `Size Chart` + 折叠区，
+     375 下占 1037..1178 ≈ 141px，正是本地 PDP 页高比原站少的量）。 */
+  "x-icon-t-shirt": {
+    headers: ADULT_XS_3XL,
+    rows: [
+      ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
+      ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
+    ],
+  },
   "the-xai-hoodie": {
     headers: ADULT_XS_3XL,
     rows: [

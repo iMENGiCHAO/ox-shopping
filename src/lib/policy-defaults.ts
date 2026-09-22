@@ -175,17 +175,96 @@ Cookie 是网站存储在您浏览器中的小型文本文件，用于识别您�
 ## 第三方 Cookie
 支付（Stripe）等服务可能设置必要的第三方 Cookie 以完成支付与风控。`;
 
-const ACCESSIBILITY_EN = `We are committed to making our website usable by everyone, including people with disabilities. We aim to conform to the Web Content Accessibility Guidelines (WCAG) 2.1 Level AA and follow general best practices for accessible design.
+/* 无障碍声明按「分节完整版」撰写（2026-09-22）：
+   此前是 3 段短文案（正文仅 474px），页面短于视口 → 页脚停在内容之后，
+   视口底部露出 153px 白底，与原站观感不一致（原站该页为分节长文）。
+   同一文件内隐私政策 7 节、数据共享 5 节，无障碍声明也应保持同等完整度。
+   管理员仍可在后台「法务页面 → 无障碍声明」整段覆盖。 */
+const ACCESSIBILITY_EN = `## 1. Our Commitment
+We are committed to making this online store usable by everyone, including people with disabilities. Accessibility is treated as an ongoing requirement rather than a one-off task, and it is reviewed as the store evolves.
 
-The site is designed to work with screen readers, keyboard navigation and common assistive technologies. Text alternatives are provided for meaningful imagery, focus states are visible throughout the interface, and color contrast meets minimum readability thresholds.
+We aim to conform to the **Web Content Accessibility Guidelines (WCAG) 2.1 Level AA**, the standard most commonly referenced by regulators and assistive technology vendors.
 
-If you experience any difficulty accessing or using this store, please contact us and describe the issue along with the page address. We take feedback seriously and will do our best to provide the content you need through an alternative method.`;
+## 2. Conformance Status
+This store is **partially conformant** with WCAG 2.1 Level AA: most pages satisfy the criteria, while the items listed under "Known Limitations" are still being remediated.
 
-const ACCESSIBILITY_ZH = `我们致力于让所有人（包括残障人士）都能正常使用本网站，目标是符合 WCAG 2.1 AA 级无障碍标准，并遵循无障碍设计的通行最佳实践。
+Accessibility work is tracked as part of our normal release process, so improvements ship with regular store updates.
 
-网站兼容屏幕阅读器、键盘导航与常见辅助技术：为有意义的图片提供替代文本，界面焦点状态清晰可见，色彩对比度满足最低可读性要求。
+## 3. Accessibility Features
+- **Text alternatives**: meaningful imagery carries descriptive alternative text, and decorative imagery is hidden from assistive technology.
+- **Keyboard operation**: navigation, menus, forms, cart and checkout can all be reached and operated with the keyboard alone, with a visible focus indicator.
+- **Structure and semantics**: pages use landmark regions, ordered headings, labelled form fields and table headers, so screen readers can announce content meaningfully.
+- **Colour and contrast**: text and interface controls meet or exceed the WCAG AA contrast thresholds, and colour is never the only way information is conveyed.
+- **Resizable text and zoom**: layouts reflow when text is enlarged and remain usable at 200% browser zoom.
+- **Motion**: animations respect the operating system "reduce motion" preference and are decorative only.
+- **Responsive layout**: the store adapts to phone, tablet and desktop widths without horizontal scrolling.
 
-如果您在访问或使用本商店时遇到困难，请与我们联系并附上问题页面地址。我们认真对待每一条反馈，将尽力通过其他方式向您提供所需内容。`;
+## 4. Compatibility with Browsers and Assistive Technology
+The store is built on standards-compliant HTML, CSS and JavaScript, and is intended to work with current versions of Chrome, Safari, Firefox and Edge, together with common assistive technologies such as screen readers, screen magnifiers, speech recognition software and switch devices.
+
+Naming a browser or tool does not guarantee full compatibility. If a particular combination does not work for you, please tell us so we can investigate.
+
+## 5. Technical Specifications
+- Structure and semantics are provided by HTML, and presentation by CSS.
+- Where a custom control is required, the WAI-ARIA specification is used to expose its name, role and state.
+- Conformance has been assessed against WCAG 2.1 Level AA.
+- Content is authored in the language of the page, and that language is declared in the markup.
+
+## 6. Known Limitations
+- A small number of older pages and third-party embedded widgets may not yet meet every AA criterion; we work through them in priority order.
+- Some product imagery comes from external catalogues and may carry shorter alternative text than we would prefer.
+- If you meet a barrier that is not listed here, please contact us — we will provide the information you need through an alternative channel while the underlying issue is fixed.
+
+## 7. Feedback and Contact
+We welcome feedback on the accessibility of this store. If you experience any difficulty accessing or using it, please contact our support team and include the page address, a short description of the problem, and the browser or assistive technology you were using.
+
+We aim to acknowledge accessibility feedback within a few business days and to supply the requested content in an accessible alternative format on request.
+
+## 8. Assessment Approach
+This statement is based on our ongoing self-assessment of the store, covering manual keyboard and screen-reader checks, automated accessibility scans, and review of new pages before they go live.`;
+
+const ACCESSIBILITY_ZH = `## 1. 我们的承诺
+我们致力于让所有人（包括残障人士）都能正常使用本在线商店。无障碍被视为一项持续要求，而非一次性任务，并随商店的迭代不断复查。
+
+我们的目标是符合 **WCAG 2.1 AA 级**（Web Content Accessibility Guidelines）无障碍标准——这也是监管机构与辅助技术厂商最常引用的标准。
+
+## 2. 符合性状态
+本站目前**部分符合** WCAG 2.1 AA 级：绝大多数页面已满足相应准则，少数列在「已知限制」中的问题仍在修复。
+
+无障碍改进纳入常规发布流程，随商店的日常更新一并上线。
+
+## 3. 无障碍功能
+- **替代文本**：有意义的图片配有描述性替代文本，纯装饰性图片对辅助技术隐藏。
+- **键盘操作**：导航、菜单、表单、购物车与结账流程均可仅用键盘到达并操作，焦点状态清晰可见。
+- **结构与语义**：页面使用地标区域、有序标题层级、带标签的表单字段与表格表头，便于屏幕阅读器准确朗读。
+- **色彩与对比度**：正文与界面控件的对比度满足或超过 WCAG AA 阈值；颜色从不是传达信息的唯一方式。
+- **文字缩放**：放大文字时布局自动重排，浏览器缩放至 200% 仍可正常使用。
+- **动效**：动画遵循操作系统的「减少动态效果」偏好，且仅为装饰性。
+- **响应式布局**：适配手机、平板与桌面宽度，不出现横向滚动。
+
+## 4. 浏览器与辅助技术兼容性
+本站基于符合标准的 HTML、CSS 与 JavaScript 构建，面向当前版本的 Chrome、Safari、Firefox、Edge，以及屏幕阅读器、屏幕放大软件、语音识别软件、开关设备等常见辅助技术。
+
+列出某款浏览器或工具并不代表完全兼容。如某个组合在您这里无法使用，请告知我们，以便排查。
+
+## 5. 技术规格
+- 结构与语义由 HTML 提供，表现层由 CSS 提供。
+- 需要自定义控件时，使用 WAI-ARIA 规范暴露其名称、角色与状态。
+- 符合性依据 WCAG 2.1 AA 级进行评估。
+- 内容按页面语言撰写，并在标记中声明该语言。
+
+## 6. 已知限制
+- 少数较早的页面与第三方嵌入组件可能尚未满足全部 AA 准则，我们正按优先级逐步处理。
+- 部分商品图片来自外部目录，其替代文本可能比我们期望的更简短。
+- 如果您遇到此处未列出的障碍，请与我们联系——在问题修复期间，我们将通过其他方式向您提供所需信息。
+
+## 7. 反馈与联系方式
+我们欢迎您对本商店的无障碍体验提出反馈。如果您在访问或使用中遇到困难，请联系客服，并附上问题页面地址、问题的简要描述，以及您所使用的浏览器或辅助技术。
+
+我们会在数个工作日内确认无障碍反馈，并在您要求时以无障碍的替代格式提供所需内容。
+
+## 8. 评估方式
+本声明基于我们对商店持续的自我评估，包括人工键盘与屏幕阅读器测试、自动化无障碍扫描，以及新页面上线前的审查。`;
 
 const DATA_SHARING_EN = `## Your rights
 Depending on where you live, you may have the right to opt out of the "sale" or "sharing" of your personal information for targeted advertising, and to limit the use of sensitive personal information.
@@ -239,7 +318,10 @@ export type PolicyKey = keyof typeof POLICY_DEFAULTS;
 export const POLICY_TITLES: Record<PolicyKey, { zh: string; en: string }> = {
   accessibility: { zh: "无障碍声明", en: "Accessibility Statement" },
   privacy: { zh: "隐私政策", en: "Privacy Policy" },
-  terms: { zh: "服务条款", en: "Terms of Service" },
+  /* 原站 `/pages/terms-and-conditions` 实测：title 与 h1 都是 **`Terms and Conditions`**
+     （不是 `Terms of Service`）。页脚那条链接的文案也是 `Terms and Conditions`，
+     改后两者一致。 */
+  terms: { zh: "条款与条件", en: "Terms and Conditions" },
   refund: { zh: "退款政策", en: "Refund Policy" },
   cookies: { zh: "Cookie 政策", en: "Cookie Policy" },
   dataSharingOptOut: { zh: "您的隐私选择", en: "Your Privacy Choices" },

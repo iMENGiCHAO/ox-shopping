@@ -47,8 +47,16 @@ describe("generateOrderNumber", () => {
   });
 
   it("多次生成不重复（抽样）", () => {
+    /**
+     * 为什么不能断言「200 次必须 200 个不同」：
+     * `generateOrderNumber()` = 日期 + **6 位随机**（90 万取值空间），
+     * 200 次抽样按生日界有约 2% 的自然碰撞概率（λ = 200·199 / (2·900000) ≈ 0.022），
+     * 即这条断言本身约每 50 次跑挂一次 —— 属于测试自身有缺陷，不是实现有问题。
+     * 序号唯一性的真正保证在持久层：`Order.orderNumber @unique`（冲突时下单重试）。
+     * 这里只断言抽样结果远高于偶然碰撞的下界（出现 ≥5 次碰撞的概率约 1e-9）。
+     */
     const seen = new Set(Array.from({ length: 200 }, () => generateOrderNumber()));
-    expect(seen.size).toBe(200);
+    expect(seen.size).toBeGreaterThanOrEqual(195);
   });
 });
 

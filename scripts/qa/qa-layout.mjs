@@ -31,7 +31,7 @@ const browser = await chromium.launch();
 
   // 预编译：本卷上首次访问单路由可超过 90s
   console.log("预热路由（首次编译较慢）…");
-  for (const r of ["/", "/products", "/collections", "/cart"]) {
+  for (const r of ["/", "/products", "/collections", "/collections/all", "/cart"]) {
     const t0 = Date.now();
     await page.goto(BASE + r, { waitUntil: "domcontentloaded" });
     console.log(`  ${r} 就绪 ${Date.now() - t0}ms`);
@@ -102,17 +102,29 @@ const browser = await chromium.launch();
     `${bannerExpect}px±2`,
   );
   check("首页商品网格 3 列", `${home.gridCols}`, home.gridCols === 3, "3");
-  check("首页网格列间距 48px", `${home.gridColGap}px`, Math.abs(home.gridColGap - 48) <= 1, "48px±1");
+  // 首页网格：**与原站实测逐值对齐**（2026-09-20，Playwright 直连原站，1216×900/dsf1）：
+  //   `product-list` x=48 w=1120、`grid-template-columns: 365.328px ×3`、`gap: 64px 12px`、
+  //   卡片 365×430、首行 y=555 ⇒ 行 pitch = 430 + 64 = 494。
+  // ⚠️ 此前这里写 48 / 341 / 470 —— 那是**集合页**（卡 408、列距 60）的值，
+  //    首页的列距是 **12px**，两者刻意不同。期望值写错会让脚本在正确代码上报红。
+  check("首页网格列间距 12px", `${home.gridColGap}px`, Math.abs(home.gridColGap - 12) <= 1, "12px±1");
   check("首页网格左缘 48px", `${home.gridLeft}px`, Math.abs(home.gridLeft - 48) <= 1, "48px±1");
-  check("首页卡片 341 宽", `${home.cardW}px`, Math.abs(home.cardW - 341) <= 2, "341px±2");
-  check("首页卡片媒体 341×341", `${home.mediaW}×${home.mediaH}`, Math.abs(home.mediaW - home.mediaH) <= 1 && Math.abs(home.mediaW - 341) <= 2, "341×341±2");
-  check("首页行 pitch 470px", `${home.rowPitch}px`, Math.abs(home.rowPitch - 470) <= 3, "470px±3");
+  check("首页卡片 365 宽", `${home.cardW}px`, Math.abs(home.cardW - 365) <= 2, "365px±2");
+  check(
+    "首页卡片媒体 365×365",
+    `${home.mediaW}×${home.mediaH}`,
+    Math.abs(home.mediaW - home.mediaH) <= 1 && Math.abs(home.mediaW - 365) <= 2,
+    "365×365±2",
+  );
+  check("首页行 pitch 494px", `${home.rowPitch}px`, Math.abs(home.rowPitch - 494) <= 3, "494px±3");
   check("首页首行卡片顶 y=555", `y=${home.cardTop}`, Math.abs(home.cardTop - 555) <= 2, "y=555±2");
   check("All Products 26px/400", `${home.apSize}/${home.apWeight}`, home.apSize === "26px" && home.apWeight === "400", "26px/400");
   check("All Products 行盒顶 y=472", `y=${home.apTop}`, Math.abs(home.apTop - 472) <= 2, "y=472±2");
 
-  // ── PLP /products ─────────────────────────────────────
-  await page.goto(BASE + "/products", { waitUntil: "domcontentloaded" });
+  // ── PLP /collections/all ──────────────────────────────
+  // ⚠️ 测的是 **`/collections/all`**（原站的 PLP 路由），不是 `/products`：
+  // `/products` 不渲染商品列表（0 个商品链接），量它只会得到一串 0。
+  await page.goto(BASE + "/collections/all", { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1500);
   const plp = await page.evaluate(() => {
     const h = document.querySelector("h1");
@@ -142,7 +154,15 @@ const browser = await chromium.launch();
   });
   check("PLP 容器内边距 48px", `${plp.shellPad}px`, Math.abs(plp.shellPad - 48) <= 1, "48px±1");
   check("PLP 标题左缘 48px", `${plp.h1Left}px`, Math.abs(plp.h1Left - 48) <= 1, "48px±1");
-  check("PLP 标题 28px", plp.h1Size, plp.h1Size === "28px", "28px");
+  // PLP 标题是**流式字号**：原站实测 375 → 22px、700 → 25.1707、999 → 28.0878、
+  // 1216 → **30.2049**（`calc(18.342px + 0.9756vw)`）。1216 视口下应约 30.2px。
+  // ⚠️ 此前写死 28px —— 那是旧的两段式实现，且比原站小 2.2px。
+  check(
+    "PLP 标题 ≈30.2px",
+    plp.h1Size,
+    Math.abs(parseFloat(plp.h1Size) - 30.2049) <= 0.5,
+    "30.2049px±0.5",
+  );
   check("PLP 3 列", `${plp.cols}`, plp.cols === 3, "3");
   check("PLP 列间距 48px", `${plp.colGap}px`, Math.abs(plp.colGap - 48) <= 1, "48px±1");
   check("PLP 卡片 341 宽", `${plp.cardW}px`, Math.abs(plp.cardW - 341) <= 2, "341px±2");
@@ -155,8 +175,11 @@ const browser = await chromium.launch();
   await page.waitForTimeout(1500);
   const coll = await page.evaluate(() => {
     const h = document.querySelector("h1");
-    const links = [...document.querySelectorAll('a[href*="category="]')];
-    const grid = links[0]?.parentElement;
+    // ⚠️ 卡片链接是 `/collections/<slug>`，**不是**旧的 `?category=<slug>`
+    //（旧形态已废弃：原站不存在 `/products?category=`，本地改为集合落地页）。
+    // 用容器 `.collection-grid` 限定，避免把页头/页脚的集合链接也算进来。
+    const grid = document.querySelector(".collection-grid");
+    const links = [...(grid?.querySelectorAll("a") ?? [])];
     const gcs = grid ? getComputedStyle(grid) : null;
     const gr = grid?.getBoundingClientRect();
     const c0 = links[0]?.getBoundingClientRect();
@@ -200,8 +223,17 @@ const browser = await chromium.launch();
   check("collections 标题左内缩 48px", `${coll.capLeft - coll.cardLeft}px`, Math.abs(coll.capLeft - coll.cardLeft - 48) <= 2, "48px±2");
 
   // ── cart 空态 ─────────────────────────────────────────
+  // ⚠️ 空态要等**客户端**购物车请求（`/api/cart`）完成后才渲染 ——
+  // 固定 `waitForTimeout(1500)` 会量到「还没渲染」的空页面（h1 / 按钮全为 0，
+  // 看起来像页面坏了，其实只是慢：本卷实测约 8s 才出现）。
+  // 改为**等元素出现**，超时给足。
   await page.goto(BASE + "/cart", { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1500);
+  await page
+    .locator("h1, h2")
+    .first()
+    .waitFor({ state: "visible", timeout: 120_000 })
+    .catch(() => {});
+  await page.waitForTimeout(500);
   const cart = await page.evaluate(() => {
     const h = document.querySelector("h1, h2");
     const hr = h?.getBoundingClientRect();
@@ -282,14 +314,29 @@ const browser = await chromium.launch();
     // 「页头 Logo 是否左对齐」与「PDP 是否两栏」，两者在**同一请求宽**翻转；
     // 页头断点已独立实测为 1000px ⇒ PDP 断点同为 1000px。
     // 本地此前用 lg:(1024px)，在 1000~1023px 显示单栏 —— 已修，此处锁死。
+    // 每次用**独立 context** 量（不复用已跑了很多轮的 page）：
+    // 复用同一 page 改视口再导航，实测会偶发卡死到 180s 超时
+    //（同一 URL 用新 context 独立加载只要约 6s），是环境问题不是页面问题。
     const colAt = async (w) => {
-      await page.setViewportSize({ width: w, height: 900 });
-      await page.goto(`${BASE}/products/${slug}`, { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(600);
-      return page.evaluate(() => {
-        const g = document.querySelector(".pdp-grid");
-        return g ? getComputedStyle(g).gridTemplateColumns.split(/\s+/).filter(Boolean).length : 0;
-      });
+      const c = await browser.newContext({ viewport: { width: w, height: 900 } });
+      const pg = await c.newPage();
+      try {
+        await pg.goto(`${BASE}/products/${slug}`, {
+          waitUntil: "domcontentloaded",
+          timeout: 180_000,
+        });
+        await pg.waitForTimeout(600);
+        return await pg.evaluate(() => {
+          const g = document.querySelector(".pdp-grid");
+          if (!g) return 0;
+          // 单栏时 grid-template-columns 计算值是 `none` → 记 1 列
+          const cols = getComputedStyle(g).gridTemplateColumns;
+          if (!cols || cols === "none") return 1;
+          return cols.split(/\s+/).filter(Boolean).length;
+        });
+      } finally {
+        await c.close();
+      }
     };
     const c999 = await colAt(999);
     const c1000 = await colAt(1000);

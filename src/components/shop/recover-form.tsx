@@ -78,10 +78,10 @@ export function RecoverForm({ onBack }: { onBack?: () => void }) {
       </p>
 
       {sent ? (
-        <div className="mt-7 text-center">
-          <p className="text-[13px] text-foreground/70">
+        <div className="mt-7 text-center" data-testid="recover-sent">
+          <p className="text-[13px] leading-relaxed text-foreground/70">
             {t(
-              "If that email is registered, a reset email is on its way. If no email service is configured, check the server logs.",
+              "Your recovery request has been submitted. An administrator will review it, then email you a temporary password.",
             )}
           </p>
         </div>

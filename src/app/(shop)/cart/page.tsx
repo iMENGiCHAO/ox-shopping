@@ -27,11 +27,17 @@ interface ShippingMethodLite {
 }
 
 /**
- * /cart — shop.x.com 官方同构（1440px 实测）：
- * - 空态：H1 "Cart" 18px 居中(y379) + "Your cart is empty" + 实心黑 Continue shopping(175×46)
- * - 填充态：H1 "Cart" 28px 居中(y129) → 表头 Product|Quantity|Total(12px,y216) →
- *   行(120px 方图 + 标题/Sale price/变体 + 居中数量步进器 + 右对齐行小计) →
+ * /cart — shop.x.com 官方同构（2026-09-20 用 Playwright 直连原站实测）：
+ * - 空态：H1 "Cart" 18px 居中(y329) + "Your cart is empty" + 实心黑 Continue shopping(175×46)
+ * - 填充态：H1 "Cart" **26.5639px**（原站 `h2` 档，与搜索页/内容页同一档；此前写 28px）
+ *   居中(y129，用 pt-16 让行盒顶落在 65+64) → 表头 Product|Quantity|Total(12px, y214) →
+ *   行(120px 方图 + 标题/价格 + 居中数量步进器 + 右对齐行小计) →
  *   右对齐 "Total: $X USD"(17px) + 税费提示(14px 65%) + 实心黑 Checkout(117×46)
+ *
+ * 原站实测数据（1216×900/dsf1，购物车内有 1 件商品）：
+ *   表 x=118..1098（宽 980）、表头 12px（Product 左 / Quantity 居中 / Total 右对齐）、
+ *   行图 **120×120**、数量框 **32×23**、`Total:` 17px、税费提示 14px `rgba(28,28,28,0.65)`、
+ *   `Checkout` **117×46** 右对齐。
  */
 export default function CartPage() {
   const { items, subtotal, loading, updateQuantity, removeItem } = useCart();
@@ -98,13 +104,15 @@ export default function CartPage() {
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center pb-[var(--cart-empty-pb)] pt-[var(--cart-empty-pt)] text-center">
-        <h1 className="text-[18px] font-normal leading-[1.6] text-foreground">{t("Cart")}</h1>
-        <p className="mt-[var(--cart-empty-gap-1)] text-[15px] font-normal text-foreground">
+        <h1 className="text-[length:var(--cart-empty-title-size)] font-normal leading-[1.6] text-foreground">
+          {t("Cart")}
+        </h1>
+        <p className="cart-empty-sub mt-[var(--cart-empty-gap-1)] font-normal text-foreground">
           {t("Your cart is empty")}
         </p>
         <Link
-          href="/products"
-          className="mt-[var(--cart-empty-gap-2)] inline-flex h-[46px] items-center bg-primary px-[var(--cart-btn-pad-x)] text-[14px] font-normal text-primary-foreground transition-opacity hover:opacity-90"
+          href="/collections/all"
+          className="cart-empty-btn mt-[var(--cart-empty-gap-2)] inline-flex items-center bg-primary px-[var(--cart-btn-pad-x)] font-normal text-primary-foreground transition-opacity hover:opacity-90"
         >
           {t("Continue shopping")}
         </Link>
@@ -115,7 +123,7 @@ export default function CartPage() {
   /* ── 填充态：官方表格布局 ── */
   return (
     <div className="container pb-20">
-      <h1 className="pt-16 text-center text-[28px] font-normal leading-tight text-foreground">
+      <h1 className="pt-[var(--page-title-pt)] text-center text-[length:var(--page-title-size)] font-normal leading-[37px] text-foreground">
         {t("Cart")}
       </h1>
 

@@ -4,9 +4,11 @@ import { getT, getLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { FOOTER_LINKS } from "@/lib/footer-nav";
 
-/** 页脚链接的统一外观：15px / 行高 24.75px / 65% 不透明度，hover 提亮 */
+/** 页脚链接的统一外观：桌面 15px / 行高 24.75px、移动端 0.7rem / 18.48px
+ *  （原站 375 实测字号是桌面的 0.7467×，即 11.2px），65% 不透明度，hover 提亮。
+ *  字号/行高由 globals.css 的 `.footer-link` 从令牌取 —— 见那里的说明。 */
 const LINK_CLASS =
-  "text-[15px] leading-[24.75px] opacity-65 outline-none transition-opacity hover:opacity-100 focus-visible:underline focus-visible:underline-offset-4 focus-visible:[box-shadow:none] focus-visible:[outline:none]";
+  "footer-link opacity-65 outline-none transition-opacity hover:opacity-100 focus-visible:underline focus-visible:underline-offset-4 focus-visible:[box-shadow:none] focus-visible:[outline:none]";
 
 /**
  * Site footer —— shop.x.com 同构，**两行**结构（1200 视口逐像素实测）：
@@ -28,10 +30,10 @@ export async function Footer() {
 
   return (
     <footer className="bg-ink text-ink-foreground">
-      <div className="shell pb-[var(--footer-pb)] pt-[var(--footer-pt)] text-center">
+      <div className="footer-shell shell pb-[var(--footer-pb)] pt-[var(--footer-pt)] text-center">
         <nav
           aria-label={t("Footer")}
-          className="flex flex-wrap items-center justify-center gap-x-[var(--footer-link-gap)] gap-y-4"
+          className="footer-nav flex flex-wrap items-center justify-center gap-x-[var(--footer-link-gap)] gap-y-[var(--footer-link-gap-y)]"
         >
           {FOOTER_LINKS.map((link) =>
             link.external ? (
@@ -57,7 +59,7 @@ export async function Footer() {
           )}
         </nav>
 
-        <div className="mt-[var(--footer-row-gap)] flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
+        <div className="footer-tool mt-[var(--footer-row-gap)] flex flex-col items-center justify-center gap-[var(--footer-tool-gap)] sm:flex-row sm:gap-6">
           <CurrencySelect showCountry align="center" direction="up" />
           <p className="text-xs opacity-65">
             {siteName} © {year}

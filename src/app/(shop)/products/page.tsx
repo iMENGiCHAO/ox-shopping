@@ -17,7 +17,8 @@ export async function generateMetadata(): Promise<Metadata> {
   // 注意：**不要**在 generateMetadata 里 redirect（Next 官方要求）——否则重定向
   // 会在 metadata 阶段被吞掉并渲染出空白页；跳转统一放在页面组件里。
   const t = await getT();
-  return { title: t("All collections") };
+  // 原站实测：该页 `<title>` 是 `Collections`，H1 是 `All collections`（两者不同）。
+  return { title: t("Collections") };
 }
 
 export default async function ProductsPage(props: {

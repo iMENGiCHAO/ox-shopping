@@ -2,6 +2,7 @@ import { apiHandler, json, readJson } from "@/lib/api";
 import { prisma } from "@/lib/prisma";
 import { badRequest, notFound, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { hasSoldOutSpecValue } from "@/server/services/spec-stock";
 import { z } from "zod";
 import { getLang } from "@/lib/shop-i18n-server";
@@ -21,7 +22,7 @@ export const POST = apiHandler(async (req) => {
   const input = await readJson(req, schema);
   const email = input.email.toLowerCase();
 
-  const rl = await rateLimit({ key: `notifyme:${email}`, limit: 5, windowSeconds: 3600 });
+  const rl = await rateLimit({ key: `notifyme:${email}`, ...RATE_LIMITS.notifyMe });
   if (!rl.ok) throw rateLimited("Too many requests, please try again later");
 
   // 防御（大爷指正的 bug 兜底）：有货组合不允许登记到货通知——

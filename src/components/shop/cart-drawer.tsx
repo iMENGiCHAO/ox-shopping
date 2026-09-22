@@ -104,7 +104,7 @@ export function CartDrawer() {
               <p className="text-base font-medium text-foreground">{t("Your bag is empty")}</p>
               <p className="text-sm text-muted-foreground">{t("Discover something you'll love.")}</p>
               <Button asChild className="mt-6" onClick={() => setOpen(false)}>
-                <Link href="/products">{t("Start Shopping")}</Link>
+                <Link href="/collections/all">{t("Start Shopping")}</Link>
               </Button>
             </div>
           ) : (

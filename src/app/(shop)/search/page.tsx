@@ -7,11 +7,12 @@ import { ProductCard } from "@/components/shop/product-card";
 import { toCardData } from "@/components/shop/types";
 import { getT, getLang } from "@/lib/shop-i18n-server";
 import { buildAlternates } from "@/lib/shop-i18n";
-import { cn } from "@/lib/utils";
 import { matchSearchablePages } from "@/lib/searchable-pages";
 import { searchSizeChartProducts } from "@/server/services/chart-search";
 import { SearchSidebarFilters } from "@/components/shop/search-sidebar-filters";
 import { SearchSortSelect } from "@/components/shop/search-sort-select";
+import { SearchFilterDrawer } from "@/components/shop/search-filter-drawer";
+import { SearchResultTabs } from "@/components/shop/search-result-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -78,16 +79,6 @@ export async function generateMetadata(props: SearchPageProps): Promise<Metadata
   }
 }
 
-function buildSearchUrl(q: string, overrides: Record<string, string | undefined>): string {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  for (const [k, v] of Object.entries(overrides)) {
-    if (v !== undefined && v !== "") params.set(k, v);
-  }
-  const s = params.toString();
-  return s ? `/search?${s}` : "/search";
-}
-
 export default async function SearchPage(props: SearchPageProps) {
   const searchParams = await props.searchParams;
   const t = await getT();
@@ -104,14 +95,16 @@ export default async function SearchPage(props: SearchPageProps) {
   const maxRaw =
     typeof sp.price_max === "string" && sp.price_max !== "" ? Number(sp.price_max) : NaN;
 
-  /* ── 空态：官方为居中 H1(18px) + 搜索框 + 放大镜提交，页面大部分留白 ──
+  /* ── 空态：官方为居中 H1 + 搜索框 + 放大镜提交，页面大部分留白 ──
      原站实测（O-search.png，1216 布局）：H1 字形 y272..284、输入框 y309..356（300×48），
-     页脚深色带自 y557 起 ⇒ 区块上下内边距各 200px（200 + 标题 25 + 20 + 输入 48 + 200 = 492）。 */
+     页脚深色带自 y557 起 ⇒ 区块上下内边距各 200px（200 + 标题 25 + 20 + 输入 48 + 200 = 492）。
+     移动端（375）是**另一套**：H1 墨迹 y165..175（宽 49 ⇒ 约 16px）、输入框 y214..228、
+     页脚顶 341 ⇒ 上下各约 100px。两套值走 `--search-empty-*` 令牌，见 globals.css。 */
   if (!q) {
     return (
-      <div className="flex flex-col items-center pb-[200px] pt-[200px]">
+      <div className="search-empty flex flex-col items-center">
         <div className="w-[300px] text-center">
-          <h1 className="text-[18px] font-normal leading-snug text-foreground">{t("Search")}</h1>
+          <h1 className="search-empty-title font-normal leading-snug text-foreground">{t("Search")}</h1>
           <form action="/search" method="get" role="search" className="mt-5 text-left">
             <div className="relative">
               <label htmlFor="search-page-input" className="sr-only">
@@ -182,136 +175,110 @@ export default async function SearchPage(props: SearchPageProps) {
     /* DB 故障时忽略 */
   }
 
-  const commonOverrides = {
-    sort: sort !== "relevance" ? sort : undefined,
-    in_stock: inStock ? "1" : undefined,
-    price_min: typeof sp.price_min === "string" ? sp.price_min : undefined,
-    price_max: typeof sp.price_max === "string" ? sp.price_max : undefined,
-  };
-
   return (
-    <div className="w-full px-5 pb-16 lg:px-12">
-      {/* 标题区 — H1 28px 居中 + 计数行（官方 y129/y184） */}
-      <section className="pt-16 text-center">
-        <h1 className="text-[28px] font-normal leading-tight text-foreground">{t("Search")}</h1>
-        <p className="mt-4 text-[15px] font-normal text-foreground">
+    <div className="w-full px-[var(--search-page-pad)] pb-16">
+      {/* 标题区 — 原站实测：H1 字号是**流式**的（375 → 20px，1216 → 26.5639px），
+          上内边距同样响应式（<1000 → 40px，≥1000 → 64px）。
+          见 globals.css 的 `--page-title-size` / `--page-title-pt`。 */}
+      <section className="pt-[var(--page-title-pt)] text-center">
+        <h1 className="text-[length:var(--page-title-size)] font-normal leading-[37px] text-foreground">
+          {t("Search")}
+        </h1>
+        <p className="mt-4 text-[15px] font-normal leading-[25px] text-foreground">
           {total} {total === 1 ? t("result for") : t("results for")} &quot;{q}&quot;
         </p>
       </section>
 
-      {/* 原站实测（2026-09-20 /search?q=faq）：**不是 tab**，而是一页两区块 ——
-          先「Products」（含 Sort by 工具行与商品网格），再「Pages」（页面结果）。 */}
-      <h2 className="mt-[53px] text-center text-[18px] font-normal leading-snug text-foreground">
-        {t("Products")}
-      </h2>
-
-      {/* 工具行 — 原站实测（REF-search-1200.png，1200 视口）：
-          上下各一条**贯通整幅**的 1px 分隔线（y317 / y372，线色 rgb(221,221,221)），
-          `Sort by` 居中其内（带高 55px = 53 + 上下边框），右对齐。
-          分隔线是真·出血（x 0..1199），故用负外边距抵消外层 padding。 */}
-      <div className="-mx-5 mt-[36px] border-y border-border lg:-mx-12">
-        {/* 分隔线整幅出血（靠负外边距抵消外层 padding），但 Sort by 本身要回到容器内边距内，
-            否则会贴到视口最右缘（原站 chevron 右缘 = 1168 = 内容右缘）。 */}
-        <div className="flex h-[53px] items-center justify-end px-5 lg:px-12">
-          <SearchSortSelect />
-        </div>
-      </div>
-
-      {/* 内容区 — shop.x.com 桌面结构：240px 左侧筛选栏 + 主列（商品网格） */}
-      <div className="mt-12 flex flex-col gap-10 lg:flex-row lg:gap-[50px]">
-        {/* 桌面左侧筛选栏：Availability + Price 手风琴（原站实测**默认折叠**） */}
-        <SearchSidebarFilters />
-
-        <div className="min-w-0 flex-1">
-          {rows.length > 0 ? (
-            <div className="plp-grid">
-              {/* 复用 `.plp-grid` 令牌（列距 48 / 行距 66），与 PLP 同源。
-                  原站实测（REF-search-1200.png）：3 列卡片 245px、列距 48px、
-                  行 pitch 374px（图高 245 + 卡片信息 62.8 + 行距 66）。
-                  此前写死 `lg:gap-x-[60px]`，列距比原站宽 12px。 */}
-              {rows.map((product, i) => (
-                <ProductCard key={product.id} product={toCardData(product)} priority={i < 4} />
-              ))}
-            </div>
-          ) : (
-            <p className="py-16 text-center text-[15px] text-foreground/70">
-              {t("No results found.")}
-            </p>
-          )}
-
-          {/* Pages 区块：静态页面 / FAQ / 商品参数对照表（原站同页第二段） */}
-          {matchedPages.length > 0 || faqHits.length > 0 || chartHits.length > 0 ? (
-            <section className="mt-20 border-t border-border pt-12">
-              <h2 className="text-[18px] font-normal leading-snug text-foreground">{t("Pages")}</h2>
-              <div className="mt-6">
-                <div className="space-y-10">
-                  {chartHits.length > 0 ? (
-                    <div className="space-y-3">
-                      <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
-                        {t("Size Charts")}
-                      </p>
-                      <div className="divide-y divide-border border border-border">
-                        {chartHits.map((c) => (
-                          <Link
-                            key={c.slug}
-                            href={`/products/${c.slug}`}
-                            className="group flex items-center justify-between px-5 py-4 transition-colors hover:bg-accent"
-                          >
-                            <span className="text-[15px] text-foreground underline-offset-4 group-hover:underline">
-                              {c.name}
-                            </span>
-                            <span className="text-[11px] uppercase tracking-[0.08em] text-foreground/50">
-                              {t("Size Charts")}
-                            </span>
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {faqHits.length > 0 ? (
-                    <div className="space-y-3">
-                      <p className="text-[11px] uppercase tracking-[0.08em] text-foreground/60">
-                        {t("FAQs")}
-                      </p>
-                      <div className="divide-y divide-border border border-border">
-                        {faqHits.map((f) => (
-                          <Link
-                            key={f.question}
-                            href="/pages/faqs"
-                            className="group block px-5 py-4 transition-colors hover:bg-accent"
-                          >
-                            <p className="text-[15px] text-foreground underline-offset-4 group-hover:underline">
-                              {f.question}
-                            </p>
-                            <p className="mt-1 line-clamp-2 text-[13px] leading-relaxed text-foreground/65">
-                              {f.answer}
-                            </p>
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {matchedPages.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-x-5 gap-y-8 sm:grid-cols-2 sm:gap-x-3 min-[1400px]:grid-cols-4">
-                      {matchedPages.map((pg) => (
-                        <Link
-                          key={pg.href}
-                          href={pg.href}
-                          className="group block border border-border p-5 transition-colors hover:border-foreground"
-                        >
-                          <p className="text-[15px] font-normal text-foreground underline-offset-4 group-hover:underline">
-                            {lang === "zh" ? pg.titleZh : pg.title}
-                          </p>
-                        </Link>
-                      ))}
-                    </div>
-                  ) : null}
+      {/* Products / Pages —— 原站是**居中 tab**。
+          实测（2026-09-20，Playwright 直连原站，1216×900/dsf1）：
+          `button.h6` 12px、`Products` x=532 / `Pages` x=650（间距 70）、组宽 152、中心 608；
+          tab 行 y=255..285，激活项深色下划线，组下方一条 rgb(221,221,221) 细线只跨组宽。
+          ⚠️ 此前这里的注释写「不是 tab，而是一页两区块」，并据此把 `Products` 做成
+          居中 18px 的 `<h2>`、把 `Pages` 结果放到页面底部 —— 那个判断是错的，已按实测改回 tab。 */}
+      <SearchResultTabs
+        products={
+          <>
+            {/* 工具行 — 原站 `collection-toolbar full-bleed` 实测：
+                整幅、**sticky**、白底、高 **54**，上下各一条贯通整幅的 1px 线
+                `rgb(221,221,221)`（1216 下位于 y=317 / y=372）。
+                ≥1000px：只有 `Sort by`（11px、`padding: 18px 46px`），右缘贴视口右缘、无左分隔线。
+                <1000px：`Sort by` + `Filter` 两个单元格，各带一条左分隔线（900 实测：
+                组宽 265、`Sort by` 147 + `Filter` 117）。
+                分隔线是真·出血（x 0..1215），故用负外边距抵消外层 padding。 */}
+            <div className="-mx-[var(--search-page-pad)] mt-[32px]">
+              {/* 高度用 `h-[54px]` + `border-y`（border-box）⇒ 总高正好 54，
+                  与原站一致（此前只给内层定高，总高变成 56，会把下方整体推低 2px）。 */}
+              <div className="sticky top-[var(--header-h)] z-30 h-[var(--search-toolbar-h)] border-y border-border bg-background">
+                <div className="flex h-full items-stretch justify-end">
+                  <div className="flex items-stretch border-l border-border min-[1000px]:border-l-0">
+                    <SearchSortSelect />
+                  </div>
+                  <SearchFilterDrawer />
                 </div>
               </div>
-            </section>
-          ) : null}
-        </div>
-      </div>
+            </div>
+
+            {/* 内容区 — 原站：240px 左侧筛选栏 + 主列（商品网格）。
+                实测侧栏 `form.facets` x=48 y=420 w=240；网格 `product-list` x=338 w=830
+                ⇒ 栏距 = 338 − (48+240) = **50**。
+                ⚠️ 侧栏断点是 **1000px**，不是 Tailwind 的 `lg`(1024)：
+                二分实测 999px 时网格 x=32（无侧栏）且 `Filter` 按钮可见（宽 116），
+                1000px 时网格 x=320（侧栏出现，x=48 w=240）且 `Filter` 按钮消失。
+                与 PDP 的断点是同一套 700/1000 体系。 */}
+            <div className="mt-12 flex flex-col gap-10 min-[1000px]:flex-row min-[1000px]:gap-[50px]">
+              {/* 桌面左侧筛选栏：Availability + Price 手风琴（原站实测**默认折叠**） */}
+              <SearchSidebarFilters />
+
+              <div className="min-w-0 flex-1">
+                {rows.length > 0 ? (
+                  <div className="plp-grid search-grid">
+                    {/* 列数/断点复用 `.plp-grid`（3 列，≥700px），但**间距换成搜索页的实测值**
+                        （`.search-grid` → `--search-result-col-gap/row-gap`）：
+                        原站 `product-list` 在主列 830 宽下是 3 列 **244.656px**、列距 **48**、行距 **64**，
+                        卡片 245×309（图 245×245 + 文字 64）。
+                        ⚠️ 不能直接改 `.plp-grid` 的 60px —— 那是集合页（卡 408 / pitch 468）的实测值。 */}
+                    {rows.map((product, i) => (
+                      <ProductCard key={product.id} product={toCardData(product)} priority={i < 4} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-16 text-center text-[15px] text-foreground/70">
+                    {t("No results found.")}
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        }
+        pages={
+          /* Pages tab — 原站是**圆点列表**（仅标题链接），不是卡片、也没有分组小标题。
+             本地把 Size Chart / 静态页面 / FAQ 三类命中合并进同一个列表：
+             保留原有数据来源与检索能力，只对齐呈现形态（与原站一致）。 */
+          <ul className="mt-[32px] list-disc pl-5 text-[15px] leading-[17px] text-foreground [&>li+li]:mt-[var(--search-pages-gap)]">
+            {chartHits.map((c) => (
+              <li key={`chart-${c.slug}`}>
+                <Link href={`/products/${c.slug}`} className="underline-offset-4 hover:underline">
+                  {c.name}
+                </Link>
+              </li>
+            ))}
+            {matchedPages.map((pg) => (
+              <li key={pg.href}>
+                <Link href={pg.href} className="underline-offset-4 hover:underline">
+                  {lang === "zh" ? pg.titleZh : pg.title}
+                </Link>
+              </li>
+            ))}
+            {faqHits.map((f) => (
+              <li key={f.question}>
+                <Link href="/pages/faqs" className="underline-offset-4 hover:underline">
+                  {f.question}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        }
+      />
     </div>
   );
 }

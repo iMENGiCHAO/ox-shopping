@@ -140,16 +140,18 @@ export default async function FaqsPage() {
   };
 
   return (
-    <div className="content-shell pb-16 pt-[var(--faq-head-pt)]">
+    <div className="content-shell pb-16 pt-[var(--page-title-pt)]">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
-      <h1 className="text-center text-[28px] font-normal leading-tight text-foreground">
+      {/* 原站实测：字号是**流式**的（375 → 20px，1216 → 26.5639px），
+          上内边距也响应式（<1000 → 40px，≥1000 → 64px）。此前写死 28px。 */}
+      <h1 className="text-center text-[length:var(--page-title-size)] font-normal leading-[37px] text-foreground">
         {t("FAQs")}
       </h1>
 
-      <div className="prose-page mt-[var(--faq-head-gap)]">
+      <div className="prose-page faq-prose mt-[var(--faq-head-gap)]">
         {faqs.map((f, i) => (
           <Fragment key={`${i}-${f.q}`}>
             <p>

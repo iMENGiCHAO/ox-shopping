@@ -128,7 +128,13 @@ export function SearchSidebarFilters() {
   const defaultValue = useMemo<string[]>(() => [], []);
 
   return (
-    <aside className="hidden w-[240px] shrink-0 lg:block" aria-label={t("Search filters")}>
+    /* 断点 **1000px**（不是 Tailwind 的 `lg`=1024）：原站二分实测 ——
+       999px 时侧栏不显示、由 `Filter` 按钮 + 抽屉承担；1000px 起侧栏出现
+       （`form.facets` x=48 w=240，同时网格左移到 x=320）。 */
+    <aside
+      className="hidden w-[240px] shrink-0 min-[1000px]:block"
+      aria-label={t("Search filters")}
+    >
       <Accordion type="multiple" defaultValue={defaultValue} className="w-full">
         {/* Availability */}
         <AccordionItem value="availability" className="border-b border-border">
