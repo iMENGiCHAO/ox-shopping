@@ -1,6 +1,7 @@
 import "server-only";
 import Stripe from "stripe";
 import { env, effectivePaymentMode } from "@/lib/env";
+import { ORDER_EXPIRE_SECONDS } from "@/lib/constants";
 import { toCents } from "@/lib/utils";
 import { formatMoney } from "@/lib/utils";
 
@@ -83,10 +84,31 @@ export async function createCheckoutSession(
       "Stripe 不支持 CNY 币种：请将 .env 中 CURRENCY 改为 Stripe 支持的币种(如 USD)，或使用 PAYMENT_MODE=mock",
     );
   }
+  /* 零小数币种保护（P0-1）：本项目的 toCents() 一律 ×100 得到「最小货币单位」，
+     这对 2 位小数币种成立，但对 JPY/KRW/VND 这类 0 位小数币种会**多收 100 倍**
+     （日元 1000 会被当成 100000 分 = 1000 日元？不 —— 反过来：显示 ¥1000 会向 Stripe 传
+     unit_amount=100000，即实收 ¥100000）。webhook 与对账用同一错误口径校验，因此
+     扣款成功、无告警。在修好按币种小数位换算之前，直接拒绝这类币种下单（宁可不卖，
+     也不能错收 100 倍）。 */
+  const zeroDecimal = new Set(["JPY", "KRW", "VND", "CLP", "ISK", "HUF", "TWD"]);
+  if (zeroDecimal.has(order.currency.toUpperCase())) {
+    throw new Error(
+      `Stripe 零小数币种（${order.currency}）尚未按最小单位换算，为避免多收 100 倍已拒绝下单：` +
+        `请改用 2 位小数币种（如 USD/EUR），或使用 PAYMENT_MODE=mock`,
+    );
+  }
+
+  /* 会话有效期必须与订单过期窗口对齐（P0-2）：
+     `expireStaleOrders` 会在 ORDER_EXPIRE_SECONDS（默认 30 分钟）后取消未支付订单并回补库存，
+     而 Stripe Checkout 默认 24 小时有效 —— 顾客在订单被取消后仍能付款，钱进了网关、
+     订单却是 CANCELLED、库存已回补，webhook 侧还会静默忽略（不退款、不告警）。
+     这里把会话有效期压到订单窗口（Stripe 要求 ≥30 分钟，故至少 31 分钟留出安全边）。 */
+  const sessionExpiresAt = Math.floor(Date.now() / 1000) + Math.max(ORDER_EXPIRE_SECONDS, 1860);
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     customer_email: order.customerEmail,
+    expires_at: sessionExpiresAt,
     line_items: items.map((item) => ({
       price_data: {
         currency: order.currency.toLowerCase(),

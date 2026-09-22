@@ -74,6 +74,23 @@ export default function AdminOrdersPage() {
   const [drawerOrder, setDrawerOrder] = React.useState<AdminOrder | null>(null);
   const [drawerOpen, setDrawerOpen] = React.useState(false);
 
+  /* ---------------- 批量改状态（P1-8）----------------
+     大促后几十上百单待发货，逐单点开改状态是纯人工损耗。
+     这里只做选择与提交，真正的状态推进由 /api/admin/orders/batch-status
+     逐单走 order.service（回补库存/退款/发信/COD 特例一并生效）。 */
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
+  const [batchStatus, setBatchStatus] = React.useState<AdminOrderStatus>("PROCESSING");
+  const [batchBusy, setBatchBusy] = React.useState(false);
+
+  // 换页/换筛选后清空选择（避免对看不见的行执行操作）
+  React.useEffect(() => {
+    setSelectedIds([]);
+  }, [page, debouncedSearch, statusFilter, presaleOnly]);
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+  };
+
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
     return () => clearTimeout(t);
@@ -122,6 +139,50 @@ export default function AdminOrdersPage() {
   const openDrawer = (order: AdminOrder) => {
     setDrawerOrder(order);
     setDrawerOpen(true);
+  };
+
+  const runBatchStatus = async () => {
+    if (selectedIds.length === 0) return;
+    if (
+      !window.confirm(
+        `确定将选中的 ${selectedIds.length} 个订单状态改为「${ORDER_STATUS_LABELS[batchStatus]}」吗？\n` +
+          `（取消/退款会自动回补库存并走资金链路，请确认无误）`,
+      )
+    ) {
+      return;
+    }
+    setBatchBusy(true);
+    try {
+      const res = await apiFetchRaw<{
+        ok: number;
+        failedCount: number;
+        total: number;
+        results: { orderNumber: string | null; ok: boolean; error?: string }[];
+      }>("/api/admin/orders/batch-status", {
+        method: "POST",
+        body: JSON.stringify({ ids: selectedIds, status: batchStatus }),
+      });
+      if (res.failedCount > 0) {
+        const firstErr = res.results.find((r) => !r.ok);
+        toast.warning(
+          `成功 ${res.ok} 单，失败 ${res.failedCount} 单${firstErr?.error ? `：${firstErr.error}` : ""}`,
+        );
+      } else {
+        toast.success(`已更新 ${res.ok} 个订单状态`);
+      }
+      setSelectedIds([]);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "批量更新失败");
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  /** 当前页全选/取消全选 */
+  const allSelected = rows.length > 0 && rows.every((r) => selectedIds.includes(r.id));
+  const toggleAll = () => {
+    setSelectedIds(allSelected ? [] : rows.map((r) => r.id));
   };
 
   return (
@@ -179,6 +240,49 @@ export default function AdminOrdersPage() {
         </CardContent>
       </Card>
 
+      {/* 批量操作条：仅在有选中行时出现，避免干扰日常浏览 */}
+      {selectedIds.length > 0 ? (
+        <Card>
+          <CardContent className="flex flex-wrap items-center gap-3 p-3">
+            <span className="text-sm font-medium">已选 {selectedIds.length} 单</span>
+            <Select
+              value={batchStatus}
+              onValueChange={(v) => setBatchStatus(v as AdminOrderStatus)}
+            >
+              <SelectTrigger className="w-[160px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* DELIVERED 不在批量列表：确认收货是顾客的权利（与单笔接口同规则） */}
+                {(["PAID", "PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"] as AdminOrderStatus[]).map(
+                  (s) => (
+                    <SelectItem key={s} value={s}>
+                      {ORDER_STATUS_LABELS[s]}
+                    </SelectItem>
+                  ),
+                )}
+              </SelectContent>
+            </Select>
+            <Button size="sm" disabled={batchBusy} onClick={() => void runBatchStatus()}>
+              {batchBusy ? "处理中…" : "批量修改状态"}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={batchBusy}
+              onClick={() => setSelectedIds([])}
+            >
+              取消选择
+            </Button>
+            {batchStatus === "REFUNDED" ? (
+              <span className="text-xs text-muted-foreground">
+                批量退款属金额操作，仅 ADMIN 可执行
+              </span>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {/* Orders table — table-fixed：列宽由 th/td 决定；首列/末列 sticky */}
       <Card>
         <CardContent className="p-0">
@@ -186,8 +290,18 @@ export default function AdminOrdersPage() {
             <Table className="w-full table-fixed">
               <TableHeader>
                 <TableRow>
+                  {/* 批量选择：表头复选框切换当前页全选 */}
+                  <TableHead className="sticky-col-left w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="全选当前页订单"
+                      className="h-4 w-4 cursor-pointer align-middle accent-foreground"
+                      checked={allSelected}
+                      onChange={toggleAll}
+                    />
+                  </TableHead>
                   {/* sticky 左：订单号始终可见 */}
-                  <TableHead className="sticky-col-left w-[140px]">
+                  <TableHead className="sticky-col-left-2 w-[140px]">
                     {t("Order #")}
                   </TableHead>
                   <TableHead className="w-[180px]">用户</TableHead>
@@ -207,7 +321,7 @@ export default function AdminOrdersPage() {
                 {loading ? (
                   Array.from({ length: 6 }, (_, i) => (
                     <TableRow key={`sk-${i}`}>
-                      {Array.from({ length: 8 }, (_, j) => (
+                      {Array.from({ length: 9 }, (_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-6 w-full" />
                         </TableCell>
@@ -216,7 +330,7 @@ export default function AdminOrdersPage() {
                   ))
                 ) : rows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="p-0">
+                    <TableCell colSpan={9} className="p-0">
                       <EmptyState
                         icon={<Search className="h-6 w-6" />}
                         title={t("No orders yet")}
@@ -237,8 +351,18 @@ export default function AdminOrdersPage() {
                         className="cursor-pointer"
                         onClick={() => openDrawer(row)}
                       >
+                        {/* 批量选择：点击复选框不打开抽屉（stopPropagation） */}
+                        <TableCell className="sticky-col-left w-10" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`选择订单 ${row.orderNumber}`}
+                            className="h-4 w-4 cursor-pointer align-middle accent-foreground"
+                            checked={selectedIds.includes(row.id)}
+                            onChange={() => toggleOne(row.id)}
+                          />
+                        </TableCell>
                         {/* sticky 左：保持订单号可见 */}
-                        <TableCell className="sticky-col-left w-[140px]">
+                        <TableCell className="sticky-col-left-2 w-[140px]">
                           <CellText
                             value={
                               <span className="font-mono text-[13px] font-medium text-primary">

@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { callApi, getData, login } from "../helpers/api";
+import { callApi, getData, login, testClientKey } from "../helpers/api";
 import { resetRateLimit } from "@/lib/rate-limit";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 
@@ -37,7 +37,8 @@ function cookiesOf(jar: { get: (n: string) => string | undefined }): Record<stri
 /** 测试客户端固定带 x-forwarded-for: 127.0.0.1，但非生产环境下 TRUST_PROXY=false，
  *  getClientIp 会忽略 XFF 返回 "unknown"。两种取值都重置，避免依赖环境。 */
 async function resetLimits(userId?: string) {
-  for (const ip of ["127.0.0.1", "unknown"]) {
+  // 含 testClientKey()：B1 修复后无信任 IP 时标识是请求头指纹（不再是常量 "unknown"）
+  for (const ip of ["127.0.0.1", "unknown", testClientKey()]) {
     await resetRateLimit(`order-create-ip:${ip}`);
     await resetRateLimit(`coupon-apply-ip:${ip}`);
   }

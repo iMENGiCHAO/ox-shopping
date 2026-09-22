@@ -12,6 +12,11 @@ export interface OrderTimelineData {
   deliveredAt?: string | Date | null;
   cancelledAt?: string | Date | null;
   refundedAt?: string | Date | null;
+  /**
+   * 货到付款（COD）：无线上支付环节，paidAt 恒为 null。
+   * 「支付」步骤改为「货到付款」，在送达（现金收讫）时点亮。
+   */
+  isCashOnDelivery?: boolean;
 }
 
 interface TimelineStep {
@@ -27,7 +32,12 @@ export async function OrderStatusTimeline({ order }: { order: OrderTimelineData 
   const dateLocale = lang === "zh" ? zhCN : enUS;
   const steps: TimelineStep[] = [
     { key: "created", label: t("Order placed"), time: order.createdAt },
-    { key: "paid", label: t("Payment received"), time: order.paidAt },
+    {
+      key: "paid",
+      // COD（货到付款）：paidAt 恒为 null——该步改为「货到付款」，送达现金收讫时点亮
+      label: order.isCashOnDelivery ? t("Cash on Delivery") : t("Payment received"),
+      time: order.isCashOnDelivery ? (order.deliveredAt ?? null) : order.paidAt,
+    },
     { key: "shipped", label: t("Shipped"), time: order.shippedAt },
     { key: "delivered", label: t("Confirm receipt"), time: order.deliveredAt },
   ];

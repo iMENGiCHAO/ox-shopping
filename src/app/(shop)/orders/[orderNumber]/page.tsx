@@ -88,7 +88,9 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
   // 使用订单创建时的币种与汇率快照，而非当前用户币种
   const orderCurrency = order.currency ?? "USD";
   const orderRate = Number(order.exchangeRate) || 1;
-  const [subtotalText, shippingText, taxText, totalText, itemSubtotals] =
+  const isCOD = order.isCashOnDelivery === true;
+  const codFee = order.codFee == null ? 0 : Number(order.codFee);
+  const [subtotalText, shippingText, taxText, totalText, itemSubtotals, codFeeText, dueOnDeliveryText] =
     await Promise.all([
       Promise.resolve(formatOrderAmount(Number(order.subtotal), orderCurrency, orderRate)),
       Promise.resolve(formatOrderAmount(Number(order.shippingFee), orderCurrency, orderRate)),
@@ -97,6 +99,8 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
       Promise.all(order.items.map((item) =>
         Promise.resolve(formatOrderAmount(Number(item.subtotal), orderCurrency, orderRate)),
       )),
+      Promise.resolve(formatOrderAmount(codFee, orderCurrency, orderRate)),
+      Promise.resolve(formatOrderAmount(Number(order.total) + codFee, orderCurrency, orderRate)),
     ]);
 
   return (
@@ -140,6 +144,7 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
                 deliveredAt: order.deliveredAt,
                 cancelledAt: order.cancelledAt,
                 refundedAt: order.refundedAt,
+                isCashOnDelivery: isCOD,
               }}
             />
           </CardContent>
@@ -152,14 +157,20 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
             <OrderActions
               orderNumber={order.orderNumber}
               status={order.status}
+              isCashOnDelivery={isCOD}
               token={orderToken}
               className="flex flex-col gap-2"
             />
-            {order.status === "PENDING_PAYMENT" ? (
+            {order.status === "PENDING_PAYMENT" && !isCOD ? (
               <p className="text-xs text-muted-foreground">
                 {t(
                   "Please pay as soon as possible — unpaid orders are auto-cancelled when they time out.",
                 )}
+              </p>
+            ) : null}
+            {isCOD ? (
+              <p className="text-xs text-muted-foreground">
+                {t("Cash on delivery — pay the courier when your order arrives.")}
               </p>
             ) : null}
             {canDownloadInvoice ? (
@@ -302,7 +313,17 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
             </div>
             <div className="flex justify-between">
               <dt className="text-muted-foreground">{t("Shipping")}</dt>
-              <dd>{Number(order.shippingFee) === 0 ? t("Free shipping") : shippingText}</dd>
+              <dd>
+                {/* COD 单 shippingFee=0 是占位（运费不计入在线总额）——绝不能显示「免邮」，
+                    顾客要在收货时向承运商现金支付到付费 */}
+                {isCOD
+                  ? codFee > 0
+                    ? `${t("Pay on delivery")}（${codFeeText}）`
+                    : t("Pay on delivery")
+                  : Number(order.shippingFee) === 0
+                    ? t("Free shipping")
+                    : shippingText}
+              </dd>
             </div>
             {Number(order.tax) > 0 ? (
               <div className="flex justify-between">
@@ -315,6 +336,12 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
               <dt>{t("Order total")}</dt>
               <dd className="text-xl font-normal text-foreground">{totalText}</dd>
             </div>
+            {isCOD ? (
+              <div className="flex justify-between rounded-md bg-muted/50 px-3 py-2 text-sm font-medium">
+                <dt>{t("Due on delivery (cash)")}</dt>
+                <dd>{dueOnDeliveryText}</dd>
+              </div>
+            ) : null}
           </dl>
         </CardContent>
       </Card>

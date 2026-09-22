@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { sanitizePlainText } from "@/lib/sanitize";
 import { z } from "zod";
 import { logger } from "@/lib/logger";
+import { distributionBridge } from "@/server/services/distribution/bridge";
 
 export const runtime = "nodejs";
 
@@ -158,6 +159,12 @@ export const PUT = apiHandler(async (req, ctx) => {
       gatewayId: gatewayRefundId,
       payload: { refundId: refund.id },
     });
+
+    /* 分销佣金冲正：**部分退款也必须冲**。
+       这里读的是「订单累计已完成退款 / 订单应付金额」的比例，内部按增量 + CAS 幂等推进，
+       所以部分退多次、或与每分钟对账并发跑，都不会重复扣。
+       失败不影响退款主流程 —— 对账补偿会在下一轮兜住（见 reconcileDistribution）。 */
+    await distributionBridge.onOrderRefunded(refund.orderId);
 
     // 仅当累计退款覆盖全额时才将整单标记为 REFUNDED；
     // 部分退款保持原状态（订单可继续发货或再次申请退款）

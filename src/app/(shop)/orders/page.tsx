@@ -124,7 +124,7 @@ export default async function OrdersPage(props: OrdersPageProps) {
           }
           action={
             <a
-              href="/products"
+              href="/collections/all"
               className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               {t("Browse Products")}

@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from "@/lib/errors";
 import { decryptChannelConfig, encryptChannelConfig } from "@/lib/payment/channel-crypto";
 import { getProvider, CHANNEL_META } from "@/lib/payment/providers";
 import type { PaymentChannelRuntime } from "@/lib/payment/provider";
+import { mockPaymentAllowedInProd } from "@/lib/env";
 
 /**
  * 支付渠道读写服务。
@@ -88,13 +89,16 @@ export async function listChannelsForFrontend(currency?: string): Promise<Fronte
       c.enabled &&
       provider.isConfigured(c.config) &&
       (provider.isReady ? provider.isReady(c.config) : true);
+    // 生产环境守卫：mock 渠道（免费下单）不对顾客展示——防止生产漏配时顾客选到
+    // 「模拟支付」却必然失败/或直接免费成交。本地演示与测试不受影响。
+    const envAllowed = m.code === "mock" ? mockPaymentAllowedInProd : true;
     // 币种匹配：渠道声明了支持币种（如国内网关仅 CNY）且传入币种不在其中 → 置灰 + 提示切换币种
     const supportsCurrency =
       !cur || !provider.supportedCurrencies || provider.supportedCurrencies.includes(cur);
     const out: FrontendChannel = {
       code: m.code,
       name: c.name ?? m.name,
-      available: ready && supportsCurrency,
+      available: ready && supportsCurrency && envAllowed,
     };
     if (ready && !supportsCurrency) out.currencyMismatch = true;
     return out;
@@ -201,8 +205,16 @@ export async function setChannelEnabled(id: string, enabled: boolean): Promise<v
     const channel = await prisma.paymentChannel.findUnique({ where: { id } });
     if (!channel) throw notFound("Payment channel not found");
     const runtime = toRuntime(channel);
-    if (!getProvider(runtime.provider).isConfigured(runtime.config)) {
+    const provider = getProvider(runtime.provider);
+    if (!provider.isConfigured(runtime.config)) {
       throw badRequest("Configure this channel before enabling it — an unconfigured channel cannot accept payments");
+    }
+    // 生产环境守卫：mock 渠道（免费下单）不允许在生产启用——
+    // 防止「后台一键启用 → 所有订单免费」。本地演示与测试不受影响。
+    if (runtime.code === "mock" && !mockPaymentAllowedInProd) {
+      throw badRequest(
+        "Mock payment cannot be enabled in production — configure a real gateway (e.g. Stripe) instead, or set ALLOW_MOCK_PAYMENT_IN_PROD=true for demo environments",
+      );
     }
   }
   const updated = await prisma.paymentChannel.updateMany({

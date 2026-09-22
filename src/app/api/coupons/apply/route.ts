@@ -1,6 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { getSessionUser } from "@/lib/auth/session";
 import { quoteOrderAmounts } from "@/server/services/order.service";
 import { CouponRejectError } from "@/server/services/coupon.service";
@@ -28,9 +29,13 @@ export const POST = apiHandler(async (req) => {
   const input = await readJson(req, couponApplySchema);
 
   // 试算是暴力枚举券码的天然入口（撞码），必须限流。
-  // 登录用户按 userId，游客退到 IP 维度。
+  // 登录用户按 userId，游客退到 IP/指纹维度；另加全站熔断 600 次/10 分钟防标识轮换撞码。
   const rlKey = user ? `coupon-apply:${user.id}` : `coupon-apply-ip:${getClientIp(req)}`;
-  const rl = await rateLimit({ key: rlKey, limit: 20, windowSeconds: 600 });
+  const rl = await rateLimit({
+    key: rlKey,
+    ...RATE_LIMITS.couponApply,
+    breakerKey: user ? undefined : RATE_LIMITS.couponApply.breakerKey,
+  });
   if (!rl.ok) throw rateLimited();
 
   try {

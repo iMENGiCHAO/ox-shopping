@@ -10,6 +10,8 @@ import { ORDER_STATUS_FLOW, ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { AdminDrawer, AdminDrawerHeader } from "@/components/admin/admin-drawer";
 import { ShipDialog } from "@/components/admin/ship-dialog";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Select,
@@ -74,6 +76,94 @@ export function OrderDetailDrawer({
 
   const address = current?.addressSnapshot;
   const currency = current?.currency || "USD";
+
+  /* ---------------- 收货地址编辑（P1-8）----------------
+     背景：地址此前只读，顾客写错门牌号只能「取消重下」——已支付单要重新走
+     支付/退款，还可能丢券与库存占用。这里允许运营直接改订单快照。 */
+  const [addrEditing, setAddrEditing] = React.useState(false);
+  const [addrDraft, setAddrDraft] = React.useState<Record<string, string>>({});
+  const [addrSaving, setAddrSaving] = React.useState(false);
+
+  /* ---------------- 内部备注（P1-8）---------------- */
+  const [noteDraft, setNoteDraft] = React.useState("");
+  const [noteSaving, setNoteSaving] = React.useState(false);
+
+  // 打开/切换订单时重置编辑态与备注草稿（避免把 A 单的备注写到 B 单）。
+  // ⚠️ 必须放在上面这些 setState 声明之后 —— 否则 ESLint react-hooks/immutability
+  // 会判定「在声明前访问 setter」（effect 的闭包捕获顺序问题）。
+  React.useEffect(() => {
+    if (!open) return;
+    setAddrEditing(false);
+    setAddrDraft({});
+    setNoteDraft(order?.adminNote ?? "");
+  }, [open, order]);
+
+  const startAddrEdit = () => {
+    const a = current?.addressSnapshot;
+    setAddrDraft({
+      recipientName: a?.recipientName ?? "",
+      phone: a?.phone ?? "",
+      province: a?.province ?? "",
+      city: a?.city ?? "",
+      district: a?.district ?? "",
+      detail: a?.detail ?? "",
+    });
+    setAddrEditing(true);
+  };
+
+  const saveAddress = async () => {
+    if (!current) return;
+    const recipientName = (addrDraft.recipientName ?? "").trim();
+    const detail = (addrDraft.detail ?? "").trim();
+    if (!recipientName || !detail) {
+      toast.error("收件人与详细地址为必填项");
+      return;
+    }
+    setAddrSaving(true);
+    try {
+      const res = await apiFetch<{ order: AdminOrder }>(
+        `/api/admin/orders/${current.id}/address`,
+        {
+          method: "PUT",
+          body: JSON.stringify({
+            recipientName,
+            detail,
+            phone: addrDraft.phone?.trim() || null,
+            province: addrDraft.province?.trim() || null,
+            city: addrDraft.city?.trim() || null,
+            district: addrDraft.district?.trim() || null,
+          }),
+        },
+      );
+      if (res?.order) setCurrent(res.order);
+      setAddrEditing(false);
+      toast.success("收货地址已更新（已记录审计日志）");
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "地址更新失败");
+    } finally {
+      setAddrSaving(false);
+    }
+  };
+
+  const saveAdminNote = async () => {
+    if (!current) return;
+    setNoteSaving(true);
+    try {
+      const res = await apiFetch<{ order: AdminOrder }>(
+        `/api/admin/orders/${current.id}/note`,
+        { method: "PUT", body: JSON.stringify({ adminNote: noteDraft }) },
+      );
+      if (res?.order) setCurrent(res.order);
+      toast.success("内部备注已保存");
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "备注保存失败");
+    } finally {
+      setNoteSaving(false);
+    }
+  };
+
   // 管理员不能直接标记为已送达，DELIVERED 只能由购物者确认收货
   // 所以 SHIPPED 状态的可推进状态只显示 REFUNDED
   const rawNextStatuses = current ? (ORDER_STATUS_FLOW[current.status] ?? []) : [];
@@ -120,8 +210,22 @@ export function OrderDetailDrawer({
                     ? "Stripe"
                     : current.paymentProvider === "mock"
                       ? "模拟支付"
-                      : "-"}
+                      : current.paymentProvider === "cod"
+                        ? "货到付款"
+                        : "-"}
                 </div>
+                {current.isCashOnDelivery ? (
+                  <>
+                    <div className="text-muted-foreground">到付参考金额</div>
+                    <div>
+                      送达时收现金：{current.currency}{" "}
+                      {(Number(current.total) + Number(current.codFee ?? 0)).toFixed(2)}
+                      {Number(current.codFee ?? 0) > 0
+                        ? `（含到付费 ${Number(current.codFee).toFixed(2)}）`
+                        : ""}
+                    </div>
+                  </>
+                ) : null}
                 <div className="text-muted-foreground">买家</div>
                 <div>
                   {current.user?.name ?? "-"}({current.user?.email ?? "-"})
@@ -133,19 +237,112 @@ export function OrderDetailDrawer({
 
             {/* Shipping address */}
             <section className="space-y-2">
-              <h3 className="text-sm font-semibold">收货地址</h3>
-              <div className="rounded-md border bg-muted/30 p-4 text-sm">
-                {address ? (
-                  <p>
-                    {address.recipientName}　{address.phone}
-                    <br />
-                    {address.province}
-                    {address.city}
-                    {address.district} {address.detail}
-                  </p>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">收货地址</h3>
+                {!addrEditing ? (
+                  <Button size="sm" variant="outline" onClick={startAddrEdit}>
+                    编辑地址
+                  </Button>
                 ) : (
-                  <p className="text-muted-foreground">暂无收货地址</p>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={addrSaving}
+                      onClick={() => setAddrEditing(false)}
+                    >
+                      取消
+                    </Button>
+                    <Button size="sm" disabled={addrSaving} onClick={() => void saveAddress()}>
+                      {addrSaving ? "保存中…" : "保存地址"}
+                    </Button>
+                  </div>
                 )}
+              </div>
+              {addrEditing ? (
+                <div className="space-y-2 rounded-md border bg-muted/30 p-4 text-sm">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <Input
+                      value={addrDraft.recipientName ?? ""}
+                      onChange={(e) =>
+                        setAddrDraft((d) => ({ ...d, recipientName: e.target.value }))
+                      }
+                      placeholder="收件人 *"
+                    />
+                    <Input
+                      value={addrDraft.phone ?? ""}
+                      onChange={(e) => setAddrDraft((d) => ({ ...d, phone: e.target.value }))}
+                      placeholder="联系电话"
+                    />
+                    <Input
+                      value={addrDraft.province ?? ""}
+                      onChange={(e) => setAddrDraft((d) => ({ ...d, province: e.target.value }))}
+                      placeholder="省/州"
+                    />
+                    <Input
+                      value={addrDraft.city ?? ""}
+                      onChange={(e) => setAddrDraft((d) => ({ ...d, city: e.target.value }))}
+                      placeholder="城市"
+                    />
+                    <Input
+                      value={addrDraft.district ?? ""}
+                      onChange={(e) => setAddrDraft((d) => ({ ...d, district: e.target.value }))}
+                      placeholder="区/县"
+                    />
+                    <Input
+                      value={addrDraft.postalCode ?? ""}
+                      onChange={(e) => setAddrDraft((d) => ({ ...d, postalCode: e.target.value }))}
+                      placeholder="邮编"
+                    />
+                  </div>
+                  <Textarea
+                    value={addrDraft.detail ?? ""}
+                    onChange={(e) => setAddrDraft((d) => ({ ...d, detail: e.target.value }))}
+                    placeholder="详细地址（街道、门牌号）*"
+                    rows={2}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    修改会记录审计日志（含改动前后快照）；发货后改址请同步通知承运商。
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-md border bg-muted/30 p-4 text-sm">
+                  {address ? (
+                    <p>
+                      {address.recipientName}　{address.phone}
+                      <br />
+                      {address.province}
+                      {address.city}
+                      {address.district} {address.detail}
+                    </p>
+                  ) : (
+                    <p className="text-muted-foreground">暂无收货地址</p>
+                  )}
+                </div>
+              )}
+            </section>
+
+            {/* 内部备注（仅后台可见，不随邮件发给顾客） */}
+            <section className="space-y-2">
+              <h3 className="text-sm font-semibold">内部备注</h3>
+              <Textarea
+                value={noteDraft}
+                onChange={(e) => setNoteDraft(e.target.value)}
+                placeholder="仅后台可见，例如：已电话确认改址 / 客户要求延迟发货"
+                rows={2}
+                className="text-sm"
+              />
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  顾客备注（下方）保持原样，不会被这里覆盖。
+                </p>
+                <Button
+                  size="sm"
+                  disabled={noteSaving || noteDraft === (current?.adminNote ?? "")}
+                  onClick={() => void saveAdminNote()}
+                >
+                  {noteSaving ? "保存中…" : "保存备注"}
+                </Button>
               </div>
             </section>
 

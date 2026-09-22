@@ -21,5 +21,5 @@ export const POST = apiHandler(async (req, ctx) => {
     { trackingCompany: input.trackingCompany, trackingNumber: input.trackingNumber },
   );
 
-  return json({ order: serializeOrder(updated) });
+  return json({ order: serializeOrder(updated, { includeInternal: true }) });
 });
