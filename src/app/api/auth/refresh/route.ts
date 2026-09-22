@@ -2,6 +2,7 @@ import { apiHandler, json } from "@/lib/api";
 import { ApiError, rateLimited, unauthorized } from "@/lib/errors";
 import { rotateSession, setAuthCookies } from "@/lib/auth/session";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { getClientIp } from "@/lib/server/utils-server";
 import { REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 import { logger } from "@/lib/logger";
@@ -23,7 +24,7 @@ function readCookie(req: Request, name: string): string | undefined {
 /** POST /api/auth/refresh — 用 refresh token 轮换会话 */
 export const POST = apiHandler(async (req) => {
   // R1 安全加固：频率上限从 60/分钟降至 10/分钟（正常用户无需频繁刷新）
-  const rl = await rateLimit({ key: `refresh:${getClientIp(req)}`, limit: 10, windowSeconds: 60 });
+  const rl = await rateLimit({ key: `refresh:${getClientIp(req)}`, ...RATE_LIMITS.refresh });
   if (!rl.ok) {
     logger.warn({ ip: getClientIp(req) }, "refresh token 频率超限");
     throw rateLimited();

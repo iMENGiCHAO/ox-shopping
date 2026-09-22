@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
-import { callApi, getData, registerAndLogin, CookieJar } from "../helpers/api";
+import { callApi, getData, registerAndLogin, CookieJar, testClientKey } from "../helpers/api";
 import { prisma } from "@/lib/prisma";
 import { REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 import { sha256 } from "@/lib/utils";
@@ -71,12 +71,13 @@ describe("refresh token 复用策略", () => {
     // 注意 IP 取值：测试客户端固定带 `x-forwarded-for: 127.0.0.1`（tests/helpers/api.ts），
     // 但 `env.TRUST_PROXY` 在**非生产环境默认为 false**（src/lib/env.ts），
     // 此时 getClientIp 会忽略 XFF 并返回 "unknown"。两种取值都重置，避免依赖环境。
-    for (const ip of ["127.0.0.1", "unknown"]) {
+    for (const ip of ["127.0.0.1", "unknown", testClientKey()]) {
       await resetRateLimit(`register:${ip}`);
       await resetRateLimit(`refresh:${ip}`);
     }
-    // 全局注册上限（100/小时）是防滥用的生产护栏，在测试里跨文件累积会误伤后续用例
-    await resetRateLimit("register:global");
+    // 全局注册熔断（100/小时）是防滥用的生产护栏，在测试里跨文件累积会误伤后续用例。
+    // 注意键名：B1 之后熔断桶是端点级 `register:__global__`（旧键 register:global 已废弃）。
+    await resetRateLimit("register:__global__");
   });
 
   afterEach(async () => {

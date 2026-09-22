@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll, beforeEach } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { callApi, getData, login } from "../helpers/api";
+import { callApi, getData, login, testClientKey } from "../helpers/api";
 import { resetRateLimit } from "@/lib/rate-limit";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 import { ORDER_EXPIRE_SECONDS } from "@/lib/constants";
@@ -60,7 +60,7 @@ beforeAll(async () => {
 }, 240_000);
 
 beforeEach(async () => {
-  for (const ip of ["127.0.0.1", "unknown"]) await resetRateLimit(`order-create-ip:${ip}`);
+  for (const ip of ["127.0.0.1", "unknown", testClientKey()]) await resetRateLimit(`order-create-ip:${ip}`);
   await resetRateLimit(`order-create:${userId}`);
 });
 

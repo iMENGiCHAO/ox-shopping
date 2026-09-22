@@ -5,6 +5,7 @@ import { signEmailToken } from "@/lib/auth/jwt";
 import { sendMail } from "@/lib/mail";
 import { audit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { env } from "@/lib/env";
 import { prisma } from "@/lib/prisma";
 
@@ -20,7 +21,7 @@ export const POST = apiHandler(async (req) => {
   const user = await requireUser();
 
   // 限流：每用户 3 次 / 10 分钟（防滥用邮件通道）
-  const rl = await rateLimit({ key: `verify-resend:${user.id}`, limit: 3, windowSeconds: 600 });
+  const rl = await rateLimit({ key: `verify-resend:${user.id}`, ...RATE_LIMITS.verifyResend });
   if (!rl.ok) throw badRequest("Too many requests, please try again later");
 
   const fresh = await prisma.user.findUnique({ where: { id: user.id } });
