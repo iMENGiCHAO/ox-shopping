@@ -9,6 +9,358 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-22 · 商业交付整改第二批：伪功能清除 / 硬编码治理 / 数据孤岛打通（梦哥）
+
+> 大爷指令（原文）：「项目上不要硬编码，不要过拟合，解耦的思想，网店不要有伪功能，
+> 把数据打通，不要有数据孤岛、信息孤岛，把所有功能工程化落地，能达到交付使用」。
+
+- **① token 自助重置死链路清除（伪功能）**：`/api/auth/reset-password` API、
+  `/auth/reset-password` 页、表单组件、`ResetPasswordEmail` 邮件模板、JWT `fp` 字段与
+  `reset` purpose、`RESET_TOKEN_TTL` 常量、schema、6 条孤儿 i18n 词条、集成用例、
+  qa-sweep 路由条目——全链删除。依据：无 token 签发方、无入口链接、无邮件发送路径
+  （已被 13.10 的 B-2 人工审批流取代），删的是不可达代码，无能力损失。
+  i18n-keys 守卫测试当场抓回 1 条误删词条（change-temp-password 在用），恢复后全绿。
+- **② 低库存阈值可配置化 + 数据打通（硬编码治理）**：新增 `src/lib/inventory.ts`
+  单一事实来源（缺省 5，运营口径 `isRestockAlert` 含售罄 / 顾客口径 `isScarceInStock`
+  仅现货两个具名谓词）；`SiteSetting.lowStockThreshold` 后台可配（读取端
+  `clampThreshold` 0–999 钳制，30s 缓存，与 stats / 商品 API 同走 `getSiteSettings()`
+  保证同源）；`getAdminStats` 的 `lowStockCount / notifyMeCount / lowStockThreshold`
+  三个「算了没展示」的指标真正下发；仪表盘新增可点击「运营信号条」
+  （低库存 → `/admin/products?stock=low&status=ACTIVE` 预筛列表，与计数完全同口径；
+  到货提醒 → `/admin/notify-me`）；商品管理页新增「低库存」筛选 + URL 深链初始化 +
+  红色高亮改用 API 随列表下发的生效阈值；系统设置页新增「库存预警」数字输入
+  （0–999 校验 + 空值回落缺省，服务端 clamp 双保险）；顾客侧 buy-panel
+  「仅剩 N 件」改用 `isScarceInStock()`，不再写死 `<= 5`。
+- **③ 限流策略集中化（硬编码治理）**：新增 `src/lib/rate-limits.ts`，14 条策略
+  `satisfies Record<string, RateLimitPolicy>` 类型收口；12 个 route 文件全部调用点
+  改为 `...RATE_LIMITS.xxx` 展开，数值零变更（纯重构，行为等价）；登录特例
+  `resetRateLimit("login:__global__")` 保留原键名。
+- **④ sitemap 规范化（SEO）**：补 `/collections` 索引页；分类 URL 从
+  `/products?category=<slug>`（307 跳转链）改为直连 `/collections/<slug>`。
+- **⑤ 死变量清理**：product-card 未使用变量 `hasDiscount` 移除（eslint warning 清零项）。
+- **⑥ 文档事实对齐**：README 迁移说明从「5 个迁移」的硬编码枚举改为「以目录为准」
+  （实际已 28 个）；package.json description `Next.js 14` → `Next.js 16`；
+  .gitignore 增加 `*.bak` / `*.bak-*` 防工具链备份文件入库。
+- **测试自给自足修复**：cod-flow 集成用例的 afterAll `deleteMany` 删订单**不回补库存**，
+  多轮运行把种子商品净抽干（下单时报「只剩 2 件」）。beforeAll 选取商品后 pin 到
+  充足值、afterAll 恢复原值——轮内绝对够用，跨轮零净消耗。
+- **回归证据**：tsc 0 错；单测 22 文件 246/246；集成 15 文件 127/127
+  （cod-flow 修复后 6/6，真实退出码显式核验）；i18n-keys 守卫全绿；
+  改动文件 prettier 全过。
+
+## 2026-09-22 · 修复首屏「顶栏 + 空 main + 页脚、下方一整屏白」（对齐原站加载观感）
+
+> 大爷反馈：「网站加载的时候下面是白色的，上面是网店的顶栏和底栏，感觉怪怪的；
+> 原网站 shop.x.com 加载网店页面就直接显示出来」。
+
+- **根因**：`(shop)/loading.tsx`、`(shop)/products/[slug]/loading.tsx`、`(shop)/search/loading.tsx`
+  均导出 `null` 作为 Suspense 兜底。Next 只要见到 `loading.tsx` 就会在 `children` 外包一层
+  Suspense 边界 → 服务端把「外壳（header/footer）+ 空 fallback」先流式下发，真实内容被塞进
+  `<template id="B:0">` 交由内联脚本二次注入。浏览器**首帧**因此是：
+  `header 0→65`、`main` 高度 **0**、`footer` 紧贴 `65→273`、下方 **627px 纯白**（1200×900 实测）。
+- **修复**：删除上述 3 个整页兜底文件（任何 fallback 都是可见的中间态，换骨架同样治不了根）。
+  需要加载指示时改用**页面内** `<Suspense>` 精确框住慢区块。
+- **验证（Playwright + 流式响应埋点）**：
+  - 首屏 HTML 中挂起标记 `<!--$?-->` **1 → 0**；首页 `All Products` 落在 `<main>` 内部
+    （字节偏移 14610）而非 `<template>`；禁用 JS 冻结首帧实测 `main` 高度 **0 → 4911**、文字 **0 → 842**。
+  - 子路由首帧同样带内容：`/collections` 939px、`/products/[slug]` 1324px、`/search` 493px。
+  - 客户端路由切换：旧页面完整保留至新页面就绪，采样 54 点 `main` 高度最小 1511，无白屏、无页脚上跳。
+  - `npx tsc --noEmit` 通过；8 条主要路由（含 `/admin/login`、`/auth/login`）全部 200。
+
+### 追加：`/pages/accessibility-statement` 页脚下方留白（同期）
+
+- **现象**：该页 1200×900 下文档高仅 900，黑色页脚止于 747px，视口底部露出 **153px 白底**。
+- **排查**：全站扫描后确认**只有「内容短于视口」的页面**才有此白条
+  （`/pages/accessibility-statement` 153px、`/cart` 空态 243px）；其余页面页脚均落在文档底部、留白 0px。
+  机制来自 `(shop)/layout.tsx`：根节点 `min-h-screen flex flex-col`（白底铺满视口）+ `main` 刻意不给
+  `flex-1`（2026-09-21 为对齐原站短页面页脚位置而定），故内容不满一屏时页脚停在内容之后。
+- **不改布局的理由**：2026-09-21 的原站实测记录明确「原站短页面（购物车空态）页脚下方同样是 64px 白」，
+  即原站并未做页脚吸底；若改 `flex-1` 会与该结论相反，并使 `tests/e2e/visual.spec.ts` 的 5 张基线再次过期。
+- **定案（大爷 2026-09-22 确认原站该页为分节长文）**：问题在内容而非布局——
+  `src/lib/policy-defaults.ts` 的《无障碍声明》默认值只有 3 段（正文 474px），
+  而同一文件内隐私政策 7 节、数据共享 5 节，完整度明显不对等。
+- **修复**：默认文案补为 **8 节完整版**（承诺 / 符合性状态 / 无障碍功能 / 浏览器与辅助技术兼容性 /
+  技术规格 / 已知限制 / 反馈与联系方式 / 评估方式），中英各一份，后台仍可整段覆盖。
+- **验证**：文档高 **900 → 2204**，页脚 1996..2204 落在文档最底部，**页脚下方留白归零**；
+  中英双版渲染均含新分节；`npx tsc --noEmit` 通过。
+
+## 2026-09-21 · 商业交付整改 8 项 + 分销专项 + 全项目扫雷（P0/P1 批量修复）
+
+> 完整明细与验证证据：[docs/COMMERCIAL_READINESS_FIXES_2026-09-21.md](docs/COMMERCIAL_READINESS_FIXES_2026-09-21.md)
+
+- **自查清单 8 项全部完成**：生产 mock 支付守卫、渠道化 Stripe 对账门控、COD 货到付款语义（跳过支付 /
+  到付金额落库 / 可取消 / 邮件 / 展示 / 迁移）、多币种分账恒等式（新增 `allocateRateAmounts`）、IP 限流塌缩
+  （请求头指纹兜底 + 全站熔断）、Redis 密码与端口回收、客服留言后台收件箱、管理端订单编辑（地址 / 内部备注 / 批量状态）。
+- **分销专项 P0/P1**：等级佣金规则唯一键补 `tierLevel`（修「等级规则覆盖通用规则 → 该层佣金静默归零」）、
+  冲正分母与计佣基数同源、日汇总折算改用 `toCny`、汇总改团队口径与实时一致、绑定失效不再锁死客户。
+- **全项目扫雷 P0/P1**：零小数币种（JPY 等）拒绝下单防多收 100 倍、Stripe 会话有效期对齐订单过期窗口、
+  整单退款只退剩余可退额（防部分退款后二次全额退款）、生产 compose 补齐必填变量与邮件配置、
+  单笔退款接口提权 ADMIN、`REQUIRE_STRONG_SECRETS` 空值语义（不再一票关停四道守卫）、
+  `db push` 后自动重建原始部分唯一索引。
+- 新增迁移：`20260921130000_cod_fee`、`20260921140000_admin_note`、`20260921150000_commission_rule_tier_unique`。
+
+## 2026-09-21 · 分销系统 P0 加固 + 通知（商业化交付前的问题清单）
+
+> 迁移：`prisma/migrations/20260921061158_distribution_hardening`
+> 大爷的要求：「把问题扼杀在交付使用之前，不要差不多，工程级落地」。
+
+### P2-15 分销商等级 + 按等级差异化比例
+- `distributor_accounts.tier`（0=普通，1~10）+ `commission_rules.tierLevel`：
+  **同作用域内「等级专用规则」覆盖「通用规则」**，未命中的等级回落到通用比例。
+- 关键实现细节：`getCommissionChain()` 现在把**每一环本人**的等级一并带出 ——
+  佣金是逐级解析的，二级受益人的等级决定二级比例，不能用归属人的等级一刀切。
+- 后台：分销商列表新增「等级」列与「设等级」操作（含调整原因）；佣金规则弹窗新增等级字段。
+- 分销商侧：规则说明页在存在等级规则时给出提示。改等级**只影响之后的订单**，
+  历史流水按当时规则快照保留（账本不回算）。**+5 条单测 +1 条集成用例**（后者顺带验证了
+  「10% + 20% 顶到总上限 30% 时第三级被整体跳过」）。
+
+### P2-12 团队业绩预聚合
+- 新增 `distribution_daily_stats`（分销商 × 日：订单数 / 销售额 CNY / 佣金 CNY / 团队人数快照）
+  + 幂等汇总作业 `rollupDistributionDailyStats()`：调度器每轮汇总最近 2 天，后台可手动重跑。
+- `getTeamStats()` **优先读汇总表**（`source: "rollup"`），无数据时回落实时聚合（`source: "live"`）——
+  页面永远有数，且口径由同一个作业写入，不会"报表和明细对不上"；明细页仍读实时表。
+- 汇总时**过滤已不存在的用户**：`order_attributions.distributorId` 是无外键的历史快照，
+  硬删用户（GDPR）后仍留有记录，直接写汇总会撞 `distribution_daily_stats.userId` 外键
+  （集成测试真实复现并修复）。**+1 条集成用例**（包含幂等重跑断言）。
+
+### P1-11 推广海报（SVG 分享图）
+`GET /api/distribution/my/poster`（`?download=1` 带附件头）服务端直出 **1080×1620 海报**：
+品牌名（读站点设置，多语）+「分享有礼」+ 大二维码 + 推广码 + 专属链接 + 合规提示。
+- 二维码以**嵌套 `<svg>` + 原 viewBox** 内联（最初按固定 scale 变换，实测二维码被缩成一小块 —— 已修）；
+- 文案由服务端按语言固化（海报是脱离应用的图片，不能依赖前端 i18n 运行时）；
+- 不引入 sharp/canvas：SVG 矢量、体积 ~3.6KB，手机端可长按保存/转发。分销中心推广码卡新增「下载推广海报」。
+
+### P2-14 并发正确性与大团队性能（"钱不会被算两遍"的硬证据）
+- **并发结算同一订单 5 次** → 每位受益人只入账一次（断言余额增量 == 该流水净额，而不是 5 倍）；
+- **并发按 50% 冲正 5 次** → 累计只冲一半、状态不变、余额只扣一次（CAS 条件更新生效）；
+- **1000 人团队**（300 一级 + 700 二级，闭包 2000+ 行）：闭包查询 / 团队统计 / 佣金链解析
+  全部在时间上界内（实测 757ms 完成整组）。
+
+### P2-13 分销配置与佣金规则缓存（Redis → 内存自动降级）
+配置与启用规则是这条链路上最热的读（每次绑定/归属/计提/提现都读），改为走 `lib/cache`：
+**写时精准失效**（`saveDistributionConfig` 与后台规则增删改均调用 `invalidateDistributionCache()`），
+不靠 TTL —— 否则"刚把比例改成 8%、新订单还按 10% 算"在生产上极难排查；规则额外保留 60s TTL 兜底
+（防脚本/运维绕过接口改库）。**刻意不缓存任何"钱"的视图**（余额/佣金/团队业绩）：这些数字必须实时可信。
+
+### P1-8 管理后台四个运维视图 + 换绑审核
+- **人工冲正单条佣金**：`POST /api/admin/distribution/commissions/[id]/reverse`（金额可部分，
+  原因必填）。用于刷单认定 / 客服赔付 / 错单纠正等自动冲正覆盖不到的场景，与自动冲正共用
+  同一套账本口径（增量 + CAS + 已入账部分扣回，可为负=挂账），幂等且留审计。
+- **CSV 导出**：佣金流水与提现记录各一个导出接口，走 `lib/csv` 统一转义
+  （Excel 公式注入防护 + UTF-8 BOM）；佣金导出含「已冲正金额」列，提现导出含收款人实名/方式
+  （线下打款要拿这份表去银行）。
+- **风控视图** `/admin/distribution/risk`：集中五类信号 —— 自购返佣（自买自返/刷单特征）、
+  负余额挂账、近 30 天高频退款客户、大额在途提现、**永不生效的超层级规则**，按严重程度排序。
+- **自动升级记录** `/admin/distribution/promotions`：分销商资格是自动授予的，运营必须能回答
+  「这个账号什么时候、因为谁成为分销商」——按 `firstPromoteAt` 倒序列出人、时间、邀请人与已带人数。
+- **换绑审核**（新增 `rebind_requests` 表 + 后台页面）：换绑会改变客户**及其整棵下级子树**的佣金
+  归属，属于资金关系变更 —— 因此即使后台开启 `allowRebind`，客户点他人链接也只**受理**为待审申请
+  （重复点击不会重复建单），平台通过时才真正落库，落库路径复用 `skipApproval` + 子树闭包重建。
+  **+2 条集成用例**（审核流三个断言 + 人工冲正扣账与防重复）。
+
+### P1-9 佣金规则：固定金额返佣 + 生效期
+- `commission_rules` 新增 `mode`（RATIO | FIXED）与 `fixedAmount`：支持「每单固定返 X」
+  与「按比例返 Y%」两种口径并存、逐级各自取值（迁移 `..._commission_rule_fixed_mode`）。
+- **固定金额同样受总比例上限约束**（换算等效比例）：否则"固定 5 美元"在 20 美元订单上
+  就是 25%，直接返穿毛利。超限整层跳过，绝不截断单笔金额。
+- `effectiveAt/expireAt` **真正生效**：`resolveRule()` 纯函数按注入的 `now` 判定
+  （到期当刻即失效、未填=立即生效长期有效），此前字段只存在于 schema 里没接线。
+- 后台规则页/接口新增口径选择、固定金额、生效期（datetime-local）；
+  分销商规则说明页同步展示"每单固定 X"与生效期。**+9 条单测**（含边界与混用）。
+
+### P1-10 提现 KYC + 《分销规则》确认
+- 一期是**线下打款**，必须能核对到人：`withdraw_records` 落 `payeeName/payeeMethod/userEmail`；
+  首次提现**服务端强制**实名（≥2 字）与收款方式，之后可省略并沿用上一次的值（减少重复录入）。
+- `distributor_accounts.termsAcceptedAt` 记录规则确认时间（提现前必须勾选，合规留痕），
+  账户摘要对外暴露 `termsAccepted`，前端提现页据此显示"我已阅读并同意"并可跳转规则说明页。
+- 后台提现审核页展示收款人/方式；本人列表也只回显账户尾号（页面可能被旁人看到）。**+2 条集成用例**。
+
+### P0-1 部分退款按比例冲正
+原实现只在「整单变 REFUNDED/CANCELLED」时冲正 —— 部分退款后订单仍是 PAID，
+佣金**不冲**，等于给已退款的部分白付佣金。现在：
+- 比例 = 「累计已完成退款单金额 ÷ 订单应付金额」（订单整单退款/取消则 = 1）；
+- 流水新增 `reversedAmount/reversedCny` 记录**累计已冲正额**，每次只处理增量，
+  并用 `reversedCny/reversedAmount` 作 CAS 条件更新 → **幂等 + 并发安全**；
+- 结算按**净额**入账（已冲正部分不进余额）；已入账部分按增量扣回（可为负=挂账）；
+- 退款审批接口即时挂钩 `distributionBridge.onOrderRefunded()`，每分钟对账继续兜底。
+
+### P0-2 注销/删除用户不再级联删账本
+`commission_logs.toUserId`、`distributor_customer_binds.{distributorId,customerId}`、
+`withdraw_records.userId` 由 `Cascade` 改 **`SetNull`**，并新增
+`toUserName/toUserEmail/userEmail` **冗余快照** —— 用户注销（软删）或硬删（GDPR 抹除）后，
+佣金流水与提现凭证仍可对账、客服仍可追溯。
+
+### P0-3 换绑重建整棵子树（修掉真实错账 bug）
+`bindCustomer` 的 **REBOUND 分支提前 return**，只有「首次绑定」分支重建闭包 →
+换绑后客户本人的新上级生效了，但**他下级的分销链仍指向旧上级**，之后下级产生的订单
+继续按旧链分佣（系统性错账）。现在新增 `rebuildSubtreeClosure()`：沿直接下级广度优先
+整体重算祖先链（集成测试覆盖到距换绑点两跳的第 3 层）。
+
+### P0-4 历史订单不回溯归属
+新增 `SiteSetting.distributionEnabledAt` 启用时间基线：早于基线的订单
+**不用今天的绑定改写历史归属**，一次性标记为自然单（`archivedNatural` 计数可见）。
+
+### P0-5 CRON 关闭也能结算（结算兜底）
+到期结算只由进程内调度器驱动，`CRON_ENABLED=false` 时佣金会永远停在「在途」。
+新增 `POST /api/admin/distribution/settle`（可指定订单强制结算，用于客诉加急），
+后台总览页加「结算到期佣金」按钮。
+
+### P0-6 账户与流水一致性对账
+账户余额是物化汇总，此前只补漏记、不校验一致性。新增 `verifyAccountConsistency()`：
+按「已结算净额 − 已打款 − 在途冻结」推导应有余额，检出偏差并可**一键按流水口径修复**
+（`POST /api/admin/distribution/verify`，后台「对账校验 / 修复账户」按钮，幂等）。
+
+### P1-7 分销通知（站内信 + 邮件）
+新增 `distribution/notify.service.ts`：佣金**结算到账**、佣金**冲正**、
+**提现**提交/通过/驳回/打款、**成为分销商** —— 站内信写中英双份，邮件走新模板
+`distribution-notice`（按站点默认语言渲染）。
+**全部 fire-and-forget**：邮件可能走真实 SMTP，绝不阻塞结算/退款/提现接口
+（实测把退款审批拖到 70 秒，已修）。消息中心新增 `distribution` 类型图标。
+
+### 回归
+`tests/integration/distribution.test.ts` 新增 7 条 P0 用例（部分退款比例/幂等、
+硬删留痕、换绑子树、历史归属、强制结算、账户对账），全部通过。
+
+## 2026-09-20 · 分销 / 多级佣金系统（隔离模块，接口调用接入）
+
+> 大爷要求：**不要改废本网店的面目**，分销要做**隔离、解耦、接口调用**。因此本模块的
+> 设计前提是「商城可以完全不知道自己装了分销」——见下面的接入面清单。
+
+### 🟢 数据层（独立命名空间，只给 User/Order 加最小外键）
+- 新增 `DistributionRelation`（**闭包表**，支持无限级、depth=0 含自己）、
+  `DistributorCustomerBind`（客户归属，`customerId` 唯一=数据库级「不可抢绑」）、
+  `CommissionRule`（GLOBAL/CATEGORY/PRODUCT × 层级比例）、`CommissionLog`
+  （只追加流水，幂等键 `(orderId,toUserId,level)`）、`DistributorAccount`（CNY 余额/冻结/累计）、
+  `WithdrawRecord`（提现单）、`OrderAttribution`（下单归属快照，不可变）
+- `User` 扩展：`referralCode`（唯一推广码）/`invitedById`/`distPath`/`distLevel`/`isDistributor`/`firstPromoteAt`
+- 迁移 `20260920185628_distribution_module`（dev 库已应用；测试库 db push 同步）
+- 依赖新增：`qrcode` + `@types/qrcode`（服务端渲染推广二维码 SVG，客户端零依赖）
+
+### 🔌 与商城的唯一接入面（`src/server/services/distribution/bridge.ts`）
+- 商城**只** import bridge，从不 import 分销内部实现；bridge 内部**动态 import + try/catch**，
+  任何分销故障都只记日志，绝不影响下单/支付/发货/退款
+- 新增 6 个调用点（全部加法、每个 1~3 行）：
+  `src/proxy.ts`（推广参数 → 签名 cookie）、`api/auth/register`（注册绑定）、
+  `api/orders`（归属快照）、`order.service`（支付计佣 / 确认收货结算 / 退款冲正 ×2 入口）、
+  `server/jobs/scheduler.ts`（分钟级对账补偿）
+- 总开关 `DISTRIBUTION_ENABLED=false` 时：代理不写 cookie、钩子零开销、API 全 404、入口隐藏
+  —— 商城行为与未装该模块逐字节一致
+
+### 🟢 业务闭环
+- **推广与绑定**：人人有专属推广码/链接/二维码；`?ref=`/`?distributor_id=`/`?invite=` 三形态兼容，
+  代理层签名 cookie（30 天归因窗口）防篡改；首次绑定定终身、复购只看绑定不看链接、
+  已绑定客户**不可抢绑**（唯一约束兜底）、自然流量不归属不分佣
+- **自动升级**：首次成功推广即 `isDistributor=true`，无需申请/审核；闭包按「他作为客户绑定的上级」重建
+- **逐级分佣**：计佣基数=商品**实付**小计（不含运费/税）；默认三级 10%/5%/2%、层级与总比例可配
+  （总比例封顶=合规红线）；自购默认不返自己、上级照常分；金额精确到分并折 CNY 记账
+- **结算与冲正**：支付后 PENDING → 确认收货立即 SETTLED（或持有期到期由调度器结算）→
+  退款/取消 REVERSED 并从余额扣回；每步条件更新「认领」，并发下不重复入账
+- **对账补偿**：`reconcileDistribution()` 每分钟扫平「漏归属 / 漏计佣 / 漏冲正 / 到期未结算」，
+  因此钩子漏调不会变成错账（商城侧钩子只是加速器，不是唯一保证）
+- **提现**：申请（原子扣余额 + 防拆单）→ 审核通过 → 线下打款标记 → 打款核销；驳回解冻退回。
+  一期不做自动代付（需主体资质 + KYC + 代扣个税）
+- **行级权限 + 脱敏**：全部由服务端出参前完成（分销商只查自己；手机号 `138****1234`、
+  邮箱 `a***@x.com`、姓名 `张**`、地址只给省市；间接下级只给汇总）
+
+### 🖥️ 界面（入口形态按大爷 2026-09-20 反馈重做）
+- **不进主站左侧导航**：大爷反馈「左边单独给个我的推广入口是污染主站、里面什么都有太杂乱」，
+  因此账户左侧导航**不列**该项（`account-nav.ts` 保持原样），只保留账户里的一张
+  **分享小卡片**（`DistributionShareCard`，挂在 `/account/profile`）：
+  一行说明 + 专属链接 + 复制按钮；**成功推广后**卡片里才出现「进入分销中心」（新标签页打开）
+  与「可提现/在途」两个小数字 —— 对应「有人下单才自动出现分销入口」。
+- **现代面板视觉（大爷第三轮反馈：「都是线条和框框，太简单粗糙，要有流行的圆角」）**：
+  新增**作用域化**的现代卡片口径 —— `globals.css` 里只对 `[data-modern-cards]`（账户概览）与
+  `[data-dist-center]`（分销中心内容区）覆盖 `.rounded-md`(→10px) / `.shadow-card`(→柔和分层阴影)
+  并新增 `.panel`（14px 圆角 + 悬浮感 + 表格圆角裁切）。**商城前台不受影响**（仍是 shop.x.com 的
+  方角无阴影）。同批：统计卡改成「图标胶囊 + 大数字 + 灰标签」，分享卡改渐变底 + 黑色图标块 +
+  圆角链接框，Tab 改胶囊（激活态黑底白字 + 轻阴影），分销中心补 **`分销中心 / Distribution center`
+  页面主标题 + 副标题**（并移除页内重复的小标题）。
+- **i18n 反向守卫 + 中英混排修复（大爷 2026-09-20：「中英混着用，不允许有这样的情况发生」）**：
+  `/account/profile` 的「修改登录邮箱」卡片此前只把标题接了词典，里面的
+  `Current sign-in email` / `New email` / `Current password` / `Confirm changes` /
+  两处 placeholder 与三条 toast **仍是硬编码英文** → 中文界面中英混排。本轮全部接入 `t()`；
+  更重要的是补了**反向守卫** `tests/unit/i18n-hardcoded.test.ts`：
+  既有的 `i18n-keys.test.ts` 只能查「t() 的键在不在词典」，**看不见压根没用 t() 的文案**，
+  新守卫直接扫账户区与分销中心的 JSX 文本节点与可见属性（placeholder/aria-label/title/alt/label），
+  发现硬编码英文即红灯（已用「故意塞入硬编码」反向验证过它真的会报警）。
+- **`/account` 重做为「账号总览页」（大爷实测反馈「分享卡片没有看到」+「要像账号总预览页」）**：
+  原先 `/account` 是 `redirect("/account/notifications")`，卡片却挂在 Profile 子页 ——
+  点顶栏 Account 进来看到的是消息列表，根本找不到分享入口。现在 SSR 直出总览：
+  **四张概览小卡（累计订单 / 进行中 / 收货地址 / 未读消息，未读带红点）+ 分享小卡片 +
+  最近两单（复用订单页同款 `OrderCard`，带「查看全部」）**，空态给「去逛逛」。
+  全部复用商城既有视觉（`Card` 细边框 + 方角 + 常规字重），不引入新设计语言、
+  也不做成"什么都有"的仪表盘。
+- **分销中心 = 独立窗口 + 同款视觉**（`/distribution`，独立路由组 `(distribution)`，从分享卡片
+  **新标签页**打开）：首版做成了"只有品牌 + 返回店铺"的极简外壳，大爷反馈「样式太简单了，
+  能不能跟原网站风格一样，只不过新开一个窗口」——现在**套用商城完全相同的页头/页脚/Provider**
+  （复用 `(shop)/layout.tsx` 同一批组件），二级 Tab 用账户导航同款样式（激活态黑底白字）。
+  「独立」体现在功能与入口（不占主站导航、不塞进账户页），不再是"简陋外壳"；
+  模块内一条横向 Tab（概览/客户/订单/团队/佣金/提现/业绩），不是"里面什么都有"的大杂烩。
+- **推广链接指向商城首页**：分享给朋友的是 `https://站点/?ref=CODE`（正常购物页 + 二维码同链接），
+  归属由代理层签名 cookie 完成；分销中心路径与推广链接彻底分开。
+- 平台后台新增「分销」入口（二级 Tab：总览/分销商/关系链/佣金规则/佣金流水/提现审核/对账报表）
+- 新增 API：分销商端 11 个（`/api/distribution/**`）+ 平台端 12 个（`/api/admin/distribution/**`）
+
+### ✅ 验证
+- 纯函数单测 `tests/unit/distribution.test.ts` **30/30**（比例优先级、总比例封顶、自购、
+  层级上限、闭包行去重、脱敏、推广码签名防篡改、开关默认值）
+- 集成测试 `tests/integration/distribution.test.ts` **19 例**（绑定/自动升级/闭包链路/不可抢绑/
+  复购归属/自然流量/三级计佣金额/幂等/确认收货结算/退款冲正扣回/自购/提现三态/行级权限与脱敏/对账补偿）
+- QA 端到端 `scripts/qa/qa-distribution.mjs` **ALL PASS**：推广链接 cookie → 注册绑定 → 自动升级 →
+  下单归属 → 支付三级计佣 → 发货确认收货结算 → 后台 4 页 → 分销商后台 5 页与脱敏 →
+  提现申请/审核通过/标记打款（冻结核销）
+- **全量回归 34 文件 / 317 用例全绿**；tsc 0 错误、eslint 0 errors（16 存量 warning，本轮新增文件 0）
+- **测试抓到的真 bug**：闭包表在真实流程里没人写入（`getCommissionChain` 恒为空 → 一分钱都算不出）。
+  根因是把「建立上级关系」写在了一个没人调用的函数里；已改为自动升级时按客户绑定重建闭包，
+  并补齐「换绑后重建」路径。另修正 `planClosureRows` 会产出重复闭包行（主键冲突）的缺陷。
+
+## 2026-09-20 · B-2 原站式找回密码（人工审批 → 临时密码 → 首登强制改密）
+
+### 🟢 新功能（大爷明确要求，13.9 最大一块）
+- **数据层**：新增 `PasswordResetRequest`（`status` PENDING/APPROVED/REJECTED、`email` 快照、
+  `note`、`handledById`/`handledAt`、`rejectReason`、`ip`）+ `User.mustChangePassword`
+  / `User.passwordChangedAt`；迁移 `20260919233506_password_reset_requests`（dev/test 双库已应用）
+- **用户提交**：`POST /api/auth/forgot-password` 改为**建审批申请**——防枚举（邮箱不存在/
+  停用/注销中/已有在途申请一律同一句回执，响应体不含任何分支信号）+ 双限流（单 IP 3/min、
+  单邮箱 3/h）+ 同账号仅一份在途申请；落库即 `notifyAdmins`（直达 `/admin/password-resets`）
+- **后台待处理**：新页 `/admin/password-resets`（侧栏「找回密码」，ADMIN 专属，紧跟消息中心）
+  + `GET /api/admin/password-resets`（状态/搜索筛选 + `pendingCount`）
+  + `POST /api/admin/password-resets/[id]`（approve/reject，要求 ADMIN）
+- **批准**：`src/lib/auth/temp-password.ts` 生成 **14 位强随机临时密码**
+  （`crypto.randomInt` CSPRNG + 拒绝采样、剔除 `0O1lI` 混淆字符、必然含大小写/数字/符号以过
+  `passwordSchema`）→ bcrypt 入库 + `mustChangePassword=true` + **吊销该用户全部旧会话** →
+  邮件模板 `temp-password` 下发明文；批准响应**一次性回显明文**（邮件通道不可用时的运营兜底，
+  DB 不存明文、后台不回显历史）
+- **首登强制改密（双重门控）**：`proxy.ts` 用 `pwd_change_required` cookie 把用户钉在
+  `/auth/change-password`（页面 307；其它 API 403 `PASSWORD_CHANGE_REQUIRED`；放行
+  `/api/auth/**`、`/api/user/password`、`/api/currency`、`/api/healthz`）+ `requireUser()`
+  读 DB 的 `mustChangePassword` 兜底（手删 cookie 也绕不过）；改密复用 `PUT /api/user/password`，
+  成功后清标记/清 cookie/重签会话，审计区分 `USER_PASSWORD_CHANGE_FORCED`
+- **新增页面**：`/auth/change-password` 挂 `(checkout)` 路由组（避开店铺页头页脚）；
+  无会话→登录页，无强制要求→渲染「无需改密」兜底态（避免与中间件形成重定向死循环）
+
+### 🟠 文档同步（4 份主文档对齐 2026-09-20 代码）
+- `PROJECT_DEVELOPMENT.md`：新增 §2.11 Phase 12 注销闭环 / §2.12 Phase 13 照搬 /
+  §2.13 B-2 / §2.14 后台能力同步 + ADR 9–13；§4 验证体系改为实测（32 文件 / 268 用例）
+- `QUICKSTART_2026-09.md`：技术栈/结构树/启动步骤/数据模型（含「**没有 ProductVariant 模型**」）/
+  i18n 优先级/后台导航分组全部对齐，新增 §12「近期迭代速览（Phase 8–13 + B-2）」
+- `PRODUCTION_DEPLOY_2026.md`：邮件章节加**运维红线**（`MAIL_PROVIDER=console` 时临时密码
+  不投递，生产必须先配 Resend/SMTP）、验收清单补 B-2 全链路、FAQ 新增 Q7/Q8
+- `PRODUCTION_CHECKLIST.md`：新增 §〇之二 本轮能力说明；§九限流值按 `rateLimit({...})`
+  调用**逐条改正**（删掉不存在的「管理端 30/min、公开列表 120/min」）
+- 一并修正陈旧事实：`/admin/banners`+`pageBanners` 已删（首页横幅 = `Category.homeSortOrder`
+  + `bannerImage`）、`/admin/payments` 已被 Phase 10 渠道化取代、`embedded-postgres`
+  不在依赖中、法务页无独立模型（存 `SiteSetting`）
+
+### ✅ 验证（本轮实测）
+- tsc 0 错误；eslint 0 errors（17 warnings 全为存量，无新增）
+- vitest **32 文件 / 268 用例全绿**（含新增 `tests/unit/temp-password.test.ts` 6 例、
+  `tests/integration/password-reset.test.ts` 8 例）；顺带修掉 `utils.test.ts` 里
+  `generateOrderNumber` 约 2% 概率自挂的抽样断言
+- QA `scripts/qa/qa-password-reset.mjs` **24/24 ALL PASS**（含防枚举回执逐字比对、
+  一次性明文、旧密码/旧会话失效、中间件 307 + 接口 403 门控、改密恢复、驳回分支、清理测试账号）
+- E2E 三项历史 flaky（admin-shipping / shop 全链路 / 搜索弹层）**隔离单跑各连续 4 轮，0 失败**
+
 ## 2026-09-20 · Phase 13 shop.x.com 逐项对齐（多视口实测驱动）
 
 > 方法：Playwright 直连 shop.x.com 取真实几何/计算样式，与本地同视口对比，
@@ -26,9 +378,12 @@
   此前统一成 416/48 不符）；行 pitch 568/536 一致
 - **售罄标签**：改原站样式——浅灰底 `rgb(239,239,239)` + `rgba(0,0,0,.65)` 字
   （此前黑底白字）
-- **页脚**：店铺页脚 6 条对齐原站（删 `Your Privacy Choices`、`Terms` 走
+- **页脚**：店铺页脚 7 条对齐原站（`Terms` 走
   `/pages/terms-and-conditions`、`Cookie Consent` 改唤起同意横幅语义）；
   隐私政策按大爷要求用**站内可编辑页**（非原站外链）；结账页脚 3 条含 Cookies
+  > 2026-09-20 修正：`Your Privacy Choices`（→ `/pages/data-sharing-opt-out`）已恢复。
+  > 此前以「原站只有 6 条」为由删除，依据是「导出 `<footer>` 内全部 `<a>`」——
+  > 原站这条不在 `<footer>` 元素内，导出漏了它。
 - **搜索**：结果页改原站形态的 Products/Pages **两区块**（原为 tab）；浮层加
   「查看所有结果」；空态显示两个集合入口（各 720px 并排，与原站一致）
 - **PLP 结构**：`/products` 与 `/collections` 同为 All collections 索引，

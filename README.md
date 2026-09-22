@@ -122,7 +122,7 @@ npm run db:seed
 npm run dev               # http://localhost:3000
 ```
 
-> 说明：仓库已内置版本化迁移历史 `prisma/migrations/`（含 init / payment_log / order_payment_indexes / category_banner_image / business_core_tables 5 个迁移）。生产/CI 用 `prisma migrate deploy` 应用历史迁移；开发快速迭代可用 `prisma db push` 同步 schema；新增结构变更用 `npx prisma migrate dev --name <名称>` 生成并提交新迁移。
+> 说明：仓库已内置**持续演进的版本化迁移历史**（`prisma/migrations/` 目录，覆盖订单/支付渠道/分销/优惠券/COD 等业务模块，具体以目录为准，勿在文档里写死数量）。生产/CI 用 `prisma migrate deploy` 应用历史迁移；开发快速迭代可用 `prisma db push` 同步 schema；新增结构变更用 `npx prisma migrate dev --name <名称>` 生成并提交新迁移。
 
 ---
 

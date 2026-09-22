@@ -66,16 +66,18 @@
 workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的改动一并接管修复）。
 
 原站实测基线（Playwright 直连 shop.x.com，非猜测）：
-- 店铺页脚**6 条**：FAQs · Search · Accessibility Statement · Privacy Policy(外链 x.com)
-  · Terms and Conditions(/pages/terms-and-conditions) · Cookie Consent(?preview_privacy_banner=1)
-  —— 没有 Your Privacy Choices，没有 Refund Policy
+- 店铺页脚**7 条**：FAQs · Search · Accessibility Statement · Privacy Policy(原站为外链 x.com，
+  本地按大爷要求改站内可编辑页) · Terms and Conditions(/pages/terms-and-conditions)
+  · Cookie Consent(?preview_privacy_banner=1) · **Your Privacy Choices**(/pages/data-sharing-opt-out)
+  —— 没有 Refund Policy
+  > 2026-09-20 修正：曾误判为 6 条（漏了 `Your Privacy Choices`，它不在原站 `<footer>` 元素内）。
 - checkout 页脚 3 条：Refund policy · Privacy policy · Cookies
 - `/products` 与 `/collections` 都是 **All collections 索引页**（4 张正方形集合卡片：
   Mens / SpaceXAI Collection / Womens / X Collection），商品网格在 `/collections/<slug>`
 - checkout 是多步流程：信息 → 运费 → 支付 → 确认，页脚三条法务链接
 - **游客可直接结账下单**（Shopify guest checkout）
 
-- [x] 13.1 页脚对齐：店铺页脚改 6 条（删 Your Privacy Choices、Privacy 改外链 x.com、
+- [x] 13.1 页脚对齐：店铺页脚 7 条（含 Your Privacy Choices、Privacy 改站内页、
       Terms 走新路径）+ Cookie Consent 改「重新唤起同意横幅」语义（原生 a 全页导航 +
       查询参数强制展示）；checkout 页脚补 Cookies 第 3 条
 - [x] 13.2 新建 `/pages/terms-and-conditions`（原站路径，内容取后台可编辑法务）
@@ -97,7 +99,68 @@ workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的
 - [x] 13.7 细节收口：PDP 图库/规格颜色、分类页横幅与卡距、商品卡间距、售罄标签、
       搜索结果页与浮层、页脚、骨架屏、登录表单 method=post 全部按原站实测对齐
 - [x] 13.8 后台：用户删除、商品批量删除、上传按用途归档、分类弹窗对齐
-- [ ] 13.9 待办：原站式找回密码（B-2）、死代码清理（需 knip 类工具）、文档收口
+- [x] 13.9 文档收口（2026-09-20 完成）：4 份主文档全部同步至当前代码——PROJECT_DEVELOPMENT
+      （新增 §2.11 Phase 12 / §2.12 Phase 13 / §2.13 B-2 / §2.14 后台能力 + ADR 9–13，
+      并修正 /admin/banners、/admin/payments、embedded-postgres 等陈旧事实）、
+      QUICKSTART（技术栈/结构/数据模型/i18n/后台导航 + 新增 §12 迭代速览）、
+      PRODUCTION_DEPLOY_2026（邮件运维红线 + B-2 验收项 + FAQ Q7/Q8）、
+      PRODUCTION_CHECKLIST（§〇之二 修订说明 + §九限流值按代码逐条改正）
+- [x] 13.10 **B-2 原站式找回密码（大爷明确要求）**：用户填邮箱提交申请 → 后台待处理列表
+      （/admin/password-resets）→ 管理员批准 → 邮件发强随机临时密码 → 首次登录强制改密。
+      交付：PasswordResetRequest 模型 + 迁移 20260919233506；src/lib/auth/temp-password.ts
+      （14 位 CSPRNG 强随机、剔除 0O1lI）；password-reset.service（申请/批准/驳回/列表）；
+      防枚举 + 双限流；批准即吊销全部旧会话；`pwd_change_required` cookie（proxy 307/403）
+      + requireUser() 读 DB 双重门控；改密复用 PUT /api/user/password（清标记/清 cookie/重签）；
+      新页 /auth/change-password（挂 (checkout) 组，无强制要求渲染兜底态防重定向死循环）；
+      邮件模板 temp-password / reset-rejected；单测 6 例 + 集成 8 例 + QA qa-password-reset.mjs 24/24
+- [x] 13.9b 死代码清理（2026-09-22 完成）：token 自助重置链路整链清除 ——
+      `/api/auth/reset-password` API + `/auth/reset-password` 页 + reset-password-form 组件 +
+      邮件模板 + JWT fp 字段/reset purpose + RESET_TOKEN_TTL + schema + 6 条孤儿 i18n 词条 +
+      集成用例 + qa-sweep 路由条目。功能由 13.10 B-2 人工审批流完全覆盖，无能力损失。
+      其余 knip 级清理项留待工具化排期
+- [x] 13.11 E2E 三项历史 flaky 终验（2026-09-20）：admin-shipping（2 用例）、shop 全链路
+      （2 用例）、搜索弹层（1 用例）在**隔离单跑**下各连续 4 轮，0 失败。结论：此前偶发失败
+      来自「重活并发互抢」（tsc/eslint/vitest/E2E 同时跑），不是用例本身不稳
+- [x] 13.12 回归（2026-09-20）：tsc 0 错；eslint 0 errors（17 个存量 warning，本轮新增文件 0）；
+      prettier 对本次改动文件全过；vitest 32 文件 / 268 用例全绿（顺带修掉 utils.test.ts
+      里 generateOrderNumber 约 2% 概率自挂的抽样断言）
+
+## Phase 14: 分销 / 多级佣金系统（大爷 2026-09-20 提出）— Status: in_progress
+
+大爷要求：**完整实施**分销/多级佣金系统，但「**不要把我的本网店的面目改废了**」，
+要做**隔离、解耦、用接口调用**的方式。
+
+设计前提（决定了一切实现取舍）：**商城可以完全不知道自己装了分销**。
+- 商城只 import 一个 `bridge.ts`（接口面），从不 import 分销内部实现；
+  bridge 内部动态 import + try/catch —— 分销出任何故障都只记日志，不影响下单/支付/发货/退款；
+- 总开关 `DISTRIBUTION_ENABLED=false` 时：代理不写 cookie、钩子零开销、API 全 404、入口隐藏，
+  商城行为与未装该模块逐字节一致；
+- 商城侧改动只有 6 处加法（proxy / register / orders / order.service×3 / scheduler）+ 两个导航项。
+
+- [x] 14.1 数据层：`DistributionRelation`（闭包表）/`DistributorCustomerBind`（customerId 唯一=不可抢绑）/
+      `CommissionRule`/`CommissionLog`（幂等键）/`DistributorAccount`/`WithdrawRecord`/`OrderAttribution`
+      + User 6 个字段；迁移 `20260920185628_distribution_module`
+- [x] 14.2 纯函数契约层 `src/lib/distribution/{contract,rules,mask,referral}.ts`：比例优先级
+      （PRODUCT>CATEGORY>GLOBAL）、总比例封顶、自购、层级上限、闭包行规划、脱敏、推广码签名 cookie；
+      `tests/unit/distribution.test.ts` 30/30
+- [x] 14.3 服务层 `src/server/services/distribution/*`：config/relation/bind/commission/account/report
+      + http 守卫 + bridge（唯一集成面）
+- [x] 14.4 商城接入 6 处：proxy 推广 cookie；注册绑定；下单归属快照；支付计佣；
+      确认收货结算；退款/取消冲正（两个退款入口都挂）；调度器分钟级对账补偿
+- [x] 14.5 API：分销商端 11 个 + 平台端 12 个（全部要求登录/管理员，行级权限与脱敏在服务端完成）
+- [x] 14.6 界面：个人中心「我的推广」+7 页（总览/客户/订单/下级/佣金/提现/团队业绩）；
+      平台后台「分销」入口 + 二级 Tab 7 页；均复用原有壳与组件，商城原貌零改动
+- [x] 14.7 依赖：`qrcode` + `@types/qrcode`（服务端出 SVG 二维码，客户端零依赖）
+- [ ] 14.8 验证：tsc / eslint / 单测 / 集成 / QA 端到端（`scripts/qa/qa-distribution.mjs`）
+      —— 本机负载被外部程序压到 500+，重活需串行慢跑
+- [ ] 14.9 文档：PROJECT_DEVELOPMENT / QUICKSTART / PRODUCTION_DEPLOY / PRODUCTION_CHECKLIST + CHANGELOG
+
+### 测试抓到的两个真 bug（已修）
+1. **闭包表在真实流程里没人写** → `getCommissionChain` 恒为空 → 佣金一分钱都算不出。
+   根因：建立上级关系写在了一个从未被调用的函数里；已改为「自动升级时按客户绑定重建闭包」，
+   并补齐换绑后重建。
+2. **`planClosureRows` 产出重复闭包行**（inviter 自己也在其祖先列表里）→ 闭包表主键冲突。
+   已改为按祖先去重并保留最短路径。
 
 ## Phase 12: 假功能通盘清查 + 账户注销闭环（大爷 2026-09-17 提出）— Status: complete
 

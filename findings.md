@@ -205,3 +205,98 @@
   dev 冷编译 19s+ 的路由在点击前先发一次假请求预热（404 无妨）。
 - **toHaveScreenshot 生成超时**：慢速机械卷 fullPage 长页 10s+，默认 10s 把"生成慢"
   误报为失败——config 里显式放宽 30s。
+
+## Phase 13 收口 + B-2 原站式找回密码（完成，2026-09-20）
+- **B-2 交付形态**：`PasswordResetRequest`（PENDING/APPROVED/REJECTED）+ `User.mustChangePassword`
+  / `passwordChangedAt`；申请 → 后台 `/admin/password-resets` → 批准发放 14 位强随机临时密码
+  → 邮件 `temp-password` → 首登强制改密。全链路 QA `scripts/qa/qa-password-reset.mjs` 24/24 ALL PASS。
+- **「防枚举」最容易写成自欺**：路由第一版把 `created` 一起返回了 —— 回执文案统一了，
+  但 `created=true/false` 恰好就是「邮箱是否注册」的答案，等于把枚举漏洞写在响应体里。
+  已改为丢弃返回值，并在集成测试里断言响应**不含** `pending`/`created` 字段。
+- **强制改密必须两层**：只用 cookie（中间件）→ 手删 cookie 即绕过；只用 DB（`requireUser`）→
+  中间件无法在边缘查库，用户可到处点击（体验差且每次都要 403）。最终：cookie 做 O(1)
+  拦截（页面 307 / API 403 `PASSWORD_CHANGE_REQUIRED`），`requireUser()` 读 DB 做防篡改兜底。
+- **重定向死循环是这类门控的隐藏杀手**：三处必须同时放行/收敛 —— ① 中间件放行改密页与登录页
+  （否则会话过期后 login ↔ change-password 互踢）；② 改密页在「已无强制要求」时**渲染兜底态**
+  而不是 redirect（中间件仍会拦其它页面，页面再 302 就成环）；③ 登录成功且无强制要求时必须
+  **清掉残留 cookie**（另一台设备已改密时，旧 cookie 会把正常账号永久钉在改密页）。
+- **临时密码明文只出现两处**：邮件 + 批准响应的一次性回显（管理员在邮件不可用时转达）。
+  DB 只有 bcrypt 哈希，后台列表不回显历史。这是「邮件通道可能没配」与现实运维的折中。
+- **Playwright fullPage 截图会注入 `style`**：整页截图在水合完成**之前**执行时，会给元素
+  注入临时 `style` 属性 → React 随后比对 DOM 误报 "A tree hydrated but some attributes ... didn't
+  match"。本地复现：落地后立刻整页截图 100% 假告警，等水合完成再截 0 告警。**属测试夹具时序
+  问题，不是水合缺陷**；QA 脚本已改成截图前 `waitForLoadState("networkidle")` + settle。
+- **`generateOrderNumber` 单测本身就是 flaky**：6 位随机（90 万空间）抽 200 次按生日界
+  约 2% 自然碰撞，断言「200 次必须 200 个不同」约每 50 次跑挂一次。唯一性的真正保证是
+  `Order.orderNumber @unique`；测试已改为断言抽样下界（≥195）并注明。
+- **文档陈旧面比「缺章节」更广**（本轮一并修正）：`/admin/banners` 与 `pageBanners` 已在
+  6d3eb48 删除（首页横幅改 `Category.homeSortOrder` + `bannerImage`）；`/admin/payments`
+  被 Phase 10 渠道化取代；schema 里**没有** `ProductVariant`（多规格是 JSON `attributes`
+  + `specStock`）、`Banner`、`LegalPage`、`Category.isFeatured`；`embedded-postgres`
+  被 `scripts/start-dev-db.mjs` import 但**不在 package.json**；CHECKLIST 里的
+  「管理端 30/min、公开列表 120/min、重置密码 3/min」与代码不符（已按 `rateLimit({...})`
+  调用逐条改正）。
+- **遗留（非本轮范围）**：token 自助重置链路（`/api/auth/reset-password` + `/auth/reset-password`）
+  代码与测试都在，但前台已无入口触发（`/api/auth/forgot-password` 现在只建审批申请）；
+  联系表单留言只有入库 + 邮件通知，**没有后台收件箱页**。两者都在文档里显式登记。
+- **E2E 三项 flaky 终验**：admin-shipping（2 用例）、shop 全链路（2 用例）、搜索弹层（1 用例）
+  在**隔离单跑**下各连续执行 4 轮，共 0 失败。结论：此前的偶发失败来自并发重活互抢
+  （本项目「重活串行」原则），不是用例本身不稳定。
+
+## Phase 14 分销 / 多级佣金系统（隔离模块，2026-09-20）
+- **闭包表「写了但没人调用」是最贵的一类 bug**：`linkInviter()` 里建上下级闭包，
+  但真实流程（注册带推广码）走的是 `bindCustomer → promoteToDistributor`，从没调用它。
+  结果 `getCommissionChain()` 恒为空 → **一笔佣金都算不出来，而且所有页面正常、所有接口 200**，
+  只有真下单才会发现。修法：把闭包重建并进「自动升级」路径，数据来源改为
+  `distributor_customer_binds`（唯一权威的归属记录）。教训：**链路类的代码必须有一条
+  端到端断言**，否则「函数写好了」和「流程跑通了」之间可以差一整个模块。
+- **`planClosureRows` 重复行**：inviter 自己也会出现在 `inviterAncestors`（(U,U,0) 行），
+  直接拼接会产出两条 (U,D,1) → 闭包表主键冲突。纯函数单测直接抓出来了（这也是纯函数层独立成模块的价值）。
+- **闭包表深度语义要写死在注释里**：闭包深度是「相对该用户」，分佣链需要「相对受益人」+1；
+  两处混用会出现"层级错一位"的错账（1 级佣金发给 2 级）。
+- **不可抢绑只能靠数据库唯一约束**：`distributor_customer_bind.customer_id UNIQUE`。
+  应用层「先查再写」在并发下必被穿透，而抢绑是利益冲突场景，一定会有人试。
+- **解绑后换绑只能 UPDATE 不能 INSERT**：`customerId` 唯一，解绑后行仍在，
+  再 insert 会唯一冲突。绑定历史靠审计日志保留（`DISTRIBUTION_BIND` / `DISTRIBUTION_REBIND`）。
+- **佣金幂等的正确姿势**：唯一键 `(orderId,toUserId,level)` + `createMany(skipDuplicates)`
+  兜住重复回调；状态推进用**条件 updateMany** 认领（`where: {status:"PENDING"}`），
+  并发结算同一订单时只有一方能改到余额。
+- **钩子只是加速器，对账才是保证**：商城侧 4 个钩子（下单/支付/收货/退款）都可能漏调或被
+  分销模块自身异常吞掉；因此 `reconcileDistribution()` 每分钟扫「已支付无归属 / 有归属无佣金 /
+  已退款未冲正 / 到期未结算」，让正确性不依赖钩子覆盖率。这也是「解耦」能成立的前提。
+- **行级权限与脱敏必须在服务端出参前做**：分销接口一律 `requireUser` 取会话身份，
+  绝不接受前端传的 distributorId；手机号/邮箱/姓名/详细地址在 service 层就打码，
+  前端拿不到原文（抓包也拿不到）。间接下级只下发汇总，不下发客户明细。
+- **`?ref=` 必须签名**：推广码决定佣金归谁，明文可猜/可改等于把佣金送给别人；
+  cookie 值 = `code.issuedAtMs.HMAC(派生密钥)`，改一字节失效；`server-only` 不标在
+  referral 模块上（代理层要静态引入它做签名）。
+- **提现的资金安全**：申请用 `updateMany({where:{balance:{gte:amount}}})` 原子扣减
+  （不靠先查后写），同一用户只允许一笔在途（防拆单绕过审核），驳回解冻退回，全程审计。
+  一期不接自动代付——那需要主体资质 + KYC + 代扣个税，不是代码能单方面补齐的。
+- **环境**：本次验证期间本机负载被 Chrome + WorkBuddy AI 压到 500~640（693 进程），
+  tsc / eslint / vitest 全部被拖到 10 分钟级；重活必须挂后台串行跑，并发只会一起超时。
+
+## 商业交付整改第二批（2026-09-22 · 梦哥）
+
+- **伪功能判定要有完整证据链再动手删**：token 自助重置链路删除前先证明「不可达」——
+  grep 全仓无入口链接、无 `signEmailToken("reset")` 签发方、无邮件发送路径，再对照
+  task_plan 13.9b 自认待清理。删的是死代码而非活功能（B-2 流完全覆盖找回密码）。
+- **i18n-keys 守卫测试就是最后防线**：grep 计数时把 `digit).`（括号外句点）误抄成
+  `digit.)`（句点进括号），误删了 change-temp-password-form 在用的词条，守卫测试当场
+  抓回。教训：删词条前用精确原文 grep（复制粘贴，不要手打），删完必跑守卫测试。
+- **「算了没展示」是数据孤岛的隐蔽形态**：getAdminStats 一直在算 lowStockCount /
+  notifyMeCount，但仪表盘从不渲染——数据在服务端就断了。打通的标准：用户能点击直达
+  「为什么是这个数」的明细列表（深链预置筛选参数，与计数同口径）。
+- **口径一致性是数据打通的生命线**：仪表盘计数（ACTIVE && stock≤阈值）与列表筛选
+  （`?stock=low&status=ACTIVE`）必须逐字对齐，否则「信号数」和「列表行数」对不上，
+  用户立刻失去信任。运营口径（含售罄）与顾客口径（仅现货）用两个具名谓词分开表达，
+  不合并成一个「聪明」函数——合并就是口径走私。
+- **deleteMany 清订单 ≠ 回补库存**：集成测试 afterAll 里 `order.deleteMany` 只删行，
+  库存是业务动作（取消/退款）才回补的。测试要么 pin + 恢复库存，要么显式补回消耗量，
+  否则每轮 CI 都在净抽干种子库存——本案实际发生：种子商品被抽到 2 件，末尾 qty=3
+  的用例失败。种子写入是幂等 upsert（存在则不重置库存），抽干是逐轮累积的。
+- **管道会吞退出码**：`npm run test:integration | tail` 上轮明明 1 文件失败却返回
+  exit 0（tail 的退出码顶替了 vitest 的）。此后跑测试一律 `> log; code=$?` 显式取码。
+- **词条防重**：仪表盘新 UI 需要「低库存」「到货提醒」标签时，先 grep 词典——
+  「Low Stock」「Inventory Alerts」是既有孤儿词条（0 引用），复用既消灭孤儿又避免
+  近重复词条；只给真正缺的语义新增 key（本轮仅增 2 条）。

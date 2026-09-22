@@ -1,7 +1,8 @@
 # 商用部署检查清单（商用化最后一关）
 
 > 本文档作为本店从「开发完成」到「正式商用」的最后一道闸门。
-> 由顶级架构师审查后整理，2026-08-22 版本（2026-08-25 安全加固修订，2026-09-18 去硬编码修订）。
+> 由顶级架构师审查后整理，2026-08-22 版本（2026-08-25 安全加固修订，2026-09-18 去硬编码修订，
+> **2026-09-20 补 Phase 12 注销闭环 / Phase 13 shop.x.com 照搬 / B-2 找回密码**）。
 > 所有项逐一过一遍再放量。
 >
 > 品牌名不在此文档写死：全站品牌来自 `SITE_NAME` 环境变量（运行时可由后台「站点设置」
@@ -30,6 +31,35 @@
 
 ---
 
+## 〇之二、2026-09-20 修订说明（本轮新增能力，部署时知晓即可）
+
+- **B-2 原站式找回密码（人工审批）**：前台提交申请（`POST /api/auth/forgot-password`，防枚举 + 单 IP 3/min + 单邮箱 3/h）
+  → 后台 `/admin/password-resets` 批准/驳回 → 批准生成 14 位强随机临时密码（`src/lib/auth/temp-password.ts`，CSPRNG + 拒绝采样 + 剔除 `0O1lI`）
+  → bcrypt 入库 + `mustChangePassword=true` + 吊销该用户全部会话 + 邮件 `temp-password` 下发明文（响应里一次性回显给管理员兜底，DB 不存明文）。
+  首登被 `proxy.ts`（cookie `pwd_change_required`）+ `requireUser()` 双重门控钉在 `/auth/change-password`，改密走既有 `PUT /api/user/password`。
+  **运维红线：`MAIL_PROVIDER=console` 时临时密码邮件不会真正投递，生产必须配 resend/smtp，否则找回密码对用户不可用。**
+- **Phase 12 账户注销闭环**：`User.deletionRequestedAt`；用户提交/撤回（`POST`/`DELETE /api/user/deletion-request`）→ 管理员在 `/admin/users` 处理
+  （`POST /api/admin/users/[id]/deletion`：approve=匿名化 `deleted-{id}@invalid.local` + 停用 + 吊销全部会话；reject=清空 + 邮件告知）。
+  另有 `DELETE /api/admin/users/[id]` 后台直接删除（不能删自己 / 不能删最后一个管理员 / 已注销幂等）。
+  **匿名化软删保留订单等财务合规数据。**
+- **Phase 13 shop.x.com 照搬**：`/products` 与 `/collections` 同为 All collections 索引 + 新增 `/collections/[slug]`，
+  旧链接 `/products?category=x` 由 `src/proxy.ts` 307 迁移；店铺页脚 6 条 / checkout 页脚 3 条；`/pages/terms-and-conditions` 新路径；
+  **游客免登录结账**（`src/lib/guest-cart.ts` + `GET /api/cart/preview` + `orderToken` 随 paymentUrl 传递）。
+- **Phase 14 分销 / 多级佣金（隔离模块）**：闭包表无限级关系 + 客户归属绑定（首次绑定定终身、复购自动归属、
+  **不可抢绑**由 `customerId` 唯一约束保证、自然流量不分佣）+ 首次成功推广自动成为分销商 +
+  按真实订单逐级分佣（默认三级 10/5/2，层级与**总比例上限**可配）+ 退款冲正 + 确认收货结算 +
+  提现申请/审核/线下打款 + 分销商后台 + 平台后台 + 行级权限与脱敏。
+  商城侧只通过 `src/server/services/distribution/bridge.ts` 一个接口面接入（动态 import + try/catch），
+  **`DISTRIBUTION_ENABLED=false` 可整体下线**且商城行为不变；佣金正确性由调度器分钟级
+  `reconcileDistribution()` 兜底（漏记归属/漏计佣/漏冲正会被扫平）。
+  **合规红线**：只按真实订单返佣（无按人头计酬入口）、总返佣比例务必 ≤ 毛利 60%、不收入门费；
+  面向大陆客群的多级计酬请先过法务。
+- **后台**：六渠道三态（未配置/已配置/可收款）、渠道×币种校验、客户累计消费/最近下单/未验证筛选、
+  到货提醒商品卡邮件、联系表单留言 `ContactMessage` 落库、FAQ 双语（`Faq.questionEn/answerEn`）、
+  商品批量删除、上传按用途归档 `uploads/{categories|products|brand|misc}/年/月/`。
+
+---
+
 ## 一、必须配置的环境变量（缺一项就不该上线）
 
 | 变量 | 示例 | 用途 |
@@ -40,7 +70,8 @@
 | `SITE_URL` | `https://shop.example.com` | 邮件/回跳绝对地址 |
 | `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | `sk_live_...` / `whsec_...` | 不配则全站走 mock 支付 |
 | `S3_*` (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) | Cloudflare R2 / MinIO | 不配则上传本地磁盘（不能横向扩容） |
-| `RESEND_API_KEY` 或 `SMTP_*` | - | 不配则邮件进 `.mail-out/` 本地文件 |
+| `RESEND_API_KEY` 或 `SMTP_*` | - | 不配则邮件进 `.mail-out/` 本地文件；**找回密码临时密码依赖邮件通道，生产禁止留 console** |
+| `DISTRIBUTION_ENABLED` | `true` / `false` | 分销模块总开关；`false` = 钩子零开销、API 全 404、入口隐藏 |
 | `SENTRY_DSN` | `https://...@sentry.io/...` | 可选但强烈建议 |
 | `NEXT_PUBLIC_CDN_URL` | `https://cdn.example.com` | 图片静态加速 |
 
@@ -126,12 +157,16 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 
 ## 九、限流 / 安全
 
-已内置（不用动代码）：
-- 登录：5 次/分钟/IP + 5 次/分钟/邮箱
-- 注册/重置密码/发送验证码：3 次/分钟
-- 管理端写操作：30 次/分钟
-- 公开列表：120 次/分钟
-- CSRF double-submit、JWT Refresh 重放检测、bcrypt cost=12
+已内置（不用动代码）。**以下数值以 `src/**/route.ts` 里的 `rateLimit({...})` 调用为准（2026-09-20 逐条核对）**：
+- **登录**：单 IP+单邮箱 5 次/分钟；同一邮箱跨 IP 连错 5 次锁 **15 分钟**（账号级 `login-lock`，成功登录即解锁）。后台登录带 `scope:"admin"`，非 ADMIN/SUPPORT 直接 403（不建会话）
+- **注册**：单 IP 3 次/分钟 + 全局 100 次/小时；另有蜜罐字段（`company` 非空静默拒绝）
+- **找回密码申请（B-2）**：单 IP 3 次/分钟 + 单邮箱 3 次/小时；同一账号同时只允许一份在途申请
+- **重置密码（token 流程）**：单 IP 10 次/小时；**邮箱验证重发**：单用户 3 次/10 分钟
+- **联系表单**：单 IP 5 次/小时，蜜罐命中静默丢弃；**到货提醒订阅**：单邮箱 5 次/小时
+- **下单创建**：单用户 5 次/10 分钟；**优惠券应用**：20 次/10 分钟；**模拟支付**：单订单 10 次/分钟
+- **会话刷新**：单 IP 10 次/分钟（另含 refresh token 重放检测与 60s 并发宽限）
+- CSRF double-submit、JWT Refresh 重放检测、bcrypt cost 默认 12（`BCRYPT_ROUNDS` 可调，**生产低于 10 拒绝启动**）
+- **强制改密门控**：临时密码首登被 `pwd_change_required` cookie + `requireUser()` 双重限制（见 §〇之二）
 - CSP、X-Frame-Options=DENY、X-Content-Type-Options=nosniff
 
 ## 十、性能预算（已实测）
@@ -143,16 +178,30 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 ## 十一、上线前最后一遍功能走查（每条必须人跑一次）
 
 ```
-□ 注册 / 邮箱验证 / 忘记密码（真实 SMTP）
+□ 注册 / 邮箱验证（真实 SMTP）
+□ 找回密码人工审批：前台提交 → 后台批准 → 收到临时密码邮件 → 首登强制改密 → 改密后恢复
+□ 集合索引 /collections + 集合页 /collections/[slug]；旧链接 /products?category=x 307 迁移
 □ 商品列表/详情/搜索/筛选/分页
-□ 加购（游客）→ 登录合并
-□ 多币种切换（汇率实时）
+□ 加购（游客）→ 登录合并；游客免登录四步结账 → 带 token 支付 → 订单 PAID
+□ 多币种切换（汇率实时）；渠道×币种不匹配时首页结算渠道置灰
 □ 结算 → Stripe Checkout → Webhook 改状态
 □ 订单详情页发票 PDF 下载（中文字体）
 □ 申请退款 → 管理端审核 → 退款成功邮件
-□ 管理端：建 SKU / 上下架 / 改库存 / 看审计日志
+□ 账户注销申请 → 后台处理（驳回恢复 / 确认注销→匿名化+旧会话失效+旧邮箱登录失败）
+□ 管理端：建 SKU / 上下架 / 改库存 / 批量删除 / 上传按用途归档 / 看审计日志
+□ 后台「找回密码」批准弹窗一次性回显临时密码（DB 无明文、刷新不可再取）
+□ 联系表单留言落库 + contactEmail 收到通知
+□ 分销：`?ref=` 链接注册 → 推荐人自动成为分销商 → 新客下单支付 → 后台佣金流水出现三层 10/5/2
+□ 分销：复购（不带链接）仍归原分销商；已绑定客户点别人链接不被抢绑
+□ 分销：确认收货后佣金转可提现；该订单退款后佣金冲正并从余额扣回
+□ 分销：顶栏 Account 点进来的 `/account` 页**直接就能看到**分享小卡片（左侧导航**不应**出现分销主入口）
+□ 分销：成功推广后卡片出现「进入分销中心」，**新标签页**打开 `/distribution`，外观与商城一致（同款页头页脚）
+□ 分销：「我的客户」手机号显示 138****1234（服务端脱敏，非前端打码）
+□ 分销：提现申请 → 审核通过 → 线下打款标记（冻结核销）/ 驳回（解冻退回）
+□ 分销：`DISTRIBUTION_ENABLED=false` 时个人中心与后台入口消失、`/api/distribution/*` 返回 404
+□ GDPR Cookie 横幅出现、接受后消失、页脚 Cookie Consent 可重新唤起
 □ 移动端 375px / iPad 768px / 桌面 1440px
-□ 中文 + English 双语切换不丢字
+□ 中文 + English 双语切换不丢字（含 /zh 前缀路由）
 □ 关闭 Redis 启动 → 有降级日志不崩溃
 ```
 
@@ -164,8 +213,9 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 
 ## 十三、CI/CD（已有）
 
-`.github/workflows/ci.yml`：typecheck → lint → unit → integration → build → docker build push。
-建议加一步 `npm run test:e2e`（已在 CI 就绪，需配 postgres service）。
+`.github/workflows/ci.yml` 四个 job：`lint-typecheck`（ESLint + tsc）→ `test`（unit + integration，带 postgres/redis service）
+→ `build`（`npm run build`）→ `e2e`（`npx playwright install --with-deps chromium` + `npm run test:e2e`，失败上传 `playwright-report/` 保留 14 天）。
+> 当前 CI **不含 docker build/push** 步骤——镜像发布需在部署流水线另配。
 
 ---
 
