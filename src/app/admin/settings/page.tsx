@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { LOW_STOCK_THRESHOLD } from "@/lib/inventory";
 import { useT, useSiteName } from "@/components/admin/lang-provider";
 const settingsFormSchema = z.object({
   siteName: z.string().trim().min(1, "请填写站点名称").max(60),
@@ -32,6 +33,12 @@ const settingsFormSchema = z.object({
   contactPhone: z.string().max(30).default(""),
   icp: z.string().max(64).default(""),
   seoKeywords: z.string().max(200).default(""),
+  // 库存预警阈值（0–999 整数）：z.coerce 处理 Input 的字符串值；空值回落缺省。
+  // 服务端 settings.service 读取时另有 clamp 兜底，双保险防误配。
+  lowStockThreshold: z.preprocess(
+    (v) => (v === "" || v === null || v === undefined ? LOW_STOCK_THRESHOLD : v),
+    z.coerce.number().int("必须为 0–999 的整数").min(0, "阈值不能为负").max(999, "阈值最大 999"),
+  ),
   // Policy content — stored as the canonical (language-neutral) text. The service
   // layer wraps it as { zh, en } on read for the policy pages, which fall back to
   // the value when a language-specific entry is missing.
@@ -46,6 +53,7 @@ const DEFAULT_VALUES: SettingsFormValues = {
   contactPhone: "",
   icp: "",
   seoKeywords: "",
+  lowStockThreshold: LOW_STOCK_THRESHOLD,
 };
 
 /** safely get a string value from arbitrary API key-value pairs (handles i18n objects). */
@@ -94,6 +102,10 @@ export default function AdminSettingsPage() {
         contactPhone: pickString(settings, "contactPhone"),
         icp: pickString(settings, "icp"),
         seoKeywords: pickString(settings, "seoKeywords"),
+        lowStockThreshold:
+          typeof settings?.lowStockThreshold === "number"
+            ? settings.lowStockThreshold
+            : LOW_STOCK_THRESHOLD,
       });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载站点设置失败");
@@ -124,7 +136,10 @@ export default function AdminSettingsPage() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <AdminPageHeader title={t("System Settings")} description={t("Manage site info and SEO configuration")} />
+        <AdminPageHeader
+          title={t("System Settings")}
+          description={t("Manage site info and SEO configuration")}
+        />
         <Card>
           <CardContent className="space-y-4 p-6">
             <Skeleton className="h-8 w-48" />
@@ -156,20 +171,22 @@ export default function AdminSettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Globe className="h-4 w-4 text-muted-foreground" />
-              {t('Site information')}
+              {t("Site information")}
             </CardTitle>
-            <CardDescription>{t('Basic info shown in the site footer and contact page')}</CardDescription>
+            <CardDescription>
+              {t("Basic info shown in the site footer and contact page")}
+            </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="st-name">{t('Site Name')} *</Label>
+              <Label htmlFor="st-name">{t("Site Name")} *</Label>
               <Input id="st-name" placeholder={siteName} {...form.register("siteName")} />
               {form.formState.errors.siteName ? (
                 <p className="text-xs text-destructive">{form.formState.errors.siteName.message}</p>
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="st-email">{t('Contact Email')}</Label>
+              <Label htmlFor="st-email">{t("Contact Email")}</Label>
               <Input
                 id="st-email"
                 type="email"
@@ -183,8 +200,12 @@ export default function AdminSettingsPage() {
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="st-phone">{t('Contact Phone')}</Label>
-              <Input id="st-phone" placeholder="+1 555 010 0000" {...form.register("contactPhone")} />
+              <Label htmlFor="st-phone">{t("Contact Phone")}</Label>
+              <Input
+                id="st-phone"
+                placeholder="+1 555 010 0000"
+                {...form.register("contactPhone")}
+              />
               {form.formState.errors.contactPhone ? (
                 <p className="text-xs text-destructive">
                   {form.formState.errors.contactPhone.message}
@@ -199,7 +220,7 @@ export default function AdminSettingsPage() {
               ) : null}
             </div>
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="st-desc">{t('Site Description')}</Label>
+              <Label htmlFor="st-desc">{t("Site Description")}</Label>
               <Textarea
                 id="st-desc"
                 rows={3}
@@ -231,7 +252,7 @@ export default function AdminSettingsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("SEO settings")}</CardTitle>
-            <CardDescription>{t('Search engine keyword configuration')}</CardDescription>
+            <CardDescription>{t("Search engine keyword configuration")}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Label htmlFor="st-keywords">{t("Keywords (comma-separated)")}</Label>
@@ -250,6 +271,30 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
 
+        {/* 库存预警阈值 — 数据打通：仪表盘低库存计数、商品列表筛选与红色高亮共用此值 */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("Inventory Alerts")}</CardTitle>
+            <CardDescription>
+              {t("Applies to dashboard low-stock count, product list filter and red highlight")}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="max-w-sm space-y-2">
+            <Label htmlFor="st-lowstock">{t("Low-stock threshold")}</Label>
+            <Input
+              id="st-lowstock"
+              type="number"
+              min={0}
+              max={999}
+              {...form.register("lowStockThreshold")}
+            />
+            {form.formState.errors.lowStockThreshold ? (
+              <p className="text-xs text-destructive">
+                {String(form.formState.errors.lowStockThreshold.message)}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
 
         {/* Currency & exchange rates — 统一管理入口 */}
         <Card>

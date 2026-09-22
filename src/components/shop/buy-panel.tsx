@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { isScarceInStock } from "@/lib/inventory";
 import { useT } from "@/components/shop/lang-provider";
 
 export interface SpecGroup {
@@ -154,9 +155,12 @@ export function BuyPanel({
             const soldOut = g.soldOutValues ?? [];
             return (
               <div key={g.name} className="space-y-2.5">
-                {/* 原站形态：组名带冒号，**冒号后回显当前选中值**（如 `Color: White`）。
-                    原站实测（2026-09-20 Playwright 取 PDP 规格标签文本）：标签文本为
-                    `Color: White` / `Size: XS`，大爷也明确指出要有这段选中文字。 */}
+                {/* 组名带冒号，**冒号后回显当前选中值**（如 `Size: M`）。
+                    ⚠️ 这段「回显选中值」是**大爷明确要求**的，原站**没有**：
+                    2026-09-20 用 thum.io 抓原站 PDP 375 整页图放大核对，
+                    原站标签文本只有 `Size:`（冒号后无值），选中值只在下面的下拉框里显示。
+                    （旧注释称「原站实测标签为 `Size: XS`」，那半句是错的；
+                    一条注释里的多个论断要分别取证 —— 见 memory。） */}
                 <p className="flex items-center gap-3 text-[13px] text-foreground">
                   <span>{`${g.name}: ${selections[g.name] ?? g.values[0] ?? ""}`}</span>
                 </p>
@@ -244,8 +248,9 @@ export function BuyPanel({
           onChange={setQuantity}
           disabled={selectedSoldOut && !isPresale}
         />
-        {/* 大爷需求：库存即时友好提示——低库存（1-5 件）加购前即提示，不等结账 */}
-        {!isPresale && stock > 0 && stock <= 5 ? (
+        {/* 大爷需求：库存即时友好提示——低库存加购前即提示，不等结账。
+            阈值单一事实来源 lib/inventory（顾客口径：有货才谈「仅剩 N 件」） */}
+        {!isPresale && isScarceInStock(stock) ? (
           <p className="text-[13px] text-foreground/65">{t("Only {n} left", { n: stock })}</p>
         ) : null}
       </div>

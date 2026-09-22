@@ -57,6 +57,7 @@ import type {
   AdminProduct,
   AdminProductStatus,
 } from "@/components/admin/types";
+import { LOW_STOCK_THRESHOLD } from "@/lib/inventory";
 
 const PRODUCT_STATUS_LABELS: Record<AdminProductStatus, string> = {
   DRAFT: "草稿",
@@ -81,6 +82,9 @@ export default function AdminProductsPage() {
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [statusFilter, setStatusFilter] = React.useState("all");
   const [categoryFilter, setCategoryFilter] = React.useState("all");
+  // 低库存筛选（与仪表盘计数同口径）+ 生效阈值（服务端随列表下发，后台可配）
+  const [stockFilter, setStockFilter] = React.useState("all");
+  const [lowStockThreshold, setLowStockThreshold] = React.useState(LOW_STOCK_THRESHOLD);
 
   const [categories, setCategories] = React.useState<AdminCategoryOption[]>([]);
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
@@ -105,9 +109,17 @@ export default function AdminProductsPage() {
     return () => clearTimeout(t);
   }, [search]);
 
+  // 深链初始化（仪表盘「低库存」信号直达 ?stock=low&status=ACTIVE）：仅首挂载读一次 URL
+  React.useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("stock") === "low") setStockFilter("low");
+    const s = sp.get("status");
+    if (s === "DRAFT" || s === "ACTIVE" || s === "ARCHIVED") setStatusFilter(s);
+  }, []);
+
   React.useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, statusFilter, categoryFilter]);
+  }, [debouncedSearch, statusFilter, categoryFilter, stockFilter]);
 
   const load = React.useCallback(async () => {
     const params = new URLSearchParams();
@@ -116,21 +128,24 @@ export default function AdminProductsPage() {
     if (debouncedSearch) params.set("q", debouncedSearch);
     if (statusFilter !== "all") params.set("status", statusFilter);
     if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
+    if (stockFilter !== "all") params.set("stock", stockFilter);
     setLoading(true);
     try {
-      const res = await apiFetchRaw<AdminListResult<AdminProduct>>(
+      const res = await apiFetchRaw<AdminListResult<AdminProduct> & { lowStockThreshold?: number }>(
         `/api/admin/products?${params.toString()}`,
       );
       setRows(res.data ?? []);
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
+      // 生效阈值随列表下发（后台可配）：红色高亮与筛选共用同一口径
+      if (typeof res.lowStockThreshold === "number") setLowStockThreshold(res.lowStockThreshold);
       setSelected(new Set());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载商品失败");
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, statusFilter, categoryFilter]);
+  }, [page, debouncedSearch, statusFilter, categoryFilter, stockFilter]);
 
   React.useEffect(() => {
     void load();
@@ -404,6 +419,15 @@ export default function AdminProductsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={stockFilter} onValueChange={setStockFilter}>
+              <SelectTrigger className="h-9 w-full md:w-32">
+                <SelectValue placeholder="全部库存" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">全部库存</SelectItem>
+                <SelectItem value="low">低库存（库存 ≤ {lowStockThreshold}）</SelectItem>
+              </SelectContent>
+            </Select>
             <div className="hidden text-xs text-muted-foreground md:ml-auto md:block">
               共 {total} 个
             </div>
@@ -618,7 +642,11 @@ export default function AdminProductsPage() {
                           onClick={() => startStockEdit(row)}
                           className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
                         >
-                          <span className={row.stock <= 5 ? "font-medium text-destructive" : ""}>
+                          <span
+                            className={
+                              row.stock <= lowStockThreshold ? "font-medium text-destructive" : ""
+                            }
+                          >
                             {row.stock}
                           </span>
                           <Pencil className="h-3 w-3 text-muted-foreground" />

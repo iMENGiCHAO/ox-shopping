@@ -54,8 +54,6 @@ export async function ProductCard({ product, priority, className }: ProductCardP
   const secondary = images[1];
   const price = toNumberPrice(product.price);
   const outOfStock = product.stock <= 0;
-  const hasDiscount =
-    product.compareAtPrice != null && toNumberPrice(product.compareAtPrice) > price;
   const priceText = await formatPrice(price);
   const compareNum = toNumberPrice(product.compareAtPrice);
   const compareText = await formatPrice(compareNum);

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, Package, ShoppingCart, TrendingUp, Users } from "lucide-react";
+import { ArrowUpRight, BellRing, Package, ShoppingCart, TrendingUp, Users } from "lucide-react";
 
 import { getAdminStats } from "@/server/services/stats.service";
 import { formatMoney } from "@/lib/utils";
@@ -96,6 +96,31 @@ export default async function AdminDashboardPage() {
           value={stats.pendingShipCount}
           sub={`${stats.pendingShipCount} ${t("Pending Shipments")} · ${stats.pendingRefundCount} ${t("Refunds")}`}
         />
+      </div>
+
+      {/* 运营信号（数据孤岛修复落地）：lowStockCount / notifyMeCount 此前服务端
+          算了却从未展示 —— 渲染成可点击入口，直达各自列表；低库存链接预置筛选，
+          与仪表盘计数完全同口径（ACTIVE + stock ≤ 生效阈值）。 */}
+      <div className="flex flex-wrap gap-3">
+        <Link
+          href="/admin/products?stock=low&status=ACTIVE"
+          className="flex items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-[13px] shadow-card transition-shadow hover:shadow-card-hover"
+        >
+          <Package className="h-4 w-4 text-foreground/70" strokeWidth={1.75} />
+          <span className="text-muted-foreground">{t("Low Stock")}</span>
+          <span className="font-semibold">{stats.lowStockCount}</span>
+          <span className="text-[11px] text-muted-foreground">≤ {stats.lowStockThreshold}</span>
+          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </Link>
+        <Link
+          href="/admin/notify-me"
+          className="flex items-center gap-2 rounded-lg border bg-card px-4 py-2.5 text-[13px] shadow-card transition-shadow hover:shadow-card-hover"
+        >
+          <BellRing className="h-4 w-4 text-foreground/70" strokeWidth={1.75} />
+          <span className="text-muted-foreground">{t("Notify Me")}</span>
+          <span className="font-semibold">{stats.notifyMeCount}</span>
+          <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground" />
+        </Link>
       </div>
 
       {/* Sales trend + Top products */}

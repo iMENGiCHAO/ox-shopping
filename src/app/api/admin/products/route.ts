@@ -1,4 +1,5 @@
 import { aggregateTrackedStock } from "@/server/services/spec-stock";
+import { getSiteSettings } from "@/server/services/settings.service";
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
 import { conflict } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
@@ -41,7 +42,10 @@ export const GET = apiHandler(async (req) => {
   const q = searchParam(sp, "q");
   const status = searchParam(sp, "status");
   const categoryId = searchParam(sp, "categoryId");
+  // 低库存筛选（运营口径）：?stock=low → stock ≤ 生效阈值（与仪表盘计数同源）
+  const stockFilter = searchParam(sp, "stock");
   const { page, pageSize, skip, take } = parsePagination(sp);
+  const { lowStockThreshold } = await getSiteSettings();
 
   const where: Prisma.ProductWhereInput = {};
   if (q) {
@@ -54,6 +58,7 @@ export const GET = apiHandler(async (req) => {
     where.status = status as ProductStatus;
   }
   if (categoryId) where.categoryId = categoryId;
+  if (stockFilter === "low") where.stock = { lte: lowStockThreshold };
 
   const [rows, total] = await Promise.all([
     prisma.product.findMany({
@@ -66,12 +71,18 @@ export const GET = apiHandler(async (req) => {
     prisma.product.count({ where }),
   ]);
 
-  return jsonPaginated(rows.map(serializeProduct), {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.ceil(total / pageSize),
-  });
+  return jsonPaginated(
+    rows.map(serializeProduct),
+    {
+      page,
+      pageSize,
+      total,
+      totalPages: Math.ceil(total / pageSize),
+    },
+    undefined,
+    // 生效阈值随列表下发：前端高亮/口径展示用，不再各自写死 5
+    { lowStockThreshold },
+  );
 });
 
 /** POST /api/admin/products */
@@ -82,7 +93,9 @@ export const POST = apiHandler(async (req) => {
   const skuExists = await prisma.product.findUnique({ where: { sku: input.sku } });
   if (skuExists) throw conflict("SKU 已存在");
 
-  const slug = await uniqueProductSlug(input.slug ?? slugifyName(input.nameEn?.trim() || input.name));
+  const slug = await uniqueProductSlug(
+    input.slug ?? slugifyName(input.nameEn?.trim() || input.name),
+  );
 
   // 净化 description：去除危险 HTML（管理端富文本可能被注入恶意脚本）
   const safeDescription = input.description ? await sanitizeHtml(input.description) : "";
