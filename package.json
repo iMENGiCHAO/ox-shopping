@@ -2,7 +2,7 @@
   "name": "ecommerce",
   "version": "1.0.0",
   "private": true,
-  "description": "生产级全栈电商网站：Next.js 14 + TypeScript + Prisma + PostgreSQL + Redis + Stripe + S3",
+  "description": "生产级全栈电商网站：Next.js 16 + TypeScript + Prisma + PostgreSQL + Redis + Stripe + S3",
   "engines": {
     "node": ">=18.17.0"
   },
@@ -22,6 +22,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "admin:create": "tsx scripts/admin-create.ts",
     "migrate:payment-channels": "tsx scripts/migrate-payment-channels.ts",
+    "db:backfill-descriptions": "tsx scripts/backfill-descriptions.ts",
     "db:studio": "prisma studio",
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
@@ -84,6 +85,7 @@
     "nodemailer": "^9.0.5",
     "pdfkit": "^0.15.0",
     "pino": "^9.5.0",
+    "qrcode": "^1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "^7.53.2",
@@ -103,6 +105,7 @@
     "@types/node": "^20.17.6",
     "@types/nodemailer": "^6.4.17",
     "@types/pdfkit": "^0.13.6",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "autoprefixer": "^10.4.20",

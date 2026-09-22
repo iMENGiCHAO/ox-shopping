@@ -8,6 +8,21 @@ services:
     environment:
       POSTGRES_PASSWORD: ecommerce
 
+  redis:
+    # 本地演示用弱密码（生产必须换随机值；见 .env.example 的 REDIS_PASSWORD）
+    environment:
+      REDIS_PASSWORD: ecommerce-local-redis
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ecommerce-local-redis
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
+
   minio:
     image: minio/minio:latest
     container_name: ecommerce-minio
@@ -47,6 +62,10 @@ services:
     environment:
       SITE_URL: http://localhost:3000
       DATABASE_URL: postgresql://ecommerce:ecommerce@postgres:5432/ecommerce?schema=public
+      REDIS_URL: redis://:ecommerce-local-redis@redis:6379
+      # 本地演示：显式提供生产 compose 里必填的品牌名与渠道加密主密钥（生产必须换随机值）
+      SITE_NAME: Ox Shopping
+      PAYMENT_CHANNEL_ENC_KEY: local-demo-payment-channel-enc-key-change-me
       JWT_ACCESS_SECRET: docker-compose-access-secret-change-in-prod
       JWT_REFRESH_SECRET: docker-compose-refresh-secret-change-in-prod
       # 仅限本地演示：跳过生产密钥强度检查
@@ -56,6 +75,7 @@ services:
       STRIPE_WEBHOOK_SECRET: ""
       CURRENCY: CNY
       MAIL_PROVIDER: console
+      # 本地演示保留 example.com（仅写日志/落文件）；生产不得预设此域（会架空发件域守卫）
       MAIL_FROM: "Ox Shopping <no-reply@example.com>"
       STORAGE_DRIVER: s3
       S3_ENDPOINT: http://minio:9000

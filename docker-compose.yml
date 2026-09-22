@@ -15,7 +15,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 配置 POSTGRES_PASSWORD}
       POSTGRES_DB: ecommerce
     ports:
-      - "5432:5432"
+      # 仅绑定 loopback：数据库端口绝不对外（宿主机上的备份/排障工具仍可用）
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -28,13 +29,25 @@ services:
     image: redis:7-alpine
     container_name: ecommerce-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    # 强制密码（B2）：无密码 Redis 可被任何可达进程清空限流计数、伪造缓存
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?请在 .env 配置 REDIS_PASSWORD（openssl rand -hex 24）}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?请在 .env 配置 REDIS_PASSWORD（openssl rand -hex 24）}
     ports:
-      - "6379:6379"
+      # 仅绑定 loopback：外部网络不可达（容器间通过 compose 网络访问）
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # 带密码探活（--no-auth-warning 避免密码进日志）
+      test:
+        - CMD-SHELL
+        - redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
       interval: 5s
       timeout: 3s
       retries: 10
@@ -55,7 +68,8 @@ services:
       SITE_URL: ${SITE_URL:?请在 .env 配置 SITE_URL}
       # 注意：密码含特殊字符时需 URL 编码
       DATABASE_URL: postgresql://ecommerce:${POSTGRES_PASSWORD}@postgres:5432/ecommerce?schema=public
-      REDIS_URL: redis://redis:6379
+      # 密码来自 REDIS_PASSWORD（与 redis 服务的 --requirepass 同源），含特殊字符需 URL 编码
+      REDIS_URL: redis://:${REDIS_PASSWORD:?请在 .env 配置 REDIS_PASSWORD（openssl rand -hex 24）}@redis:6379
       REDIS_ENABLED: "true"
       CACHE_TTL: ${CACHE_TTL:-60}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?请配置 ≥32 位随机密钥（openssl rand -base64 48）}
@@ -65,9 +79,17 @@ services:
       PAYMENT_MODE: ${PAYMENT_MODE:-auto}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      # ⚠️ 必填：支付渠道密钥的加密主密钥（AES-256-GCM）。不传则 env.ts 的生产守卫
+      #    直接拒绝启动（容器会反复重启），而旧 preflight 只校验 4 个变量、会误报 PASS（P0-4）。
+      PAYMENT_CHANNEL_ENC_KEY: ${PAYMENT_CHANNEL_ENC_KEY:?请在 .env 配置 PAYMENT_CHANNEL_ENC_KEY（openssl rand -base64 32）}
       CURRENCY: ${CURRENCY:-USD}
-      MAIL_PROVIDER: ${MAIL_PROVIDER:-console}
-      MAIL_FROM: ${MAIL_FROM:-"Ox Shopping <no-reply@example.com>"}
+      # ⚠️ 品牌名必填：留空会回落占位名，env.ts 的生产守卫会拒绝启动（P0-4）
+      SITE_NAME: ${SITE_NAME:?请在 .env 配置 SITE_NAME（站点品牌名）}
+      # 邮件：默认 console 会让生产环境的订单确认/发货/退款邮件全部丢失（只落容器日志，
+      # 还会往容器盘写 .mail-out 文件）。生产必须显式选择 resend / smtp（P1-2）。
+      MAIL_PROVIDER: ${MAIL_PROVIDER:?请在 .env 配置 MAIL_PROVIDER（resend | smtp；本机演示才用 console）}
+      # 留空 → 由 SITE_NAME + SITE_URL 域名自动拼出（不再预设 example.com，否则架空发件域守卫）（P1-3）
+      MAIL_FROM: ${MAIL_FROM:-}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -93,7 +115,11 @@ services:
       # 生产默认不执行种子；本地演示叠加 compose.local 时置 true
       SEED_ON_START: ${SEED_ON_START:-false}
     ports:
-      - "3000:3000"
+      # ⚠️ 仅绑定 loopback（安全基线）：应用只允许宿主机上的可信反代访问。
+      # 若直接对外发布 3000，客户端可自带 X-Forwarded-For 伪造来源 IP，
+      # 从而绕过所有按 IP 的限流（登录/注册/下单）并污染审计日志。
+      # 反代侧建议覆盖写入：proxy_set_header X-Forwarded-For $remote_addr;
+      - "127.0.0.1:3000:3000"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
       interval: 10s

@@ -124,7 +124,11 @@ jobs:
           echo "MAIL_PROVIDER=console" >> .env
           echo "STORAGE_DRIVER=local" >> .env
           echo "REDIS_ENABLED=false" >> .env
+          # db push 前先归一历史数据（tierLevel NOT NULL 等），否则 db push 拒绝执行
+          npx prisma db execute --file prisma/sql/pre-push-normalize.sql
           npx prisma db push --skip-generate
+          # db push 会删掉 schema 表达不了的原始索引（提现「一用户一笔在途」部分唯一索引），必须重建
+          npx prisma db execute --file prisma/sql/raw-indexes.sql
           npm run db:seed
       - name: Install Playwright
         run: npx playwright install --with-deps chromium
