@@ -118,9 +118,18 @@ export interface AdminOrder {
   total: string | number;
   currency?: string;
   paymentProvider?: string | null;
+  /**
+   * 货到付款（COD）：`isCashOnDelivery=true` 时 `total` 为线上应付，
+   * 到付参考金额 = total + codFee。订单详情抽屉据此展示「送达时收现金」。
+   */
+  isCashOnDelivery?: boolean;
+  codFee?: string | number | null;
   trackingCompany?: string | null;
   trackingNumber?: string | null;
+  /** 顾客下单时填写的备注（只读，顾客原话） */
   note?: string | null;
+  /** 运营内部备注（仅后台可见；管理端接口才返回，顾客侧被 serializeOrder 剥离） */
+  adminNote?: string | null;
   paidAt?: string | null;
   shippedAt?: string | null;
   deliveredAt?: string | null;
@@ -153,6 +162,44 @@ export interface AdminUser {
   notifyMeCount?: number;
   /** 注销申请时间（有值=申请处理中，admin 需处理：确认注销/驳回） */
   deletionRequestedAt?: string | null;
+}
+
+export type AdminPasswordResetStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+/** 三态计数（后台统计卡；接口一次 groupBy 返回，三者同快照） */
+export interface AdminPasswordResetStatusCounts {
+  PENDING: number;
+  APPROVED: number;
+  REJECTED: number;
+}
+
+/**
+ * 找回密码申请（B-2 人工审批流）—— 与
+ * `GET /api/admin/password-resets` 的返回结构对齐。
+ */
+export interface AdminPasswordResetRequest {
+  id: string;
+  /** 申请时的邮箱快照 */
+  email: string;
+  status: AdminPasswordResetStatus;
+  /** 用户填写的说明（帮助客服核对身份） */
+  note: string | null;
+  rejectReason: string | null;
+  ip: string | null;
+  createdAt: string;
+  handledAt: string | null;
+  handledByName: string | null;
+  user: { id: string; name: string; email: string } | null;
+}
+
+/** 批准响应：tempPassword 只在此刻返回一次（邮件不可达时的运营兜底） */
+export interface ApprovePasswordResetResult {
+  ok: boolean;
+  action: "approve";
+  email: string;
+  name: string;
+  tempPassword: string;
+  mailConfigured: boolean;
 }
 
 export interface AdminRefund {

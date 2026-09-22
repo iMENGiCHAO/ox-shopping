@@ -51,6 +51,11 @@ const DICT: Dict = {
   "Top Products": { en: "Top Products", zh: "热销商品" },
   "Pending Review": { en: "Pending Review", zh: "待审核" },
   "Inventory Alerts": { en: "Inventory Alerts", zh: "库存预警" },
+  "Low-stock threshold": { en: "Low-stock threshold", zh: "低库存阈值" },
+  "Applies to dashboard low-stock count, product list filter and red highlight": {
+    en: "Applies to dashboard low-stock count, product list filter and red highlight",
+    zh: "作用于仪表盘低库存计数、商品列表筛选与库存红色高亮",
+  },
   "View all": { en: "View all", zh: "查看全部" },
   "No data yet": { en: "No data yet", zh: "暂无数据" },
   "Last 7 days": { en: "Last 7 days", zh: "最近 7 天" },

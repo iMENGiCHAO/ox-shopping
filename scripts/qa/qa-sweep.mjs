@@ -23,7 +23,6 @@ const publicRoutes = [
   "/auth/login",
   "/auth/register",
   "/auth/forgot-password",
-  "/auth/reset-password",
   "/auth/verify-email",
   "/admin/login",
   "/this-page-should-404",

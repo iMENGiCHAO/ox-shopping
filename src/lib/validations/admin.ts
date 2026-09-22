@@ -52,6 +52,30 @@ export const orderStatusUpdateSchema = z.object({
   ]),
 });
 
+/** 管理端：批量修改订单状态（一次最多 50 单，防止超长事务/超时） */
+export const batchOrderStatusSchema = z.object({
+  ids: z.array(z.string().trim().min(1)).min(1, "请选择至少一个订单").max(50, "单次最多 50 单"),
+  status: z.enum(["PAID", "PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"]),
+});
+
+/** 管理端：修改订单收货地址（addressSnapshot 的字段与下单时同形） */
+export const orderAddressUpdateSchema = z.object({
+  recipientName: z.string().trim().min(1, "请填写收件人").max(100),
+  phone: z.string().trim().max(40).optional().nullable(),
+  country: z.string().trim().max(60).optional().nullable(),
+  province: z.string().trim().max(60).optional().nullable(),
+  city: z.string().trim().max(60).optional().nullable(),
+  district: z.string().trim().max(60).optional().nullable(),
+  postalCode: z.string().trim().max(20).optional().nullable(),
+  detail: z.string().trim().min(1, "请填写详细地址").max(300),
+});
+
+/** 管理端：订单内部备注（仅后台可见，不会发给顾客） */
+export const orderAdminNoteSchema = z.object({
+  /** 传空串 = 清空备注 */
+  adminNote: z.string().trim().max(2000),
+});
+
 /** 管理端：站点设置 */
 
 export const siteSettingsSchema = z.record(z.string().min(1), z.unknown());

@@ -8,6 +8,7 @@ import { sha256 } from "@/lib/utils";
 import {
   ACCESS_TOKEN_COOKIE,
   LOGGED_IN_COOKIE,
+  PASSWORD_CHANGE_REQUIRED_COOKIE,
   REFRESH_TOKEN_COOKIE,
 } from "@/lib/constants";
 import {
@@ -16,7 +17,13 @@ import {
   verifyAccessToken,
   verifyRefreshToken,
 } from "@/lib/auth/jwt";
-import { ApiError, forbidden, replayDetected, unauthorized } from "@/lib/errors";
+import {
+  ApiError,
+  forbidden,
+  passwordChangeRequired,
+  replayDetected,
+  unauthorized,
+} from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import type { SessionUser } from "@/types/api";
 
@@ -51,8 +58,24 @@ export function clearAuthCookies(res: NextResponse): void {
   res.cookies.set(LOGGED_IN_COOKIE, "", { ...cookieOptions(0), httpOnly: false, maxAge: 0 });
 }
 
+/**
+ * 置位「必须改密」标记 cookie（登录时按 DB 的 `mustChangePassword` 决定）。
+ * 生命周期跟随 refresh token（用户可能挂机很久才回来改密）。
+ */
+export function setPasswordChangeRequiredCookie(res: NextResponse): void {
+  res.cookies.set(PASSWORD_CHANGE_REQUIRED_COOKIE, "1", cookieOptions(env.REFRESH_TOKEN_TTL));
+}
+
+/** 改密成功后清除标记（不清则用户会一直被中间件钉在改密页） */
+export function clearPasswordChangeRequiredCookie(res: NextResponse): void {
+  res.cookies.set(PASSWORD_CHANGE_REQUIRED_COOKIE, "", { ...cookieOptions(0), maxAge: 0 });
+}
+
 export function toSessionUser(
-  user: Pick<User, "id" | "email" | "name" | "role" | "status" | "emailVerified">,
+  user: Pick<
+    User,
+    "id" | "email" | "name" | "role" | "status" | "emailVerified" | "mustChangePassword"
+  >,
 ): SessionUser {
   return {
     id: user.id,
@@ -61,6 +84,7 @@ export function toSessionUser(
     role: user.role as SessionUser["role"],
     status: user.status as SessionUser["status"],
     emailVerified: user.emailVerified,
+    mustChangePassword: user.mustChangePassword,
   };
 }
 
@@ -72,14 +96,43 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!payload?.sub) return null;
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      emailVerified: true,
+      mustChangePassword: true,
+    },
   });
   if (!user || user.status !== "ACTIVE") return null;
   return toSessionUser(user);
 }
 
-/** 必须登录 */
+/**
+ * 必须登录。
+ *
+ * ⚠️ 强制改密门控（B-2）：`mustChangePassword === true` 时，除「改密 / 登出 /
+ * 读自己」之外的一切接口都必须拒绝 —— 临时密码是一次性的引导凭证，不先改密
+ * 就等于长期持有弱凭证。需要的接口请用下面两个显式例外函数，
+ * **不要**在调用点绕过这个门控。
+ */
 export async function requireUser(): Promise<SessionUser> {
+  const user = await getSessionUser();
+  if (!user) throw unauthorized();
+  if (user.mustChangePassword) throw passwordChangeRequired();
+  return user;
+}
+
+/**
+ * 强制改密期间的**例外**入口：拿到会话但不拦截 `mustChangePassword`。
+ * 仅限三类接口使用：
+ *   - `PUT /api/user/password`（用户完成改密的唯一出口）
+ *   - `POST /api/auth/logout`（用户必须能离开）
+ *   - `GET  /api/auth/me` —— 它直接用 getSessionUser，本函数无需参与
+ */
+export async function requireUserAllowingPendingPasswordChange(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) throw unauthorized();
   return user;
@@ -181,7 +234,15 @@ export async function rotateSession(refreshToken: string): Promise<RotatedTokens
       // 善意复用：重建一条新会话，不殃及其它设备。
       const retryUser = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          status: true,
+          emailVerified: true,
+          mustChangePassword: true,
+        },
       });
       if (!retryUser || retryUser.status !== "ACTIVE") {
         throw unauthorized("This account has been disabled");
@@ -220,7 +281,15 @@ export async function rotateSession(refreshToken: string): Promise<RotatedTokens
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, email: true, name: true, role: true, status: true, emailVerified: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      emailVerified: true,
+      mustChangePassword: true,
+    },
   });
   if (!user || user.status !== "ACTIVE") throw unauthorized("This account has been disabled");
 

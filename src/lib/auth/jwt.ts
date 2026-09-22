@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 import { env } from "@/lib/env";
-import { EMAIL_TOKEN_TTL, RESET_TOKEN_TTL } from "@/lib/constants";
+import { EMAIL_TOKEN_TTL } from "@/lib/constants";
 import { randomToken } from "@/lib/utils";
 
 /**
@@ -8,7 +8,7 @@ import { randomToken } from "@/lib/utils";
  * 注意：本模块被 Edge 中间件引用，不能 import "server-only"。
  * - access token：用户会话(15 分钟)
  * - refresh token：轮换续期(7 天)
- * - email token：邮箱验证 / 密码重置(含用途声明，防跨用途复用)
+ * - email token：邮箱验证(含用途声明，防跨用途复用)
  */
 
 const encoder = new TextEncoder();
@@ -25,14 +25,18 @@ export interface RefreshTokenPayload extends JWTPayload {
   type: "refresh";
 }
 
-export type EmailTokenPurpose = "verify-email" | "reset-password";
+/**
+ * 邮箱令牌用途。当前唯一用途是邮箱验证（注册 / 重发验证 / 换邮箱）。
+ * 令牌自带用途声明并在校验时核对，防止跨用途复用；历史上的
+ * "reset-password" 用途已随 token 自助重置死链路一并移除
+ * （找回密码走 B-2 人工审批 + 临时密码流，见 password-reset.service）。
+ */
+export type EmailTokenPurpose = "verify-email";
 
 export interface EmailTokenPayload extends JWTPayload {
   sub: string;
   email: string;
   purpose: EmailTokenPurpose;
-  /** 密码指纹：密码修改后旧重置令牌自动失效 */
-  fp?: string;
 }
 
 export async function signAccessToken(payload: AccessTokenPayload): Promise<string> {
@@ -79,11 +83,15 @@ export async function signEmailToken(
   payload: Omit<EmailTokenPayload, "iat" | "exp">,
   purpose: EmailTokenPurpose,
 ): Promise<string> {
-  const ttl = purpose === "verify-email" ? EMAIL_TOKEN_TTL : RESET_TOKEN_TTL;
+  // 签发侧对称断言（verifyEmailToken 的镜像）：purpose 声明必须与载荷内的
+  // purpose 一致 —— 该类 token 在 verify 侧必然被拒，不如签发时就 fail-fast。
+  if (payload.purpose !== purpose) {
+    throw new Error("signEmailToken: purpose declaration mismatch");
+  }
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
-    .setExpirationTime(`${ttl}s`)
+    .setExpirationTime(`${EMAIL_TOKEN_TTL}s`)
     .sign(encoder.encode(env.JWT_ACCESS_SECRET));
 }
 

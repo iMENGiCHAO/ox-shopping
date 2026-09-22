@@ -14,7 +14,7 @@ import { prisma } from "@/lib/prisma";
  *  - type 标准化：order / refund / system
  *  - link 跳转到 /orders/[n] /account/refunds /products/[slug] 等
  */
-export type NotificationType = "order" | "refund" | "system";
+export type NotificationType = "order" | "refund" | "system" | "distribution";
 
 export interface NotificationInput {
   /**

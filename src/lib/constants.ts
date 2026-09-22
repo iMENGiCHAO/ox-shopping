@@ -4,6 +4,16 @@ export const REFRESH_TOKEN_COOKIE = "refresh_token";
 export const CSRF_COOKIE = "csrf_token";
 /** 登录态「提示」cookie（httpOnly=false）：仅供前端 JS 做 UI 分支；鉴权仍走 httpOnly 的 access_token */
 export const LOGGED_IN_COOKIE = "logged_in";
+/**
+ * 强制改密标记 cookie（httpOnly）：管理员发放临时密码后登录时置位。
+ *
+ * 为什么用 cookie 而不是只查库：`proxy.ts`（Next 16 中间件）在**边缘**拦截时
+ * 无法查库，需要在 O(1) 内判定是否把用户钉在改密页；DB 侧的权威判定在
+ * `requireUser()`（读到 `mustChangePassword` 即抛 403）。两者一致才是完整闭环：
+ *   - cookie 负责页面跳转与 API 快速拒绝；
+ *   - `requireUser()` 负责防篡改（用户手删 cookie 也绕不过接口层）。
+ */
+export const PASSWORD_CHANGE_REQUIRED_COOKIE = "pwd_change_required";
 export const CSRF_HEADER = "x-csrf-token";
 export const REQUEST_ID_HEADER = "x-request-id";
 
@@ -22,7 +32,6 @@ export const MAX_CART_ITEMS = 50;
  */
 export const PRICE_FILTER_SLIDER_MAX = 100;
 export const PRICE_FILTER_INPUT_MAX = 1000;
-
 
 /**
  * 订单/商业常量：直接读 process.env（与 src/lib/env.ts 的 zod 默认值保持一致）。
@@ -59,4 +68,3 @@ export const ALLOWED_IMAGE_MIME = [
 
 /** 验证码/令牌有效期(秒) */
 export const EMAIL_TOKEN_TTL = 24 * 3600; // 邮箱验证 24h
-export const RESET_TOKEN_TTL = 30 * 60; // 密码重置 30min

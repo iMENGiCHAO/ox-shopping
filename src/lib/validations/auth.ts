@@ -35,12 +35,12 @@ export const loginSchema = z.object({
 });
 
 export const forgotPasswordSchema = z.object({
-  email: z.string().trim().toLowerCase().email("Invalid email format"),
-});
-
-export const resetPasswordSchema = z.object({
-  token: z.string().min(20),
-  password: passwordSchema,
+  email: z.string().trim().toLowerCase().email("Invalid email format").max(254),
+  /**
+   * 用户填写的说明（选填）：帮助客服核对身份（如「无法登录，订单号 XXX」）。
+   * 与注销申请的 reason 同一口径 —— 人工审批流需要一点上下文才审得动。
+   */
+  note: z.string().trim().max(300).optional(),
 });
 
 export const changePasswordSchema = z.object({
@@ -68,4 +68,3 @@ export const verifyEmailSchema = z.object({
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;

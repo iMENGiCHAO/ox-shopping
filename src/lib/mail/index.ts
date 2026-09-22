@@ -10,12 +10,14 @@ import {
   AccountDeletedEmail,
   ContactMessageEmail,
   DataDeletionEmail,
+  DistributionNoticeEmail,
   DeletionRejectedEmail,
   OrderConfirmedEmail,
   OrderShippedEmail,
   RefundUpdateEmail,
-  ResetPasswordEmail,
+  ResetRejectedEmail,
   RestockEmail,
+  TempPasswordEmail,
   VerifyEmailEmail,
 } from "@/emails/templates";
 
@@ -51,13 +53,16 @@ async function loadSiteName(): Promise<{ zh?: string; en?: string }> {
 
 export interface MailData {
   "verify-email": { name: string; link: string; lang?: MailLang };
-  "reset-password": { name: string; link: string; lang?: MailLang };
   "order-confirmed": {
     name: string;
     orderNumber: string;
     total: string;
     items: { name: string; quantity: number }[];
     orderUrl: string;
+    /** 货到付款（COD）：模板切换为 COD 文案（现金送达支付，无线上支付环节） */
+    isCashOnDelivery?: boolean;
+    /** COD 送达应付金额（已含到付费），如 "USD 123.45" */
+    codDue?: string;
     lang?: MailLang;
   };
   "order-shipped": {
@@ -78,6 +83,23 @@ export interface MailData {
     lang?: MailLang;
   };
   "data-deletion": { name: string; lang?: MailLang };
+  /**
+   * 找回密码申请通过 → 下发临时密码（B-2）。
+   * `loginUrl` 指向登录页，用户登录后会被强制跳强制改密页。
+   */
+  "temp-password": {
+    name: string;
+    tempPassword: string;
+    loginUrl: string;
+    lang?: MailLang;
+  };
+  /** 找回密码申请被驳回（reason 为客服备注，可选） */
+  "reset-rejected": {
+    name: string;
+    reason?: string;
+    contactUrl: string;
+    lang?: MailLang;
+  };
   /** 注销处理完成（admin 确认注销，匿名化前发往原邮箱） */
   "account-deleted": { name: string; lang?: MailLang };
   /** 注销申请驳回（admin 驳回，note 为客服备注可选） */
@@ -108,6 +130,19 @@ export interface MailData {
     source: string;
     lang?: MailLang;
   };
+  /**
+   * 分销通知（佣金结算/冲正、提现状态、成为分销商）。
+   * 文案由 `distribution/notify.service.ts` 本地化后传入 —— 事件会持续增加，
+   * 邮件层不为此膨胀成一堆近乎相同的模板组件。
+   */
+  "distribution-notice": {
+    name: string;
+    title: string;
+    body: string;
+    ctaText?: string;
+    ctaUrl?: string;
+    lang?: MailLang;
+  };
 }
 
 export type MailTemplate = keyof MailData;
@@ -132,21 +167,17 @@ const subjectLine = (lang: MailLang, siteName: string, zh: string, en: string) =
 
 const templates: Record<MailTemplate, TemplateMeta> = {
   "verify-email": {
-    subject: (lang, brand) => subjectLine(lang, brand, "请验证您的邮箱地址", "Verify your email address"),
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "请验证您的邮箱地址", "Verify your email address"),
     render: (data) => render(VerifyEmailEmail(data as never)),
   },
-  "reset-password": {
-    subject: (lang, brand) => subjectLine(lang, brand, "重置密码", "Reset your password"),
-    render: (data) => render(ResetPasswordEmail(data as never)),
-  },
   "order-confirmed": {
-    subject: (lang, brand) =>
-      subjectLine(lang, brand, "订单支付成功", "Order payment confirmed"),
+    /* COD 单无「支付成功」语义，主题用对在线单/现金单均准确的「订单已确认」 */
+    subject: (lang, brand) => subjectLine(lang, brand, "订单已确认", "Order confirmed"),
     render: (data) => render(OrderConfirmedEmail(data as never)),
   },
   "order-shipped": {
-    subject: (lang, brand) =>
-      subjectLine(lang, brand, "您的包裹已发货", "Your order has shipped"),
+    subject: (lang, brand) => subjectLine(lang, brand, "您的包裹已发货", "Your order has shipped"),
     render: (data) => render(OrderShippedEmail(data as never)),
   },
   "refund-update": {
@@ -157,6 +188,21 @@ const templates: Record<MailTemplate, TemplateMeta> = {
     subject: (lang, brand) =>
       subjectLine(lang, brand, "数据删除请求已收到", "Data deletion request received"),
     render: (data) => render(DataDeletionEmail(data as never)),
+  },
+  "temp-password": {
+    subject: (lang, brand) =>
+      subjectLine(lang, brand, "您的临时密码已发放", "Your temporary password"),
+    render: (data) => render(TempPasswordEmail(data as never)),
+  },
+  "reset-rejected": {
+    subject: (lang, brand) =>
+      subjectLine(
+        lang,
+        brand,
+        "您的找回密码申请未通过",
+        "Your password recovery request was declined",
+      ),
+    render: (data) => render(ResetRejectedEmail(data as never)),
   },
   "account-deleted": {
     subject: (lang, brand) =>
@@ -178,6 +224,11 @@ const templates: Record<MailTemplate, TemplateMeta> = {
     subject: (lang, brand) =>
       subjectLine(lang, brand, "收到新的联系表单留言", "New contact form message"),
     render: (data) => render(ContactMessageEmail(data as never)),
+  },
+  "distribution-notice": {
+    // 主题行即业务标题（调用方已本地化），品牌名统一由 subjectLine 拼接
+    subject: (lang, brand) => subjectLine(lang, brand, "分销动态", "Distribution update"),
+    render: (data) => render(DistributionNoticeEmail(data as never)),
   },
 };
 

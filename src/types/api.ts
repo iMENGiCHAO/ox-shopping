@@ -29,4 +29,6 @@ export interface SessionUser {
   role: "ADMIN" | "CUSTOMER" | "SUPPORT";
   status: "ACTIVE" | "DISABLED";
   emailVerified: boolean;
+  /** 管理员已发放临时密码，须先改密（见 `requireUser` 的强制门控） */
+  mustChangePassword: boolean;
 }

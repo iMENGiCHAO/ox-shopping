@@ -18,6 +18,17 @@ export interface RateLimitOptions {
   key: string;
   limit: number;
   windowSeconds: number;
+  /**
+   * 可选「全站熔断」：端点级共享 key（**不含 IP/用户标识**）与该窗口内的全站总量上限。
+   *
+   * 为什么需要：按 IP/指纹的单桶限额在标识可伪造时能被轮换绕过（伪造 XFF、换 UA）。
+   * 熔断额度与标识无关，兜底保护后端不被打穿；正常流量远低于该额度（通常取单桶 limit 的
+   * 50–100 倍），只有攻击/异常时才触发。
+   */
+  breakerKey?: string;
+  breakerLimit?: number;
+  /** 熔断窗口（秒）；缺省与 windowSeconds 相同。可与单桶窗口不同（如单桶 60s、熔断 3600s） */
+  breakerWindowSeconds?: number;
 }
 
 /* ───────────────────────── 进程内 LRU 限流 ───────────────────────── */
@@ -81,6 +92,28 @@ return {n, ttl}
 
 /* ───────────────────────── 公共 API ───────────────────────── */
 
+/** 单桶计数（Redis 原子优先，失败降级进程内 LRU） */
+async function hitBucket(key: string, limit: number, windowSeconds: number): Promise<RateLimitResult> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const redisKey = `ratelimit:${key}`;
+      const [count, ttl] = (await redis.eval(REDIS_SCRIPT, 1, redisKey, windowSeconds)) as [
+        number,
+        number,
+      ];
+      return {
+        ok: count <= limit,
+        remaining: Math.max(limit - count, 0),
+        retryAfterSeconds: count > limit ? Math.max(ttl, 1) : 0,
+      };
+    } catch (err) {
+      logger.warn({ err }, "redis rate limit failed, fallback to memory");
+    }
+  }
+  return memoryBuckets.hit(key, limit, windowSeconds);
+}
+
 /** 限流(兼容两种调用形式：rateLimit(key, limit, window) 或 rateLimit({key, limit, windowSeconds})) */
 export async function rateLimit(
   keyOrOptions: string | RateLimitOptions,
@@ -91,24 +124,36 @@ export async function rateLimit(
     typeof keyOrOptions === "string"
       ? { key: keyOrOptions, limit: limit ?? 60, windowSeconds: windowSeconds ?? 60 }
       : keyOrOptions;
-  const { key, limit: l, windowSeconds: w } = opts;
 
-  const redis = getRedis();
-  if (redis) {
-    try {
-      const redisKey = `ratelimit:${key}`;
-      const [count, ttl] = (await redis.eval(REDIS_SCRIPT, 1, redisKey, w)) as [number, number];
+  const local = await hitBucket(opts.key, opts.limit, opts.windowSeconds);
+  // 单桶已超限：直接拒绝，且**不计入**熔断桶。
+  // 这个顺序很关键：否则单个 IP 打满自己的桶就能把全站熔断桶打爆，
+  // 等于给攻击者一个「一个 IP 锁死整个端点」的武器。
+  if (!local.ok) return local;
+
+  // 全站熔断：与客户端标识无关的总量上限（防标识轮换绕过单桶限额）。
+  // 只有「通过单桶检查」的请求才计数 —— 轮换 IP/UA 的攻击者每发必中，必然触发；
+  // 而被单桶拦住的重复请求不会污染熔断额度。
+  if (opts.breakerKey && opts.breakerLimit && opts.breakerLimit > 0) {
+    const breaker = await hitBucket(
+      opts.breakerKey,
+      opts.breakerLimit,
+      opts.breakerWindowSeconds ?? opts.windowSeconds,
+    );
+    if (!breaker.ok) {
+      logger.warn(
+        { key: opts.key, breakerKey: opts.breakerKey, breakerLimit: opts.breakerLimit },
+        "全站熔断触发：端点请求总量超限（疑似标识轮换绕过限流）",
+      );
       return {
-        ok: count <= l,
-        remaining: Math.max(l - count, 0),
-        retryAfterSeconds: count > l ? Math.max(ttl, 1) : 0,
+        ok: false,
+        remaining: 0,
+        retryAfterSeconds: Math.max(breaker.retryAfterSeconds, 1),
       };
-    } catch (err) {
-      logger.warn({ err }, "redis rate limit failed, fallback to memory");
     }
   }
 
-  return memoryBuckets.hit(key, l, w);
+  return local;
 }
 
 /** 重置限流计数（如登录成功后清除失败锁定计数） */

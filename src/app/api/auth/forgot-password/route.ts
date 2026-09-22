@@ -1,49 +1,50 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { rateLimited } from "@/lib/errors";
-import { signEmailToken } from "@/lib/auth/jwt";
-import { sendMail } from "@/lib/mail";
-import { audit } from "@/lib/audit";
 import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { getClientIp } from "@/lib/server/utils-server";
-import { sha256 } from "@/lib/utils";
-import { env } from "@/lib/env";
-import { prisma } from "@/lib/prisma";
 import { forgotPasswordSchema } from "@/lib/validations/auth";
+import { createPasswordResetRequest } from "@/server/services/password-reset.service";
 
 export const runtime = "nodejs";
 
-/** POST /api/auth/forgot-password — 发送重置邮件(防枚举) */
+/**
+ * POST /api/auth/forgot-password — 提交找回密码申请（B-2 原站式人工审批流）
+ *
+ * 闭环：用户填邮箱 → 落库 PENDING + 通知管理员 → 管理员批准后邮件下发强随机
+ * 临时密码 → 用户首登强制改密。批准入口见
+ * `POST /api/admin/password-resets/[id]`。
+ *
+ * 防枚举（**不要改**）：无论邮箱是否存在、账号是否停用、是否已有在途申请，
+ * 一律返回同一句回执。任何区分口径（"该邮箱未注册"）都会变成邮箱枚举接口。
+ *
+ * 限流双保险：单 IP 3 次/分钟；同一邮箱 3 次/小时（防有人拿他人邮箱刷后台待办）。
+ */
 export const POST = apiHandler(async (req) => {
   const input = await readJson(req, forgotPasswordSchema);
 
-  const rl = await rateLimit({ key: `forgot:${getClientIp(req)}`, limit: 3, windowSeconds: 60 });
+  // 单标识 3 次/分钟 + 全站熔断 200 次/小时（防标识轮换刷邮件配额）
+  const rl = await rateLimit({
+    key: `forgot:${getClientIp(req)}`,
+    ...RATE_LIMITS.forgotPassword,
+  });
   if (!rl.ok) throw rateLimited();
-  // 防邮件轰炸：同一邮箱每小时最多 3 封重置邮件
   const rlEmail = await rateLimit({
     key: `forgot-email:${input.email.toLowerCase()}`,
-    limit: 3,
-    windowSeconds: 3600,
+    ...RATE_LIMITS.forgotPasswordEmail,
   });
   if (!rlEmail.ok) throw rateLimited("Too many requests, please try again later");
 
-  const user = await prisma.user.findUnique({ where: { email: input.email } });
-  if (user) {
-    const token = await signEmailToken(
-      {
-        sub: user.id,
-        email: user.email,
-        purpose: "reset-password",
-        fp: (await sha256(user.passwordHash)).slice(0, 16),
-      },
-      "reset-password",
-    );
-    await sendMail({
-      to: user.email,
-      template: "reset-password",
-      data: { name: user.name, link: `${env.SITE_URL}/auth/reset-password?token=${token}` },
-    });
-    await audit({ userId: user.id, action: "AUTH_FORGOT", entity: "User", entityId: user.id, req });
-  }
+  // 刻意丢弃返回值 created：它恰好就是「邮箱是否注册」的答案，回给前台即枚举漏洞
+  await createPasswordResetRequest({
+    email: input.email,
+    ...(input.note ? { note: input.note } : {}),
+    ip: getClientIp(req),
+    req,
+  });
 
-  return json({ ok: true, message: "若该邮箱已注册，重置邮件已发送" });
+  return json({
+    ok: true,
+    message: "若该邮箱已注册，找回密码申请已提交，请等待管理员审核后查收临时密码邮件",
+  });
 });

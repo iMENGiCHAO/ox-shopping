@@ -102,15 +102,6 @@ describe("密码重置", () => {
     const data = (await getData(res)) as { ok: boolean };
     expect(data.ok).toBe(true);
   });
-
-  it("无效重置 token 被拒绝", async () => {
-    const { POST } = await import("@/app/api/auth/reset-password/route");
-    const res = await callApi(POST, {
-      method: "POST",
-      body: { token: "invalid-token-value-123456", password: "NewPass@123" },
-    });
-    expect(res.status).toBe(400);
-  });
 });
 
 describe("地址管理", () => {

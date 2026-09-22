@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { getClientIp } from "@/lib/server/utils-server";
 
 /**
  * 集成测试工具：直接调用 Next.js Route Handler（无需启动服务器）。
@@ -121,4 +122,22 @@ export async function registerAndLogin(email: string, password = "User@123456") 
     registerResponse: res,
     user: (await getData(res)) as { id: string; email: string },
   };
+}
+
+/**
+ * 当前测试请求的「客户端标识」——用**运行时同一算法**推导（`getClientIp`）。
+ *
+ * 为什么不能写死 `"127.0.0.1"` / `"unknown"`：B1 修复后，`TRUST_PROXY=false`（测试默认）
+ * 时不再返回常量 `"unknown"`（那会让全体客户端共享一个限流桶），而是退化为请求头指纹
+ * （`anon:<hash>`）。测试若要清零某个 IP 维度的限流桶，必须用这里推导出的值，
+ * 否则重置的是不存在的键 → 限流照旧生效 → 集成测试 429 失败。
+ *
+ * 用法：`await resetRateLimit(`register:${testClientKey()}`)`
+ */
+export function testClientKey(): string {
+  const req = new NextRequest(new URL("http://test.local/"), {
+    method: "POST",
+    headers: new Headers({ "x-forwarded-for": "127.0.0.1" }),
+  });
+  return getClientIp(req);
 }

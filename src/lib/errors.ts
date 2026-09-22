@@ -27,6 +27,10 @@ export type ApiErrorCode =
      文案会随语言/措辞变化，`message.includes("异常登录")` 这种写法一旦
      文案本地化就会静默失效。 */
   | "REPLAY_DETECTED"
+  /* 管理员已发放临时密码，用户必须先改密才能继续任何操作。
+     单独成码的原因：前端/中间件要**按码分支**跳转强制改密页，
+     而不是匹配文案（文案会随语言变化 → 一旦本地化就静默失效）。 */
+  | "PASSWORD_CHANGE_REQUIRED"
   | "PAYMENT_ERROR"
   | "REFUND_FAILED"
   | "PAYMENT_GATEWAY_ERROR"
@@ -77,6 +81,19 @@ export function replayDetected(
   message = "Suspicious sign-in detected, please sign in again",
 ): ApiError {
   return new ApiError(401, "REPLAY_DETECTED", message);
+}
+
+/**
+ * 强制改密（403 + `PASSWORD_CHANGE_REQUIRED` 码）。
+ *
+ * 触发条件：`User.mustChangePassword === true`（管理员批准找回密码申请、
+ * 发放临时密码之后）。此时除「改密 / 登出 / 读自己」以外的所有接口都应拒绝，
+ * 直到用户完成改密。
+ */
+export function passwordChangeRequired(
+  message = "You must change your password before continuing",
+): ApiError {
+  return new ApiError(403, "PASSWORD_CHANGE_REQUIRED", message);
 }
 
 export function toApiError(err: unknown): ApiError {

@@ -41,6 +41,18 @@ const envSchema = z.object({
   STRIPE_SECRET_KEY: z.string().optional().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().optional().default(""),
   /**
+   * 生产环境显式允许模拟支付（免费下单）。
+   * 默认 false：生产 mock 模式（漏配 Stripe / PAYMENT_MODE=mock）在启动时被守卫拒绝，
+   * 防止「生产环境静默免费下单」——真实收款为 0 却看不到任何错误。
+   * 本地演示/测试不受影响（REQUIRE_STRONG_SECRETS=false 时守卫不生效）。
+   */
+  ALLOW_MOCK_PAYMENT_IN_PROD: booleanFromString.default("false"),
+  /**
+   * 显式豁免「生产启用无密码 Redis」的启动守卫（B2）。
+   * 仅供确有内网隔离保障的特殊部署使用；默认 false（生产拒绝启动）。
+   */
+  ALLOW_PASSWORDLESS_REDIS_IN_PROD: booleanFromString.default("false"),
+  /**
    * 支付渠道配置加密主密钥（AES-256-GCM，经 SHA-256 派生为 32 字节）。
    * 用于加密 payment_channels.config_encrypted（支付宝/微信的密钥等）。
    * 生产必须替换为随机值；更换后需重新保存各渠道配置（旧密文将无法解密）。
@@ -113,9 +125,19 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
 
   // 安全:生产环境强制校验密钥强度(本地演示可显式关闭)
-  REQUIRE_STRONG_SECRETS: booleanFromString.default(
-    process.env.NODE_ENV === "production" ? "true" : "false",
-  ),
+  //
+  // ⚠️ 空值必须按 NODE_ENV 自动判定，**不能**沿用 booleanFromString（会把 "" 解析成 false）：
+  //    `.env.example` 这一行默认留空，运维照抄后 REQUIRE_STRONG_SECRETS=false 会一票关停
+  //    全部四道生产守卫（弱 JWT 密钥 / mock 免费下单 / 无密码 Redis / 占位品牌），
+  //    而后台看不到任何异常（P1-4，已用真实 zod 复现）。
+  //    显式写 "false" 才关闭（仅限本地演示）。
+  REQUIRE_STRONG_SECRETS: z
+    .enum(["true", "false", "1", "0", ""])
+    .optional()
+    .transform((v) => {
+      if (v === undefined || v === "") return process.env.NODE_ENV === "production";
+      return v === "true" || v === "1";
+    }),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -211,6 +233,77 @@ export const effectivePaymentMode: "stripe" | "mock" =
     : isStripeConfigured
       ? "stripe"
       : "mock";
+
+/**
+ * 生产环境是否允许模拟支付（免费下单）。
+ *
+ * 为什么需要这个守卫：`effectivePaymentMode="mock"` 时下单即「已支付」（模拟），
+ * 真实收款为 0——生产环境漏配 Stripe 密钥或误设 PAYMENT_MODE=mock 时，
+ * 这是最危险的静默资金事故（订单全部免费、无任何报错）。
+ * 与 JWT 弱密钥同款守卫：REQUIRE_STRONG_SECRETS=true（生产默认）时拒绝启动，
+ * 除非运营显式设置 ALLOW_MOCK_PAYMENT_IN_PROD=true（本地演示/测试不受影响）。
+ */
+export const mockPaymentAllowedInProd: boolean =
+  env.ALLOW_MOCK_PAYMENT_IN_PROD || !env.REQUIRE_STRONG_SECRETS;
+
+// ---------- 生产守卫：mock 支付（免费下单）直接拒绝启动 ----------
+if (env.REQUIRE_STRONG_SECRETS && effectivePaymentMode === "mock" && !env.ALLOW_MOCK_PAYMENT_IN_PROD) {
+  const msg =
+    `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)支付模式为 mock(模拟支付/免费下单)：\n` +
+    `  - 若要真实收款：配置 STRIPE_SECRET_KEY(+STRIPE_WEBHOOK_SECRET) 或在后台「支付渠道 → Stripe」填入密钥\n` +
+    `  - 若确属演示/测试用途：显式设置 ALLOW_MOCK_PAYMENT_IN_PROD=true 跳过此检查\n` +
+    `未配置就继续运行，所有订单都会被「模拟支付」直接标记已支付（真实收款为 0）。`;
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    console.warn(`[警告] ${msg}`);
+  } else {
+    throw new Error(msg);
+  }
+}
+
+/**
+ * REDIS_URL 是否携带凭据（`redis://:password@host:6379` 或带用户名）。
+ * 供生产守卫与测试复用；无法解析的 URL 视为「无凭据」（更保守）。
+ */
+export function redisUrlHasCredentials(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.username.length > 0 || u.password.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- 生产守卫：启用无密码 Redis 直接拒绝启动（B2）----------
+/**
+ * 为什么需要：Redis 承载全局限流计数、缓存与调度锁。无密码时，任何能连上 6379 的进程
+ * 都能读改/清空全部键 —— 清掉限流计数即可绕过登录/注册/下单限流，写入伪造缓存可污染
+ * 商品价格等展示数据。生产 compose 已把 6379 绑定到 127.0.0.1 并要求 --requirepass，
+ * 但自有部署（裸机/K8s/云托管）极易漏配，所以这里与 JWT/mock 支付同款 fail-fast。
+ *
+ * 判定：Redis 启用 + REQUIRE_STRONG_SECRETS=true + URL 无凭据 → 拒绝启动。
+ * 本地演示（REQUIRE_STRONG_SECRETS=false）与 REDIS_ENABLED=false 不受影响。
+ * 确有内网隔离保障时可显式设置 ALLOW_PASSWORDLESS_REDIS_IN_PROD=true 豁免。
+ */
+if (
+  env.REDIS_ENABLED &&
+  env.REQUIRE_STRONG_SECRETS &&
+  !env.ALLOW_PASSWORDLESS_REDIS_IN_PROD &&
+  !redisUrlHasCredentials(env.REDIS_URL)
+) {
+  const msg =
+    `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)启用了 Redis，但 REDIS_URL 未包含密码：\n` +
+    `  - 生成密码：openssl rand -hex 24\n` +
+    `  - Redis 侧启动参数加：--requirepass <密码>\n` +
+    `  - 应用侧：REDIS_URL=redis://:<密码>@<host>:6379（密码含特殊字符需 URL 编码）\n` +
+    `  - 不使用 Redis：REDIS_ENABLED=false（限流/缓存退化为单进程内存实现，多实例不一致）\n` +
+    `  - 确有内网隔离保障：显式设置 ALLOW_PASSWORDLESS_REDIS_IN_PROD=true\n` +
+    `无密码 Redis 允许任何可达进程清空限流计数（绕过限流）并伪造缓存数据。`;
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    console.warn(`[警告] ${msg}`);
+  } else {
+    throw new Error(msg);
+  }
+}
 
 /** S3 存储是否可用(显式 s3 且配置齐全) */
 export const isS3Configured =

@@ -35,6 +35,17 @@ const ERROR_ZH: Record<string, string> = {
   "This reset link is invalid or has expired": "重置链接无效或已过期",
   "This reset link has expired. Please request a new one": "重置链接已过期，请重新申请",
   "This verification link is invalid or has expired": "验证链接无效或已过期",
+  /* 找回密码（原站式人工审批流） */
+  "You must change your password before continuing": "请先修改密码后再继续操作",
+  "You already have a pending password reset request":
+    "您已提交过找回密码申请，请等待管理员处理，无需重复提交",
+  "This password reset request has already been handled":
+    "该找回密码申请已被处理，请刷新后查看最新状态",
+  "This password reset request does not exist": "该找回密码申请不存在",
+  "There is no pending password reset request for this account": "该账号当前没有在途的找回密码申请",
+  "You cannot handle your own password reset request": "不能处理自己的找回密码申请",
+  "The new password must be different from the temporary password": "新密码不能与临时密码相同",
+  "The new password must be different from the current password": "新密码不能与当前密码相同",
   "Invalid email format": "邮箱格式不正确",
   "Please enter your password": "请输入密码",
   "Please enter your current password": "请输入当前密码",

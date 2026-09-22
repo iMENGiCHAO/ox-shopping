@@ -103,6 +103,8 @@ const DICT: Dict = {
   "Price, low to high": { en: "Price, low to high", zh: "价格从低到高" },
   "Price, high to low": { en: "Price, high to low", zh: "价格从高到低" },
   Filters: { en: "Filters", zh: "筛选" },
+  /* 工具栏上的触发按钮文案（单数）—— 原站 `<1000px` 的 `collection-toolbar__button` */
+  Filter: { en: "Filter", zh: "筛选" },
   "In stock only": { en: "In stock only", zh: "仅显示有货" },
   "View results": { en: "View results", zh: "查看结果" },
   "No results found.": { en: "No results found.", zh: "没有找到相关结果。" },
@@ -396,6 +398,12 @@ const DICT: Dict = {
   "Pay on delivery:": { en: "Pay on delivery:", zh: "货到付款，到付" },
   /* 结账页运费行 / 运费方式行的「到付」标签（原站此处不带冒号，金额由调用方另行拼接）。 */
   "Pay on delivery": { en: "Pay on delivery", zh: "到付" },
+  /* 订单详情页 COD 提示与金额行（货到付款：现金交易、无线上支付环节）。 */
+  "Cash on delivery — pay the courier when your order arrives.": {
+    en: "Cash on delivery — pay the courier when your order arrives.",
+    zh: "货到付款——订单送达时请向配送员支付现金。",
+  },
+  "Due on delivery (cash)": { en: "Due on delivery (cash)", zh: "送达应付（现金）" },
   /* 顶栏购物车图标上的未读通知红点（仅读屏可见的 aria-label）。 */
   "You have unread notifications": {
     en: "You have unread notifications",
@@ -567,7 +575,6 @@ const DICT: Dict = {
       en: "If that email is registered, a reset email is on its way. If no email service is configured, check the server logs.",
       zh: "若该邮箱已注册，重置邮件已发送，请查收(未配置邮件服务时请查看服务端日志)。",
     },
-  "Reset Password": { en: "Reset Password", zh: "重置密码" },
   "Set a new password": { en: "Set a new password", zh: "设置新密码" },
   "New Password": { en: "New Password", zh: "新密码" },
   "Confirm new password": { en: "Confirm new password", zh: "确认新密码" },
@@ -577,14 +584,37 @@ const DICT: Dict = {
   },
   "New passwords do not match": { en: "New passwords do not match", zh: "两次输入的新密码不一致" },
   "Password updated": { en: "Password updated", zh: "密码已更新" },
-  "Password reset — please sign in with your new password": {
-    en: "Password reset — please sign in with your new password",
-    zh: "密码重置成功，请使用新密码登录",
+  /* ── 找回密码（B-2 人工审批流）+ 强制改密 ──────────────────────────
+     流程：填邮箱提交申请 → 后台审批 → 邮件下发临时密码 → 首登强制改密。
+     文案必须把「需要等管理员审核」讲清楚，否则用户会以为邮件马上就到，
+     转头去点第二次提交（反而被限流挡下）。 */
+  "Your recovery request has been submitted. An administrator will review it, then email you a temporary password.":
+    {
+      en: "Your recovery request has been submitted. An administrator will review it, then email you a temporary password.",
+      zh: "找回密码申请已提交。管理员审核通过后，我们会将临时密码发送到您的邮箱，请耐心等待。",
+    },
+  "Temporary password": { en: "Temporary password", zh: "临时密码" },
+  "Your temporary password has been sent to your email. Enter it below and choose a new password to continue.":
+    {
+      en: "Your temporary password has been sent to your email. Enter it below and choose a new password to continue.",
+      zh: "临时密码已发送到您的邮箱。请在下方输入临时密码，并设置一个新密码后继续。",
+    },
+  "Signed in as": { en: "Signed in as", zh: "当前账号" },
+  "Update password": { en: "Update password", zh: "更新密码" },
+  "Update failed, please try again later": {
+    en: "Update failed, please try again later",
+    zh: "更新失败，请稍后重试",
   },
-  "Reset link is invalid or has expired": {
-    en: "Reset link is invalid or has expired",
-    zh: "重置链接无效或已过期",
+  "The new password must be different from the current password": {
+    en: "The new password must be different from the current password",
+    zh: "新密码不能与当前密码相同",
   },
+  "No password change required": { en: "No password change required", zh: "无需修改密码" },
+  "Your password was already updated — you can continue shopping.": {
+    en: "Your password was already updated — you can continue shopping.",
+    zh: "您的密码已更新，可以继续购物了。",
+  },
+  "Sign out": { en: "Sign out", zh: "退出登录" },
   "Email Verification": { en: "Email Verification", zh: "邮箱验证" },
   "Verify your registered email": { en: "Verify your registered email", zh: "验证您的注册邮箱" },
   "Verifying your email…": { en: "Verifying your email…", zh: "正在验证您的邮箱…" },
@@ -647,7 +677,6 @@ const DICT: Dict = {
     en: "Failed to submit request, please try again later",
     zh: "申请提交失败，请稍后重试",
   },
-  "Back to sign in": { en: "Back to sign in", zh: "返回登录" },
   "Invalid email format": { en: "Invalid email format", zh: "邮箱格式不正确" },
 
   /* ── Account: addresses ────────────────────────────────────────── */
@@ -785,7 +814,14 @@ const DICT: Dict = {
     zh: "满 {minSpend} 元免运费",
   },
 
-  /* ── 404 ──────────────────────────────────────────────────────── */
+  /* ── 404 ────────────────────────────────────────────────────────
+     文案**逐字对齐原站**（2026-09-20 取证 `/this-page-does-not-exist-404`）：
+     H1 `404` + 下面这句 + 按钮 `Continue shopping`（→ `/collections/all`）。 */
+  "We could not find the page you were looking for. Please use the navigation or the button below to go back to our website.":
+    {
+      en: "We could not find the page you were looking for. Please use the navigation or the button below to go back to our website.",
+      zh: "我们找不到您要访问的页面。请使用顶部导航，或点击下方按钮继续购物。",
+    },
   "Page not found": { en: "Page not found", zh: "页面不存在" },
   "The page you are looking for may have been removed or the URL is incorrect.": {
     en: "The page you are looking for may have been removed or the URL is incorrect.",
@@ -905,16 +941,11 @@ const DICT: Dict = {
   },
   "Send reset email": { en: "Send reset email", zh: "发送重置邮件" },
   "Remember it now?": { en: "Remember it now?", zh: "想起来了？" },
-  "Reset failed, please try again later": {
-    en: "Reset failed, please try again later",
-    zh: "重置失败，请稍后重试",
-  },
   "Please enter a new password (8-72 chars with upper/lowercase and a digit).": {
     en: "Please enter a new password (8-72 chars with upper/lowercase and a digit).",
     zh: "请输入新密码（8-72 位，含大小写字母与数字）。",
   },
   "Please enter a new password": { en: "Please enter a new password", zh: "请输入新密码" },
-  "Confirm reset": { en: "Confirm reset", zh: "确认重置" },
   "Email verified!": { en: "Email verified!", zh: "邮箱验证成功！" },
   "Verification link invalid or expired — please resend the verification email.": {
     en: "Verification link invalid or expired — please resend the verification email.",
@@ -943,7 +974,10 @@ const DICT: Dict = {
   "Responsibly Made": { en: "Responsibly Made", zh: "责任制造" },
   "Built to last": { en: "Built to last", zh: "经久耐用" },
   Curated: { en: "Curated", zh: "精选系列" },
-  Collections: { en: "Collections", zh: "主题精选" },
+  /* 集合索引页的 `<title>` —— 原站英文就是 `Collections`（H1 是 `All collections`，两者不同）。
+     中文与 H1 的「全部分类」保持一致：此前这条的 zh 是「主题精选」（那是给别的语境用的），
+     用作索引页标题会语义错位。 */
+  Collections: { en: "Collections", zh: "全部分类" },
   Explore: { en: "Explore", zh: "去看看" },
   "Everything in store": { en: "Everything in store", zh: "全部好物" },
 
@@ -1362,6 +1396,509 @@ const DICT: Dict = {
   "Copy failed — please copy the coupon code manually": {
     en: "Copy failed — please copy the coupon code manually",
     zh: "复制失败，请手动复制折扣码",
+  },
+
+  /* ── 分销（个人中心 · 我的推广） ───────────────────────────────── */
+  /* ── 分销中心（独立外壳，大爷要求不与原站搅在一起） ───────────── */
+  "Distribution center": { en: "Distribution center", zh: "分销中心" },
+  "Track your referrals, commission and payouts in one place.": {
+    en: "Track your referrals, commission and payouts in one place.",
+    zh: "推广、佣金与提现，都在这里统一查看。",
+  },
+  "Back to store": { en: "Back to store", zh: "返回店铺" },
+  Overview: { en: "Overview", zh: "概览" },
+  "My Team": { en: "My Team", zh: "我的团队" },
+  Commissions: { en: "Commissions", zh: "佣金明细" },
+  "Share your link, earn commission": {
+    en: "Share your link, earn commission",
+    zh: "分享你的专属链接，赚取佣金",
+  },
+  "Anyone who registers or places an order through your link is linked to you — repeat purchases count too.":
+    {
+      en: "Anyone who registers or places an order through your link is linked to you — repeat purchases count too.",
+      zh: "有人通过你的链接注册或下单，就会一直归属你——他之后的复购也算你的业绩。",
+    },
+  "Open distribution center": { en: "Open distribution center", zh: "进入分销中心" },
+  "Total orders": { en: "Total orders", zh: "累计订单" },
+  "In progress": { en: "In progress", zh: "进行中" },
+  "Recent orders": { en: "Recent orders", zh: "最近订单" },
+  "No orders yet": { en: "No orders yet", zh: "还没有订单" },
+  "How it works": {
+    en: "How it works",
+    zh: "规则说明",
+  },
+  "Fixed amount per order": { en: "Fixed amount per order", zh: "每单固定金额" },
+  "Download poster": { en: "Download poster", zh: "下载推广海报" },
+  "Distributor tiers": { en: "Distributor tiers", zh: "分销商等级" },
+  "Some rates depend on your distributor tier: a tier-specific rule replaces the general rate for that level. Your tier is shown in the distribution center.":
+    {
+      en: "Some rates depend on your distributor tier: a tier-specific rule replaces the general rate for that level. Your tier is shown in the distribution center.",
+      zh: "部分比例与你的分销商等级有关：等级专用规则会替代该层级的通用比例。你的等级可在分销中心查看。",
+    },
+  "Payee legal name": { en: "Payee legal name", zh: "收款人实名" },
+  "Must match the receiving account holder": {
+    en: "Must match the receiving account holder",
+    zh: "需与收款账户开户人一致",
+  },
+  "Payout method": { en: "Payout method", zh: "收款方式" },
+  Alipay: { en: "Alipay", zh: "支付宝" },
+  "WeChat Pay": { en: "WeChat Pay", zh: "微信" },
+  "Bank transfer": { en: "Bank transfer", zh: "银行转账" },
+  Other: { en: "Other", zh: "其他" },
+  "I have read and agree to the": { en: "I have read and agree to the", zh: "我已阅读并同意" },
+  "— commission, settlement and withdrawal rules.": {
+    en: "— commission, settlement and withdrawal rules.",
+    zh: "——佣金、结算与提现规则。",
+  },
+  "How you earn": {
+    en: "How you earn",
+    zh: "你如何获得佣金",
+  },
+  "Share your link. When someone signs up or places an order through it, that customer is linked to you permanently — and you earn commission on their real, paid orders.":
+    {
+      en: "Share your link. When someone signs up or places an order through it, that customer is linked to you permanently — and you earn commission on their real, paid orders.",
+      zh: "分享你的专属链接：有人通过它注册或下单，这位客户就永久归属你——他真实支付的订单会产生你的佣金。",
+    },
+  "1. Who counts as your customer": {
+    en: "1. Who counts as your customer",
+    zh: "一、谁算你的客户",
+  },
+  "Binding moment": {
+    en: "Binding moment",
+    zh: "绑定时机",
+  },
+  "Whenever someone registers through your link, they are linked to you.": {
+    en: "Whenever someone registers through your link, they are linked to you.",
+    zh: "有人通过你的链接注册，即与你绑定。",
+  },
+  "The link is only recorded at first order — a registration alone does not bind.": {
+    en: "The link is only recorded at first order — a registration alone does not bind.",
+    zh: "链接仅在首次下单时生效，只注册不绑定。",
+  },
+  "Repeat purchases": {
+    en: "Repeat purchases",
+    zh: "复购归属",
+  },
+  "Every later order counts for you automatically, even if the customer orders without your link.":
+    {
+      en: "Every later order counts for you automatically, even if the customer orders without your link.",
+      zh: "他之后的每一次下单都算你的业绩，即使他不通过你的链接进入。",
+    },
+  "Not transferable": {
+    en: "Not transferable",
+    zh: "不可抢绑",
+  },
+  "The platform has enabled re-binding: a customer can be moved to another distributor under review.":
+    {
+      en: "The platform has enabled re-binding: a customer can be moved to another distributor under review.",
+      zh: "平台已开启换绑：客户经审核后可转移到其他分销商名下。",
+    },
+  "Once bound, no other distributor can take the customer away — first bind wins permanently.": {
+    en: "Once bound, no other distributor can take the customer away — first bind wins permanently.",
+    zh: "一旦绑定，其他分销商无法抢走该客户——首次绑定永久有效。",
+  },
+  "Organic customers": {
+    en: "Organic customers",
+    zh: "自然流量",
+  },
+  "Customers who arrive without any referral link belong to nobody and generate no commission.": {
+    en: "Customers who arrive without any referral link belong to nobody and generate no commission.",
+    zh: "没有通过任何推广链接来的客户不归属任何人，也不产生佣金。",
+  },
+  "Attribution window": {
+    en: "Attribution window",
+    zh: "归因有效期",
+  },
+  "A referral link identifies the referrer for {days} days after it is clicked.": {
+    en: "A referral link identifies the referrer for {days} days after it is clicked.",
+    zh: "推广链接在点击后 {days} 天内有效。",
+  },
+  "A referral link never expires until the customer is bound.": {
+    en: "A referral link never expires until the customer is bound.",
+    zh: "推广链接在客户完成绑定前长期有效。",
+  },
+  "2. How commission is calculated": {
+    en: "2. How commission is calculated",
+    zh: "二、佣金如何计算",
+  },
+  "Commission base": {
+    en: "Commission base",
+    zh: "计佣基数",
+  },
+  "The goods actually paid on an order (subtotal minus discounts). Shipping and tax are never included.":
+    {
+      en: "The goods actually paid on an order (subtotal minus discounts). Shipping and tax are never included.",
+      zh: "订单中商品的实付金额（小计减折扣），运费与税费不计入。",
+    },
+  Levels: {
+    en: "Levels",
+    zh: "返佣层级",
+  },
+  "Commission is paid up the chain. Only the first {levels} levels are paid; higher levels are still recorded but earn nothing.":
+    {
+      en: "Commission is paid up the chain. Only the first {levels} levels are paid; higher levels are still recorded but earn nothing.",
+      zh: "佣金沿关系链逐级分配：只返前 {levels} 级，更上层级仅记录关系、不返佣。",
+    },
+  "No commission rules are configured yet — please contact support.": {
+    en: "No commission rules are configured yet — please contact support.",
+    zh: "尚未配置佣金规则，请联系客服。",
+  },
+  "your direct customer": {
+    en: "your direct customer",
+    zh: "你的直接客户",
+  },
+  "Total cap": {
+    en: "Total cap",
+    zh: "总比例上限",
+  },
+  "All levels combined never exceed {cap}% of an order — the platform configures this to stay within gross margin.":
+    {
+      en: "All levels combined never exceed {cap}% of an order — the platform configures this to stay within gross margin.",
+      zh: "所有层级合计不超过订单金额的 {cap}%，平台据此控制在毛利范围内。",
+    },
+  "currently configured total": {
+    en: "currently configured total",
+    zh: "当前配置合计",
+  },
+  "Product rules": {
+    en: "Product rules",
+    zh: "商品级规则",
+  },
+  "Some categories or products have their own rates; those override the global rates above.": {
+    en: "Some categories or products have their own rates; those override the global rates above.",
+    zh: "部分分类或商品设有单独比例，优先于上面的全局比例。",
+  },
+  "Your own orders": {
+    en: "Your own orders",
+    zh: "自购",
+  },
+  "Your own purchases can also earn commission.": {
+    en: "Your own purchases can also earn commission.",
+    zh: "你自己下单也可获得佣金。",
+  },
+  "You do not earn level-1 commission on your own purchases.": {
+    en: "You do not earn level-1 commission on your own purchases.",
+    zh: "你自己下单不拿一级佣金。",
+  },
+  "Your upline still earns on your purchases.": {
+    en: "Your upline still earns on your purchases.",
+    zh: "你的上级仍可从你的订单获得佣金。",
+  },
+  "Your upline does not earn on your purchases either.": {
+    en: "Your upline does not earn on your purchases either.",
+    zh: "你的上级也不从你的订单获得佣金。",
+  },
+  "3. When commission becomes withdrawable": {
+    en: "3. When commission becomes withdrawable",
+    zh: "三、佣金何时可提现",
+  },
+  "Paid order": {
+    en: "Paid order",
+    zh: "订单支付",
+  },
+  "As soon as an order is paid, the commission is recorded as pending.": {
+    en: "As soon as an order is paid, the commission is recorded as pending.",
+    zh: "订单一经支付，佣金即记为「在途」。",
+  },
+  "Once the buyer confirms delivery — or {days} days after payment — the commission becomes withdrawable.":
+    {
+      en: "Once the buyer confirms delivery — or {days} days after payment — the commission becomes withdrawable.",
+      zh: "买家确认收货后（或支付满 {days} 天自动）转为可提现。",
+    },
+  Refunds: {
+    en: "Refunds",
+    zh: "退款冲正",
+  },
+  "If the order is refunded or cancelled, the commission is reversed. Amounts already withdrawable are deducted back from your balance.":
+    {
+      en: "If the order is refunded or cancelled, the commission is reversed. Amounts already withdrawable are deducted back from your balance.",
+      zh: "订单退款或取消时佣金冲正；已转为可提现的部分会从余额中扣回。",
+    },
+  "4. Withdrawals": {
+    en: "4. Withdrawals",
+    zh: "四、提现",
+  },
+  Minimum: {
+    en: "Minimum",
+    zh: "起提金额",
+  },
+  "The minimum withdrawal is {amount}.": {
+    en: "The minimum withdrawal is {amount}.",
+    zh: "最低提现金额为 {amount}。",
+  },
+  Process: {
+    en: "Process",
+    zh: "流程",
+  },
+  "Submit a request → the platform reviews it → the payout is made offline and marked as paid.": {
+    en: "Submit a request → the platform reviews it → the payout is made offline and marked as paid.",
+    zh: "提交申请 → 平台审核 → 线下打款并标记已打款。",
+  },
+  "One at a time": {
+    en: "One at a time",
+    zh: "在途限制",
+  },
+  "Only one withdrawal request can be in progress at a time.": {
+    en: "Only one withdrawal request can be in progress at a time.",
+    zh: "同一时间只能有一笔在途提现申请。",
+  },
+  "5. Fair play": {
+    en: "5. Fair play",
+    zh: "五、合规与公平",
+  },
+  "Real orders only": {
+    en: "Real orders only",
+    zh: "只按真实订单",
+  },
+  "Commission is only ever generated by real paid orders. There is no bonus for recruiting people, and never any fee to join.":
+    {
+      en: "Commission is only ever generated by real paid orders. There is no bonus for recruiting people, and never any fee to join.",
+      zh: "佣金只来自真实已支付的订单；发展下线不发固定奖金，也不需要缴纳任何加盟费用。",
+    },
+  "No self-dealing": {
+    en: "No self-dealing",
+    zh: "禁止自买自返与刷单",
+  },
+  "Faking orders, buying through your own link to farm commission, or bulk-registering accounts will have commission cancelled and the account banned.":
+    {
+      en: "Faking orders, buying through your own link to farm commission, or bulk-registering accounts will have commission cancelled and the account banned.",
+      zh: "伪造订单、自我下单套取佣金、批量注册账号等行为将被取消佣金并封禁账号。",
+    },
+  "Data privacy": {
+    en: "Data privacy",
+    zh: "数据与隐私",
+  },
+  "You see your own team's orders only, with phone numbers and addresses masked. Full data is available to the platform alone.":
+    {
+      en: "You see your own team's orders only, with phone numbers and addresses masked. Full data is available to the platform alone.",
+      zh: "你只能看到自己团队的订单，且手机号与地址均已脱敏；完整数据仅平台可见。",
+    },
+  "Change sign-in email": { en: "Change sign-in email", zh: "修改登录邮箱" },
+  "Current sign-in email": { en: "Current sign-in email", zh: "当前登录邮箱" },
+  "New email": { en: "New email", zh: "新邮箱" },
+  "Current password": { en: "Current password", zh: "当前密码" },
+  "Enter your current password to confirm": {
+    en: "Enter your current password to confirm",
+    zh: "请输入当前密码以确认",
+  },
+  "Please enter a valid new email address": {
+    en: "Please enter a valid new email address",
+    zh: "请输入有效的新邮箱地址",
+  },
+  "Sign-in email updated — other devices will need to sign in again with the new email": {
+    en: "Sign-in email updated — other devices will need to sign in again with the new email",
+    zh: "登录邮箱已更新——其他设备需要用新邮箱重新登录",
+  },
+  "Failed to update, please try again later": {
+    en: "Failed to update, please try again later",
+    zh: "更新失败，请稍后重试",
+  },
+
+  "Your sign-in email is your account ID. Changes require your current password; once updated, you'll be signed out on other devices and must sign in again with the new email.":
+    {
+      en: "Your sign-in email is your account ID. Changes require your current password; once updated, you'll be signed out on other devices and must sign in again with the new email.",
+      zh: "登录邮箱就是你的账号 ID。修改需要输入当前密码；更新后其他设备会被登出，需要用新邮箱重新登录。",
+    },
+  "To change your sign-in email, use the Change sign-in email section below.": {
+    en: "To change your sign-in email, use the Change sign-in email section below.",
+    zh: "如需更换登录邮箱，请使用下方「修改登录邮箱」卡片。",
+  },
+  "Enter admin console": { en: "Enter admin console", zh: "进入管理后台" },
+  "You are signed in with a staff account.": {
+    en: "You are signed in with a staff account.",
+    zh: "当前登录的是员工账号。",
+  },
+  "Open admin console": { en: "Open admin console", zh: "打开管理后台" },
+
+  "Use the menu to view your orders, addresses, coupons and notifications.": {
+    en: "Use the menu to view your orders, addresses, coupons and notifications.",
+    zh: "订单、收货地址、优惠券与消息通知见左侧菜单。",
+  },
+  "Copy failed, please copy manually": {
+    en: "Copy failed, please copy manually",
+    zh: "复制失败，请手动复制",
+  },
+  "You are a distributor now — your commission is accruing.": {
+    en: "You are a distributor now — your commission is accruing.",
+    zh: "你已成为分销商，佣金已在统计中。",
+  },
+  "My Promotion": { en: "My Promotion", zh: "我的推广" },
+  Promote: { en: "Promote", zh: "推广" },
+  "Referrals, commissions and withdrawals at a glance.": {
+    en: "Referrals, commissions and withdrawals at a glance.",
+    zh: "推广、佣金与提现，一屏看完。",
+  },
+  "Become a distributor": { en: "Become a distributor", zh: "成为分销商" },
+  "Share your link — when someone signs up or orders through it, you become a distributor automatically.":
+    {
+      en: "Share your link — when someone signs up or orders through it, you become a distributor automatically.",
+      zh: "分享你的推广链接：只要有人通过它注册或下单，你就会自动成为分销商。",
+    },
+  "Available balance": { en: "Available balance", zh: "可提现余额" },
+  Frozen: { en: "Frozen", zh: "冻结中" },
+  "Total settled": { en: "Total settled", zh: "累计已结算" },
+  "Pending commission": { en: "Pending commission", zh: "在途佣金" },
+  "My promo code": { en: "My promo code", zh: "我的推广码" },
+  "Invite link": { en: "Invite link", zh: "邀请链接" },
+  "Promotion QR code": { en: "Promotion QR code", zh: "推广二维码" },
+  "Scan to open my promotion page": {
+    en: "Scan to open my promotion page",
+    zh: "扫码打开我的推广页",
+  },
+  "Team overview": { en: "Team overview", zh: "团队概览" },
+  "Direct customers": { en: "Direct customers", zh: "直接客户" },
+  "Team size": { en: "Team size", zh: "团队人数" },
+  "Promotion tools": { en: "Promotion tools", zh: "推广工具" },
+  "Customers you personally referred.": {
+    en: "Customers you personally referred.",
+    zh: "你亲自邀请来的客户。",
+  },
+  "Orders from your direct customers.": {
+    en: "Orders from your direct customers.",
+    zh: "直接客户产生的订单。",
+  },
+  "People who signed up through your link.": {
+    en: "People who signed up through your link.",
+    zh: "通过你的链接注册的人。",
+  },
+  "Every commission you have earned.": {
+    en: "Every commission you have earned.",
+    zh: "你赚到的每一笔佣金。",
+  },
+  "Request a payout and track its status.": {
+    en: "Request a payout and track its status.",
+    zh: "申请提现并查看处理进度。",
+  },
+  "Daily performance of your whole team.": {
+    en: "Daily performance of your whole team.",
+    zh: "整个团队的每日业绩。",
+  },
+  "Copy failed": { en: "Copy failed", zh: "复制失败，请手动复制" },
+
+  /* ── 分销 · 我的客户 / 来源 ────────────────────────────────────── */
+  "My Customers": { en: "My Customers", zh: "我的客户" },
+  Customer: { en: "Customer", zh: "客户" },
+  Customers: { en: "Customers", zh: "客户数" },
+  Source: { en: "Source", zh: "来源" },
+  "Bound at": { en: "Bound at", zh: "绑定时间" },
+  "Total spent": { en: "Total spent", zh: "累计消费" },
+  "My commission": { en: "My commission", zh: "我的佣金" },
+  "Search by nickname or email": { en: "Search by nickname or email", zh: "按昵称或邮箱搜索" },
+  "No customers yet": { en: "No customers yet", zh: "还没有客户" },
+  "No matching customers": { en: "No matching customers", zh: "没有匹配的客户" },
+  "Try another keyword.": { en: "Try another keyword.", zh: "换个关键词试试。" },
+  "Share your promotion link to get your first customer.": {
+    en: "Share your promotion link to get your first customer.",
+    zh: "分享推广链接，邀请你的第一位客户。",
+  },
+  Registered: { en: "Registered", zh: "注册绑定" },
+  "First order": { en: "First order", zh: "首次下单" },
+  Link: { en: "Link", zh: "推广链接" },
+  "QR code": { en: "QR code", zh: "二维码" },
+  "Invite code": { en: "Invite code", zh: "邀请码" },
+
+  /* ── 分销 · 我的订单 ───────────────────────────────────────────── */
+  Buyer: { en: "Buyer", zh: "买家" },
+  Region: { en: "Region", zh: "地区" },
+  Status: { en: "Status", zh: "状态" },
+  Amount: { en: "Amount", zh: "金额" },
+  Time: { en: "Time", zh: "时间" },
+  "Only orders from your direct customers are listed — sub-team orders are summarised only.": {
+    en: "Only orders from your direct customers are listed — sub-team orders are summarised only.",
+    zh: "这里只列出直接客户的订单；下级团队的订单仅做汇总。",
+  },
+  "No orders from your direct customers yet.": {
+    en: "No orders from your direct customers yet.",
+    zh: "直接客户还没有产生订单。",
+  },
+
+  /* ── 分销 · 我的下级 ───────────────────────────────────────────── */
+  "My Subordinates": { en: "My Subordinates", zh: "我的下级" },
+  "Direct subordinates": { en: "Direct subordinates", zh: "直接下级" },
+  "Indirect subordinates": { en: "Indirect subordinates", zh: "间接下级" },
+  "Joined at": { en: "Joined at", zh: "加入时间" },
+  Distributor: { en: "Distributor", zh: "分销商" },
+  "You have no direct subordinates yet.": {
+    en: "You have no direct subordinates yet.",
+    zh: "你还没有直接下级。",
+  },
+  "Indirect subordinates are summarised only — their customer and order details are not shown.": {
+    en: "Indirect subordinates are summarised only — their customer and order details are not shown.",
+    zh: "间接下级只做汇总，不展示其客户与订单明细。",
+  },
+
+  /* ── 分销 · 佣金明细 ───────────────────────────────────────────── */
+  "Commission Details": { en: "Commission Details", zh: "佣金明细" },
+  "Order amount": { en: "Order amount", zh: "订单金额" },
+  Level: { en: "Level", zh: "层级" },
+  "Level {n}": { en: "Level {n}", zh: "第 {n} 级" },
+  Rate: { en: "Rate", zh: "比例" },
+  Commission: { en: "Commission", zh: "佣金" },
+  "Converted to CNY": { en: "Converted to CNY", zh: "折合人民币" },
+  "Settled at": { en: "Settled at", zh: "结算时间" },
+  "Pending settlement": { en: "Pending settlement", zh: "待结算" },
+  Settled: { en: "Settled", zh: "已结算" },
+  Reversed: { en: "Reversed", zh: "已冲正" },
+  "No commission records yet.": { en: "No commission records yet.", zh: "还没有佣金记录。" },
+  "Commissions appear here once an order is paid.": {
+    en: "Commissions appear here once an order is paid.",
+    zh: "订单支付后，佣金会显示在这里。",
+  },
+
+  /* ── 分销 · 提现 ───────────────────────────────────────────────── */
+  Withdrawals: { en: "Withdrawals", zh: "提现管理" },
+  "Minimum withdrawal": { en: "Minimum withdrawal", zh: "最低提现金额" },
+  "Minimum withdrawal: {amount}": {
+    en: "Minimum withdrawal: {amount}",
+    zh: "最低提现金额：{amount}",
+  },
+  "Request a withdrawal": { en: "Request a withdrawal", zh: "申请提现" },
+  "Payout account": { en: "Payout account", zh: "收款账户" },
+  "Alipay account or bank card number": {
+    en: "Alipay account or bank card number",
+    zh: "支付宝账号或银行卡号",
+  },
+  Remark: { en: "Remark", zh: "备注" },
+  Optional: { en: "Optional", zh: "选填" },
+  Submitting: { en: "Submitting", zh: "提交中…" },
+  "Enter an amount": { en: "Enter an amount", zh: "请输入提现金额" },
+  "Amount must be at least {amount}": {
+    en: "Amount must be at least {amount}",
+    zh: "提现金额不能低于 {amount}",
+  },
+  "Amount exceeds your available balance": {
+    en: "Amount exceeds your available balance",
+    zh: "提现金额超过可提现余额",
+  },
+  "Withdrawal request submitted": {
+    en: "Withdrawal request submitted",
+    zh: "提现申请已提交",
+  },
+  "My withdrawal records": { en: "My withdrawal records", zh: "我的提现记录" },
+  "Account (masked)": { en: "Account (masked)", zh: "收款账户（尾号）" },
+  "Requested at": { en: "Requested at", zh: "申请时间" },
+  "Reviewed at": { en: "Reviewed at", zh: "审核时间" },
+  "Paid at": { en: "Paid at", zh: "打款时间" },
+  "Review note": { en: "Review note", zh: "审核备注" },
+  "No withdrawal records yet.": {
+    en: "No withdrawal records yet.",
+    zh: "还没有提现记录。",
+  },
+  "Pending review": { en: "Pending review", zh: "待审核" },
+  Approved: { en: "Approved", zh: "已通过" },
+  "Paid out": { en: "Paid out", zh: "已打款" },
+  Rejected: { en: "Rejected", zh: "已驳回" },
+
+  /* ── 分销 · 团队业绩 ───────────────────────────────────────────── */
+  "Team Performance": { en: "Team Performance", zh: "团队业绩" },
+  "Last {n} days": { en: "Last {n} days", zh: "最近 {n} 天" },
+  "Team orders": { en: "Team orders", zh: "团队订单数" },
+  "Team sales": { en: "Team sales", zh: "团队销售额" },
+  "Daily breakdown": { en: "Daily breakdown", zh: "每日明细" },
+  Date: { en: "Date", zh: "日期" },
+  "No performance data for this period.": {
+    en: "No performance data for this period.",
+    zh: "该时间段内还没有业绩数据。",
   },
 };
 
