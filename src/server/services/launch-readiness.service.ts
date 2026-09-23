@@ -70,8 +70,12 @@ export async function getLaunchReadiness(): Promise<LaunchReadiness> {
 
   /* ① 收款能力（阻塞级）：没有「已启用 + 已配置 + 网关就绪」的渠道 = 顾客付不了款。
      预留级渠道 configured 为真但 ready 恒为 false（网关未接入），文案要区分这两种情况，
-     否则运营会以为「填了密钥就能收钱」。 */
-  const payable = channels.filter((c) => c.enabled && c.ready);
+     否则运营会以为「填了密钥就能收钱」。
+     **mock 不算真实收款**：「模拟支付」本地演示可用，但它不产生任何真实资金流，
+     把它算成就绪会造成伪绿（生产环境下 mock 会被守卫挡住）。 */
+  const payable = channels.filter((c) => c.enabled && c.ready && c.code !== "mock");
+  const mockOnly =
+    payable.length === 0 && channels.some((c) => c.enabled && c.ready && c.code === "mock");
   if (payable.length > 0) {
     items.push({
       key: "payment",
@@ -86,8 +90,9 @@ export async function getLaunchReadiness(): Promise<LaunchReadiness> {
       key: "payment",
       label: "收款通道",
       status: "blocked",
-      detail:
-        configuredButNotReady.length > 0
+      detail: mockOnly
+        ? "当前只有「模拟支付」可用（不产生真实资金流）—— 本地演示无妨，上线必须接入真实渠道"
+        : configuredButNotReady.length > 0
           ? `${configuredButNotReady.map((c) => c.name).join("、")} 已填配置但网关未就绪${configuredButNotReady.map((c) => (c.readyNote ? `（${c.readyNote}）` : "")).join("")}`
           : "没有任何可收款的支付渠道 —— 顾客在前台看不到可用付款方式，收到订单也收不到钱",
       action: "在「支付渠道」启用并填好密钥；预留渠道（支付宝/微信/银行卡/PayPal）需完成网关接入",
