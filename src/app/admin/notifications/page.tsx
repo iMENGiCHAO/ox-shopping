@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
+import { useT } from "@/components/admin/lang-provider";
 import { apiFetch } from "@/lib/fetch-client";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +30,7 @@ interface AdminNotification {
 
 /** 后台消息中心 — 前端动作（新订单/退款/新用户/补货提醒）的站内反馈，不静默 */
 export default function AdminNotificationsPage() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<AdminNotification[]>([]);
   const [unread, setUnread] = useState(0);
@@ -50,11 +52,11 @@ export default function AdminNotificationsPage() {
       setRows(res.notifications ?? []);
       setUnread(res.unreadCount ?? 0);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载失败");
+      toast.error(err instanceof Error ? err.message : t("Failed to load"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -67,7 +69,7 @@ export default function AdminNotificationsPage() {
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, isUnread: false } : r)));
       setUnread((u) => Math.max(0, u - 1));
     } catch {
-      toast.error("操作失败");
+      toast.error(t("操作失败"));
     } finally {
       setBusyId(null);
     }
@@ -78,9 +80,9 @@ export default function AdminNotificationsPage() {
       await apiFetch("/api/admin/notifications", { method: "PATCH" });
       setRows((rs) => rs.map((r) => ({ ...r, isUnread: false })));
       setUnread(0);
-      toast.success("已全部标记为已读");
+      toast.success(t("已全部标记为已读"));
     } catch {
-      toast.error("操作失败");
+      toast.error(t("操作失败"));
     }
   };
 
@@ -105,18 +107,18 @@ export default function AdminNotificationsPage() {
         const target = rows.find((r) => r.id === confirm.id);
         setRows((rs) => rs.filter((r) => r.id !== confirm.id));
         if (target?.isUnread) setUnread((u) => Math.max(0, u - 1));
-        toast.success("已删除该消息");
+        toast.success(t("已删除该消息"));
       } else if (confirm.mode === "readOnly") {
         setRows((rs) => rs.filter((r) => r.isUnread));
-        toast.success(`已清空 ${deleted} 条已读消息`);
+        toast.success(t("已清空 {n} 条已读消息").replace("{n}", String(deleted)));
       } else {
         setRows([]);
         setUnread(0);
-        toast.success(`已清空全部 ${deleted} 条消息`);
+        toast.success(t("已清空全部 {n} 条消息").replace("{n}", String(deleted)));
       }
       setConfirm(null);
     } catch {
-      toast.error("删除失败");
+      toast.error(t("删除失败"));
     } finally {
       setConfirmBusy(false);
     }
@@ -125,31 +127,33 @@ export default function AdminNotificationsPage() {
   const typeIcon = (type: string) => {
     switch (type) {
       case "order":
-        return "订单";
+        return t("Orders");
       case "refund":
-        return "退款";
+        return t("Refunds");
       default:
-        return "系统";
+        return t("系统");
     }
   };
 
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="消息中心"
-        description="前端客户动作（新订单 / 退款申请 / 新用户注册 / 补货提醒）的站内反馈，确保运营信息不静默"
+        title={t("消息中心")}
+        description={t(
+          "前端客户动作（新订单 / 退款申请 / 新用户注册 / 补货提醒）的站内反馈，确保运营信息不静默",
+        )}
         actions={
           <div className="flex items-center gap-2">
             {unread > 0 ? (
               <Button size="sm" variant="outline" onClick={() => void markAll()}>
                 <CheckCheck className="h-3.5 w-3.5" />
-                全部已读
+                {t("全部已读")}
               </Button>
             ) : null}
             {rows.some((r) => !r.isUnread) ? (
               <Button size="sm" variant="outline" onClick={() => setConfirm({ mode: "readOnly" })}>
                 <Trash2 className="h-3.5 w-3.5" />
-                清空已读
+                {t("清空已读")}
               </Button>
             ) : null}
             {rows.length > 0 ? (
@@ -160,7 +164,7 @@ export default function AdminNotificationsPage() {
                 onClick={() => setConfirm({ mode: "all" })}
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                清空全部
+                {t("清空全部")}
               </Button>
             ) : null}
           </div>
@@ -178,8 +182,8 @@ export default function AdminNotificationsPage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Inbox className="h-6 w-6" />}
-          title="暂无消息"
-          description="安全提醒、找回密码申请等系统事件会出现在这里"
+          title={t("暂无消息")}
+          description={t("安全提醒、找回密码申请等系统事件会出现在这里")}
         />
       ) : (
         <Card>
@@ -198,7 +202,7 @@ export default function AdminNotificationsPage() {
                     {n.isUnread ? (
                       <span
                         className="h-2 w-2 shrink-0 rounded-full bg-primary"
-                        aria-label="未读"
+                        aria-label={t("未读")}
                       />
                     ) : (
                       <span className="h-2 w-2 shrink-0 rounded-full bg-border" aria-hidden />
@@ -234,7 +238,7 @@ export default function AdminNotificationsPage() {
                           href={n.link}
                           className="text-[12px] font-medium text-primary hover:underline"
                         >
-                          去处理 →
+                          {t("去处理 →")}
                         </Link>
                       ) : null}
                       {n.isUnread ? (
@@ -244,7 +248,7 @@ export default function AdminNotificationsPage() {
                           disabled={busyId === n.id}
                           className="text-[12px] text-muted-foreground underline-offset-2 hover:underline"
                         >
-                          标为已读
+                          {t("标为已读")}
                         </button>
                       ) : null}
                       <button
@@ -252,7 +256,7 @@ export default function AdminNotificationsPage() {
                         onClick={() => setConfirm({ mode: "single", id: n.id, title: n.title })}
                         className="text-[12px] text-muted-foreground underline-offset-2 hover:text-destructive hover:underline"
                       >
-                        删除
+                        {t("Delete")}
                       </button>
                     </div>
                   </div>
@@ -271,19 +275,19 @@ export default function AdminNotificationsPage() {
         }}
         title={
           confirm?.mode === "single"
-            ? "删除这条消息？"
+            ? t("删除这条消息？")
             : confirm?.mode === "readOnly"
-              ? "清空全部已读消息？"
-              : "清空所有消息？"
+              ? t("清空全部已读消息？")
+              : t("清空所有消息？")
         }
         description={
           confirm?.mode === "single"
-            ? `即将删除「${confirm.title ?? ""}」，删除后无法恢复。`
+            ? t("即将删除「{name}」，删除后无法恢复。").replace("{name}", confirm.title ?? "")
             : confirm?.mode === "readOnly"
-              ? "将删除所有已读消息（未读消息保留），删除后无法恢复。"
-              : "将删除全部消息（含未读），删除后无法恢复，请谨慎操作。"
+              ? t("将删除所有已读消息（未读消息保留），删除后无法恢复。")
+              : t("将删除全部消息（含未读），删除后无法恢复，请谨慎操作。")
         }
-        confirmText="删除"
+        confirmText={t("Delete")}
         destructive
         loading={confirmBusy}
         onConfirm={() => void doDelete()}

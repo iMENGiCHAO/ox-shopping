@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { useT } from "@/components/admin/lang-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +30,7 @@ interface RiskResponse {
   counts: Record<string, number>;
 }
 
+/** 下面两项的 label 为词典键（渲染时经 t() 解析），不是直接展示的文案 */
 const KIND_LABELS: Record<string, string> = {
   self_purchase: "自购返佣",
   negative_balance: "负余额挂账",
@@ -37,7 +39,10 @@ const KIND_LABELS: Record<string, string> = {
   over_level_rule: "超层级规则",
 };
 
-const SEVERITY: Record<RiskFinding["severity"], { label: string; variant: "destructive" | "warning" | "secondary" }> = {
+const SEVERITY: Record<
+  RiskFinding["severity"],
+  { label: string; variant: "destructive" | "warning" | "secondary" }
+> = {
   high: { label: "高", variant: "destructive" },
   medium: { label: "中", variant: "warning" },
   low: { label: "低", variant: "secondary" },
@@ -51,6 +56,7 @@ const SEVERITY: Record<RiskFinding["severity"], { label: string; variant: "destr
  * 并按严重程度排序，运营每天扫一眼就能发现异常。
  */
 export default function AdminDistributionRiskPage() {
+  const t = useT();
   const [data, setData] = React.useState<RiskResponse | null>(null);
   const [loading, setLoading] = React.useState(true);
 
@@ -59,11 +65,11 @@ export default function AdminDistributionRiskPage() {
     try {
       setData(await apiFetch<RiskResponse>("/api/admin/distribution/risk"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载风控视图失败");
+      toast.error(err instanceof Error ? err.message : t("加载风控视图失败"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   React.useEffect(() => {
     void load();
@@ -77,12 +83,14 @@ export default function AdminDistributionRiskPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="风控视图"
-        description="自购返佣、负余额挂账、高频退款、大额在途提现、永不生效的超层级规则 —— 按严重程度排序，建议每天扫一眼"
+        title={t("风控视图")}
+        description={t(
+          "自购返佣、负余额挂账、高频退款、大额在途提现、永不生效的超层级规则 —— 按严重程度排序，建议每天扫一眼",
+        )}
         actions={
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            刷新
+            {t("刷新")}
           </Button>
         }
       />
@@ -91,10 +99,8 @@ export default function AdminDistributionRiskPage() {
         {Object.entries(KIND_LABELS).map(([kind, label]) => (
           <Card key={kind}>
             <CardContent className="p-4">
-              <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-1 text-xl font-semibold tabular-nums">
-                {data?.counts?.[kind] ?? 0}
-              </p>
+              <p className="text-xs text-muted-foreground">{t(label)}</p>
+              <p className="mt-1 text-xl font-semibold tabular-nums">{data?.counts?.[kind] ?? 0}</p>
             </CardContent>
           </Card>
         ))}
@@ -104,10 +110,12 @@ export default function AdminDistributionRiskPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <ShieldAlert className="h-4 w-4" />
-            异常信号
+            {t("异常信号")}
           </CardTitle>
           <CardDescription>
-            自购返佣与负余额属于「钱已经算错」的高优信号；高频退款与最层级规则属于「需要复核」。
+            {t(
+              "自购返佣与负余额属于「钱已经算错」的高优信号；高频退款与最层级规则属于「需要复核」。",
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -120,8 +128,10 @@ export default function AdminDistributionRiskPage() {
           ) : findings.length === 0 ? (
             <EmptyState
               icon={<ShieldAlert className="h-5 w-5" />}
-              title="暂无异常信号"
-              description="当前没有检出风险项：没有自购返佣、没有负余额账户，也没有超层级规则。"
+              title={t("暂无异常信号")}
+              description={t(
+                "当前没有检出风险项：没有自购返佣、没有负余额账户，也没有超层级规则。",
+              )}
             />
           ) : (
             <ul className="divide-y divide-border">
@@ -130,7 +140,7 @@ export default function AdminDistributionRiskPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Badge variant={SEVERITY[f.severity].variant}>
-                        {SEVERITY[f.severity].label}
+                        {t(SEVERITY[f.severity].label)}
                       </Badge>
                       {f.title}
                     </div>

@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { DataTableActions } from "@/components/admin/data-table-actions";
+import { useT } from "@/components/admin/lang-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +62,7 @@ type QueryParam = { userId: string } | { q: string };
  * 而手动搜索是「找人」，后者再改 URL 会污染浏览器历史。
  */
 export default function AdminRelationsPage() {
+  const t = useT();
   const [query, setQuery] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [searched, setSearched] = React.useState(false);
@@ -68,26 +70,29 @@ export default function AdminRelationsPage() {
   const [lastParam, setLastParam] = React.useState<QueryParam | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  const run = React.useCallback(async (param: QueryParam) => {
-    const params = new URLSearchParams(
-      "userId" in param ? { userId: param.userId } : { q: param.q },
-    );
-    setLoading(true);
-    setLastParam(param);
-    try {
-      const res = await apiFetch<RelationsResponse>(
-        `/api/admin/distribution/relations?${params.toString()}`,
+  const run = React.useCallback(
+    async (param: QueryParam) => {
+      const params = new URLSearchParams(
+        "userId" in param ? { userId: param.userId } : { q: param.q },
       );
-      setRelations(res.relations ?? null);
-      setSearched(true);
-    } catch (err) {
-      setRelations(null);
-      setSearched(true);
-      toast.error(err instanceof Error ? err.message : "查询关系链失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      setLoading(true);
+      setLastParam(param);
+      try {
+        const res = await apiFetch<RelationsResponse>(
+          `/api/admin/distribution/relations?${params.toString()}`,
+        );
+        setRelations(res.relations ?? null);
+        setSearched(true);
+      } catch (err) {
+        setRelations(null);
+        setSearched(true);
+        toast.error(err instanceof Error ? err.message : t("查询关系链失败"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t],
+  );
 
   // 从分销商列表跳进来时带 ?userId=，首屏直接出结果，省一次手动查询
   React.useEffect(() => {
@@ -105,7 +110,7 @@ export default function AdminRelationsPage() {
   const search = () => {
     const q = query.trim();
     if (!q) {
-      toast.error("请输入邮箱或推广码");
+      toast.error(t("请输入邮箱或推广码"));
       return;
     }
     void run({ q });
@@ -130,10 +135,10 @@ export default function AdminRelationsPage() {
         method: "POST",
         body: JSON.stringify({ bindId: bind.id, note: "管理员在关系链页解绑" }),
       });
-      toast.success("已解除绑定");
+      toast.success(t("已解除绑定"));
       if (lastParam) await run(lastParam);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "解绑失败");
+      toast.error(err instanceof Error ? err.message : t("解绑失败"));
     } finally {
       setBusy(false);
     }
@@ -144,8 +149,10 @@ export default function AdminRelationsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="关系链"
-        description="按邮箱或推广码查询某人的分销身份、上级链与团队规模；也支持 URL 直接带 ?userId= 查询"
+        title={t("关系链")}
+        description={t(
+          "按邮箱或推广码查询某人的分销身份、上级链与团队规模；也支持 URL 直接带 ?userId= 查询",
+        )}
         actions={
           <Button
             variant="outline"
@@ -153,7 +160,7 @@ export default function AdminRelationsPage() {
             disabled={!lastParam || loading}
           >
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            刷新
+            {t("刷新")}
           </Button>
         }
       />
@@ -168,13 +175,13 @@ export default function AdminRelationsPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") search();
               }}
-              placeholder="输入邮箱或推广码"
+              placeholder={t("输入邮箱或推广码")}
               className="h-10 w-80 pl-8"
             />
           </div>
           <Button className="h-10" onClick={search} disabled={loading}>
             <Search className="h-4 w-4" />
-            查询
+            {t("查询")}
           </Button>
         </CardContent>
       </Card>
@@ -184,29 +191,40 @@ export default function AdminRelationsPage() {
       ) : !searched ? (
         <EmptyState
           icon={<Network className="h-6 w-6" />}
-          title="输入邮箱或推广码开始查询"
-          description="邮箱不区分大小写；推广码请填完整编码（如 A1B2C3）"
+          title={t("输入邮箱或推广码开始查询")}
+          description={t("邮箱不区分大小写；推广码请填完整编码（如 A1B2C3）")}
         />
       ) : !user ? (
         <EmptyState
           icon={<UserRound className="h-6 w-6" />}
-          title="查不到该用户"
-          description="没有匹配的邮箱或推广码。确认推广码是否填全，或从「分销商」列表点「查看关系链」进入"
+          title={t("查不到该用户")}
+          description={t(
+            "没有匹配的邮箱或推广码。确认推广码是否填全，或从「分销商」列表点「查看关系链」进入",
+          )}
         />
       ) : (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard
-              label="分销身份"
-              value={user.isDistributor ? "分销商" : "普通客户"}
+              label={t("分销身份")}
+              value={user.isDistributor ? t("分销商") : t("普通客户")}
               icon={Share2}
               tone={user.isDistributor ? "info" : "default"}
             />
-            <StatCard label="当前层级" value={user.distLevel} icon={Network} hint="1 = 最上层" />
-            <StatCard label="直接下级数" value={relations?.directCount ?? 0} icon={UserRound} />
             <StatCard
-              label="团队人数"
-              hint="含间接下级（闭包表全量）"
+              label={t("当前层级")}
+              value={user.distLevel}
+              icon={Network}
+              hint={t("1 = 最上层")}
+            />
+            <StatCard
+              label={t("直接下级数")}
+              value={relations?.directCount ?? 0}
+              icon={UserRound}
+            />
+            <StatCard
+              label={t("团队人数")}
+              hint={t("含间接下级（闭包表全量）")}
               value={relations?.teamCount ?? 0}
               icon={Network}
             />
@@ -217,18 +235,18 @@ export default function AdminRelationsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <UserRound className="h-4 w-4 text-muted-foreground" />
-                分销身份
+                {t("分销身份")}
               </CardTitle>
-              <CardDescription>该用户的账号信息与推广码</CardDescription>
+              <CardDescription>{t("该用户的账号信息与推广码")}</CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
-              <div className="text-muted-foreground">昵称</div>
-              <div className="break-all">{user.name || "（未设置）"}</div>
-              <div className="text-muted-foreground">邮箱</div>
+              <div className="text-muted-foreground">{t("昵称")}</div>
+              <div className="break-all">{user.name || t("（未设置）")}</div>
+              <div className="text-muted-foreground">{t("Email")}</div>
               <div className="break-all">{user.email}</div>
-              <div className="text-muted-foreground">分销商</div>
-              <div>{user.isDistributor ? "是" : "否"}</div>
-              <div className="text-muted-foreground">推广码</div>
+              <div className="text-muted-foreground">{t("分销商")}</div>
+              <div>{user.isDistributor ? t("是") : t("否")}</div>
+              <div className="text-muted-foreground">{t("推广码")}</div>
               <div>
                 {user.referralCode ? (
                   <Badge variant="secondary" className="font-mono">
@@ -244,9 +262,9 @@ export default function AdminRelationsPage() {
           {/* 上级链 */}
           <Card>
             <CardHeader>
-              <CardTitle>上级链</CardTitle>
+              <CardTitle>{t("上级链")}</CardTitle>
               <CardDescription>
-                depth 1 是他的直接推荐人，数字越大越靠上；自然流量注册则整条链为空
+                {t("depth 1 是他的直接推荐人，数字越大越靠上；自然流量注册则整条链为空")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -272,7 +290,7 @@ export default function AdminRelationsPage() {
                 </ol>
               ) : (
                 <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  没有上级：该用户是自然流量注册（或上级账号已注销）。
+                  {t("没有上级：该用户是自然流量注册（或上级账号已注销）。")}
                 </p>
               )}
             </CardContent>
@@ -283,10 +301,10 @@ export default function AdminRelationsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Link2 className="h-4 w-4 text-muted-foreground" />
-                他的绑定上级
+                {t("他的绑定上级")}
               </CardTitle>
               <CardDescription>
-                作为客户，他当前的订单归属给谁；解绑只影响后续订单，历史佣金不动
+                {t("作为客户，他当前的订单归属给谁；解绑只影响后续订单，历史佣金不动")}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -295,21 +313,21 @@ export default function AdminRelationsPage() {
                   <div className="space-y-1">
                     <div className="font-medium">{relations.bind.distributorName}</div>
                     <div className="text-xs text-muted-foreground">
-                      绑定时间{" "}
+                      {t("绑定时间")}{" "}
                       <span className="tabular-nums">
                         {formatDateTime(relations.bind.bindTime)}
                       </span>
-                      {relations.bind.source ? ` · 来源 ${relations.bind.source}` : ""}
+                      {relations.bind.source ? ` · ${t("来源")} ${relations.bind.source}` : ""}
                     </div>
                   </div>
                   <Button size="sm" variant="outline" disabled={busy} onClick={() => void unbind()}>
                     <Unlink className="mr-1.5 h-4 w-4" />
-                    解除绑定
+                    {t("解除绑定")}
                   </Button>
                 </div>
               ) : (
                 <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  未绑定任何分销商：他的订单不会给任何人产生佣金。
+                  {t("未绑定任何分销商：他的订单不会给任何人产生佣金。")}
                 </p>
               )}
             </CardContent>
@@ -318,19 +336,21 @@ export default function AdminRelationsPage() {
           {/* 他直接邀请的人 */}
           <Card>
             <CardHeader>
-              <CardTitle>他直接邀请的人</CardTitle>
+              <CardTitle>{t("他直接邀请的人")}</CardTitle>
               <CardDescription>
-                按 <span className="font-mono">invitedById</span> 统计，最多展示 200
-                条；点「查看」可继续往下钻
+                {t("按")} <span className="font-mono">invitedById</span>{" "}
+                {t("统计，最多展示 200 条；点「查看」可继续往下钻")}
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Table className="w-full">
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-0">用户</TableHead>
-                    <TableHead className="w-[120px]">身份</TableHead>
-                    <TableHead className="sticky-col-right w-[120px] text-right">操作</TableHead>
+                    <TableHead className="min-w-0">{t("Users")}</TableHead>
+                    <TableHead className="w-[120px]">{t("身份")}</TableHead>
+                    <TableHead className="sticky-col-right w-[120px] text-right">
+                      {t("Actions")}
+                    </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -345,16 +365,16 @@ export default function AdminRelationsPage() {
                         </TableCell>
                         <TableCell>
                           {invitee.isDistributor ? (
-                            <Badge variant="info">分销商</Badge>
+                            <Badge variant="info">{t("分销商")}</Badge>
                           ) : (
-                            <Badge variant="muted">普通客户</Badge>
+                            <Badge variant="muted">{t("普通客户")}</Badge>
                           )}
                         </TableCell>
                         <TableCell className="sticky-col-right">
                           <DataTableActions
                             actions={[
                               {
-                                label: "查看",
+                                label: t("查看"),
                                 icon: Search,
                                 primary: true,
                                 onClick: () => void run({ userId: invitee.id }),
@@ -369,8 +389,8 @@ export default function AdminRelationsPage() {
                       <TableCell colSpan={3} className="p-0">
                         <EmptyState
                           icon={<Share2 className="h-6 w-6" />}
-                          title="还没有邀请过任何人"
-                          description="他分享推广链接后带来的注册用户会出现在这里"
+                          title={t("还没有邀请过任何人")}
+                          description={t("他分享推广链接后带来的注册用户会出现在这里")}
                         />
                       </TableCell>
                     </TableRow>

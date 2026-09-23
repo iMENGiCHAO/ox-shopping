@@ -6,12 +6,20 @@ import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { useT } from "@/components/admin/lang-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { formatDateTime } from "../_shared";
 
 interface PromotionRow {
@@ -40,27 +48,31 @@ const EMPTY: PaginationMeta = { page: 1, pageSize: 20, total: 0, totalPages: 0 }
  * 这一页就是那条时间线（数据源：`User.firstPromoteAt` + 邀请关系 + 下级数）。
  */
 export default function AdminDistributionPromotionsPage() {
+  const t = useT();
   const [rows, setRows] = React.useState<PromotionRow[]>([]);
   const [pagination, setPagination] = React.useState<PaginationMeta>(EMPTY);
   const [page, setPage] = React.useState(1);
   const [loading, setLoading] = React.useState(true);
 
-  const load = React.useCallback(async (p: number) => {
-    setLoading(true);
-    try {
-      /* 接口返回 `json({ data, pagination })`：`apiFetch` 会剥掉最外层信封，
+  const load = React.useCallback(
+    async (p: number) => {
+      setLoading(true);
+      try {
+        /* 接口返回 `json({ data, pagination })`：`apiFetch` 会剥掉最外层信封，
          正好得到 `{ data, pagination }`（用 apiFetchRaw 会多包一层 data）。 */
-      const res = await apiFetch<{ data: PromotionRow[]; pagination: PaginationMeta }>(
-        `/api/admin/distribution/promotions?page=${p}`,
-      );
-      setRows(res.data);
-      setPagination(res.pagination);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载升级记录失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+        const res = await apiFetch<{ data: PromotionRow[]; pagination: PaginationMeta }>(
+          `/api/admin/distribution/promotions?page=${p}`,
+        );
+        setRows(res.data);
+        setPagination(res.pagination);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : t("加载升级记录失败"));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [t],
+  );
 
   React.useEffect(() => {
     void load(page);
@@ -69,12 +81,14 @@ export default function AdminDistributionPromotionsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="自动升级记录"
-        description="分销商资格由「首次成功推广」自动授予（无需申请审核）。这里按时间倒序列出每次升级：谁、什么时候、被谁的链接带来、目前带了多少人"
+        title={t("自动升级记录")}
+        description={t(
+          "分销商资格由「首次成功推广」自动授予（无需申请审核）。这里按时间倒序列出每次升级：谁、什么时候、被谁的链接带来、目前带了多少人",
+        )}
         actions={
           <Button variant="outline" onClick={() => void load(page)} disabled={loading}>
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            刷新
+            {t("刷新")}
           </Button>
         }
       />
@@ -83,9 +97,11 @@ export default function AdminDistributionPromotionsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4" />
-            升级时间线
+            {t("升级时间线")}
           </CardTitle>
-          <CardDescription>共 {pagination.total} 位分销商</CardDescription>
+          <CardDescription>
+            {t("共 {total} 位分销商").replace("{total}", String(pagination.total))}
+          </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -97,19 +113,19 @@ export default function AdminDistributionPromotionsPage() {
           ) : rows.length === 0 ? (
             <EmptyState
               icon={<Upload className="h-5 w-5" />}
-              title="还没有自动升级记录"
-              description="当有人通过分销链接注册并成功后，该推广人会在这里出现。"
+              title={t("还没有自动升级记录")}
+              description={t("当有人通过分销链接注册并成功后，该推广人会在这里出现。")}
             />
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-0">分销商</TableHead>
-                    <TableHead className="min-w-0">邮箱</TableHead>
-                    <TableHead className="w-[180px]">升级时间</TableHead>
-                    <TableHead className="min-w-0">上级（邀请人）</TableHead>
-                    <TableHead className="w-[100px] text-right">已带人数</TableHead>
+                    <TableHead className="min-w-0">{t("分销商")}</TableHead>
+                    <TableHead className="min-w-0">{t("Email")}</TableHead>
+                    <TableHead className="w-[180px]">{t("升级时间")}</TableHead>
+                    <TableHead className="min-w-0">{t("上级（邀请人）")}</TableHead>
+                    <TableHead className="w-[100px] text-right">{t("已带人数")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -121,7 +137,7 @@ export default function AdminDistributionPromotionsPage() {
                         {formatDateTime(r.firstPromoteAt)}
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {r.invitedBy ?? "（自然流量，无上级）"}
+                        {r.invitedBy ?? t("（自然流量，无上级）")}
                       </TableCell>
                       <TableCell className="text-right text-sm tabular-nums">
                         {r.inviteeCount}

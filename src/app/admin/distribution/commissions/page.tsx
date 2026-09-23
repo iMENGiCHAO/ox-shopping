@@ -8,6 +8,7 @@ import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { CellText } from "@/components/admin/cell-text";
+import { useT } from "@/components/admin/lang-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -78,6 +79,8 @@ interface CommissionLogRow {
  * 手工改一条流水会让「订单 — 归属 — 佣金」三方对不上账；要修数据请走对账或解绑。
  */
 export default function AdminCommissionsPage() {
+  const t = useT();
+
   const [rows, setRows] = React.useState<CommissionLogRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
@@ -117,11 +120,11 @@ export default function AdminCommissionsPage() {
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载佣金流水失败");
+      toast.error(err instanceof Error ? err.message : t("加载佣金流水失败"));
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter, debouncedOrder]);
+  }, [page, statusFilter, debouncedOrder, t]);
 
   React.useEffect(() => {
     void load();
@@ -131,14 +134,14 @@ export default function AdminCommissionsPage() {
   const submitReverse = async () => {
     if (!reverseTarget) return;
     if (reverseNote.trim().length < 2) {
-      toast.error("请填写冲正原因（至少 2 个字）—— 资金动作必须留痕");
+      toast.error(t("请填写冲正原因（至少 2 个字）—— 资金动作必须留痕"));
       return;
     }
     setReversing(true);
     try {
       const amount = reverseAmount.trim() === "" ? null : Number(reverseAmount);
       if (amount !== null && (!Number.isFinite(amount) || amount <= 0)) {
-        toast.error("冲正金额需为大于 0 的数字（留空表示全额冲正）");
+        toast.error(t("冲正金额需为大于 0 的数字（留空表示全额冲正）"));
         return;
       }
       const res = await apiFetch<{ reversedAmount: number; fullReversed: boolean }>(
@@ -147,13 +150,13 @@ export default function AdminCommissionsPage() {
       );
       toast.success(
         res.fullReversed
-          ? "已全额冲正该笔佣金"
+          ? t("已全额冲正该笔佣金")
           : `已冲正 ${formatMoney(res.reversedAmount, reverseTarget.currency)}`,
       );
       setReverseTarget(null);
       await load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "冲正失败");
+      toast.error(err instanceof Error ? err.message : t("冲正失败"));
     } finally {
       setReversing(false);
     }
@@ -162,8 +165,10 @@ export default function AdminCommissionsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="佣金流水"
-        description="每一笔佣金对应「某订单的某一层级」；金额同时给出原币与折合人民币。自动冲正来自退款/取消，人工冲正用于刷单认定、客服赔付等场景（必填原因）"
+        title={t("佣金流水")}
+        description={t(
+          "每一笔佣金对应「某订单的某一层级」；金额同时给出原币与折合人民币。自动冲正来自退款/取消，人工冲正用于刷单认定、客服赔付等场景（必填原因）",
+        )}
         actions={
           <Button
             variant="outline"
@@ -179,7 +184,7 @@ export default function AdminCommissionsPage() {
             }}
           >
             <Download className="mr-1.5 h-4 w-4" />
-            导出 CSV
+            {t("导出 CSV")}
           </Button>
         }
       />
@@ -191,27 +196,27 @@ export default function AdminCommissionsPage() {
             <Input
               value={orderNumber}
               onChange={(e) => setOrderNumber(e.target.value)}
-              placeholder="搜索订单号"
+              placeholder={t("搜索订单号")}
               className="h-10 w-64 pl-8"
             />
           </div>
           <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-            <SelectTrigger className="w-36" aria-label="按状态筛选">
-              <SelectValue placeholder="全部状态" />
+            <SelectTrigger className="w-36" aria-label={t("按状态筛选")}>
+              <SelectValue placeholder={t("All statuses")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">全部状态</SelectItem>
-              <SelectItem value="PENDING">待结算</SelectItem>
-              <SelectItem value="SETTLED">已结算</SelectItem>
-              <SelectItem value="REVERSED">已冲正</SelectItem>
+              <SelectItem value="all">{t("All statuses")}</SelectItem>
+              <SelectItem value="PENDING">{t("待结算")}</SelectItem>
+              <SelectItem value="SETTLED">{t("已结算")}</SelectItem>
+              <SelectItem value="REVERSED">{t("已冲正")}</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" size="sm" className="h-10" onClick={() => void load()}>
             <RefreshCw className="mr-1.5 h-4 w-4" />
-            刷新
+            {t("刷新")}
           </Button>
           <span className="ml-auto text-xs text-muted-foreground">
-            共 <span className="tabular-nums">{total}</span> 条
+            {t("共")} <span className="tabular-nums">{total}</span> {t("条")}
           </span>
         </CardContent>
       </Card>
@@ -221,17 +226,17 @@ export default function AdminCommissionsPage() {
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[170px]">订单号</TableHead>
-                <TableHead className="min-w-0">下单人</TableHead>
-                <TableHead className="min-w-0">受益人</TableHead>
-                <TableHead className="w-[70px]">层级</TableHead>
-                <TableHead className="w-[80px] text-right">比例</TableHead>
-                <TableHead className="w-[130px] text-right">佣金（原币）</TableHead>
-                <TableHead className="w-[120px] text-right">折合 ¥</TableHead>
-                <TableHead className="w-[90px]">状态</TableHead>
-                <TableHead className="w-[160px]">时间</TableHead>
-                <TableHead className="w-[170px]">结算 / 冲正</TableHead>
-                <TableHead className="w-[110px] text-right">操作</TableHead>
+                <TableHead className="w-[170px]">{t("Order #")}</TableHead>
+                <TableHead className="min-w-0">{t("下单人")}</TableHead>
+                <TableHead className="min-w-0">{t("受益人")}</TableHead>
+                <TableHead className="w-[70px]">{t("层级")}</TableHead>
+                <TableHead className="w-[80px] text-right">{t("比例")}</TableHead>
+                <TableHead className="w-[130px] text-right">{t("佣金（原币）")}</TableHead>
+                <TableHead className="w-[120px] text-right">{t("折合 ¥")}</TableHead>
+                <TableHead className="w-[90px]">{t("Status")}</TableHead>
+                <TableHead className="w-[160px]">{t("时间")}</TableHead>
+                <TableHead className="w-[170px]">{t("结算 / 冲正")}</TableHead>
+                <TableHead className="w-[110px] text-right">{t("Actions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -250,8 +255,8 @@ export default function AdminCommissionsPage() {
                   <TableCell colSpan={COL_COUNT} className="p-0">
                     <EmptyState
                       icon={<Coins className="h-6 w-6" />}
-                      title="暂无佣金流水"
-                      description="订单支付并产生推广归属后，佣金流水会出现在这里"
+                      title={t("暂无佣金流水")}
+                      description={t("订单支付并产生推广归属后，佣金流水会出现在这里")}
                     />
                   </TableCell>
                 </TableRow>
@@ -286,8 +291,16 @@ export default function AdminCommissionsPage() {
                       {formatDateTime(row.createdAt)}
                     </TableCell>
                     <TableCell className="text-xs tabular-nums text-muted-foreground">
-                      {row.settledAt ? <div>结算 {formatDateTime(row.settledAt)}</div> : null}
-                      {row.reversedAt ? <div>冲正 {formatDateTime(row.reversedAt)}</div> : null}
+                      {row.settledAt ? (
+                        <div>
+                          {t("结算")} {formatDateTime(row.settledAt)}
+                        </div>
+                      ) : null}
+                      {row.reversedAt ? (
+                        <div>
+                          {t("冲正")} {formatDateTime(row.reversedAt)}
+                        </div>
+                      ) : null}
                       {!row.settledAt && !row.reversedAt ? "-" : null}
                     </TableCell>
                     <TableCell className="text-right">
@@ -303,7 +316,7 @@ export default function AdminCommissionsPage() {
                         }}
                       >
                         <Undo2 className="mr-1 h-3.5 w-3.5" />
-                        冲正
+                        {t("冲正")}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -317,24 +330,32 @@ export default function AdminCommissionsPage() {
       <Dialog open={!!reverseTarget} onOpenChange={(o) => !o && setReverseTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>人工冲正佣金</DialogTitle>
+            <DialogTitle>{t("人工冲正佣金")}</DialogTitle>
             <DialogDescription>
-              用于刷单认定、客服赔付、错单纠正等自动冲正覆盖不到的场景。已结算的部分会按金额从
-              可提现余额扣回（可为负=挂账）；受益人已注销时只改流水、不动账户。
+              {t(
+                "用于刷单认定、客服赔付、错单纠正等自动冲正覆盖不到的场景。已结算的部分会按金额从可提现余额扣回（可为负=挂账）；受益人已注销时只改流水、不动账户。",
+              )}
             </DialogDescription>
           </DialogHeader>
           {reverseTarget ? (
             <div className="space-y-3">
               <div className="rounded-md border border-border bg-secondary/40 p-3 text-xs">
-                <div>订单：{reverseTarget.orderNumber}</div>
-                <div>受益人：{reverseTarget.toUser}</div>
                 <div>
-                  本笔佣金：{formatMoney(reverseTarget.amount, reverseTarget.currency)}（
-                  {formatCny(reverseTarget.amountCny)}） · 状态 {reverseTarget.status}
+                  {t("订单：")}
+                  {reverseTarget.orderNumber}
+                </div>
+                <div>
+                  {t("受益人：")}
+                  {reverseTarget.toUser}
+                </div>
+                <div>
+                  {t("本笔佣金：")}
+                  {formatMoney(reverseTarget.amount, reverseTarget.currency)}（
+                  {formatCny(reverseTarget.amountCny)}） · {t("Status")} {reverseTarget.status}
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="reverse-amount">冲正金额（订单币种，留空=全额）</Label>
+                <Label htmlFor="reverse-amount">{t("冲正金额（订单币种，留空=全额）")}</Label>
                 <Input
                   id="reverse-amount"
                   inputMode="decimal"
@@ -344,22 +365,22 @@ export default function AdminCommissionsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="reverse-note">冲正原因（必填）</Label>
+                <Label htmlFor="reverse-note">{t("冲正原因（必填）")}</Label>
                 <Input
                   id="reverse-note"
                   value={reverseNote}
                   onChange={(e) => setReverseNote(e.target.value)}
-                  placeholder="例如：刷单认定，运营复核后冲正"
+                  placeholder={t("例如：刷单认定，运营复核后冲正")}
                 />
               </div>
             </div>
           ) : null}
           <DialogFooter>
             <Button variant="outline" onClick={() => setReverseTarget(null)}>
-              取消
+              {t("Cancel")}
             </Button>
             <Button onClick={() => void submitReverse()} disabled={reversing}>
-              {reversing ? "提交中…" : "确认冲正"}
+              {reversing ? t("提交中…") : t("确认冲正")}
             </Button>
           </DialogFooter>
         </DialogContent>

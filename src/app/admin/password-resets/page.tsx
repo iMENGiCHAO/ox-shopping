@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CellPair, CellText } from "@/components/admin/cell-text";
+import { useT } from "@/components/admin/lang-provider";
 import {
   Dialog,
   DialogContent,
@@ -49,12 +50,6 @@ import type {
 
 const PAGE_SIZE = 10;
 
-const STATUS_LABELS: Record<AdminPasswordResetStatus, string> = {
-  PENDING: "待处理",
-  APPROVED: "已批准",
-  REJECTED: "已驳回",
-};
-
 function formatDateTime(iso: string | null): string {
   if (!iso) return "-";
   const d = new Date(iso);
@@ -75,6 +70,14 @@ function formatDateTime(iso: string | null): string {
  *      刷新即不可再取（用户手里有邮件，管理员手里有这一次明文）。
  */
 export default function AdminPasswordResetsPage() {
+  const t = useT();
+  /** 状态文案走词典（中文原文在 admin-i18n 统一维护，避免各页各自写一份） */
+  const statusLabels: Record<AdminPasswordResetStatus, string> = {
+    PENDING: t("Pending"),
+    APPROVED: t("已批准"),
+    REJECTED: t("已驳回"),
+  };
+
   const [rows, setRows] = React.useState<AdminPasswordResetRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
@@ -128,11 +131,11 @@ export default function AdminPasswordResetsPage() {
         res.statusCounts ?? { PENDING: res.pendingCount ?? 0, APPROVED: 0, REJECTED: 0 },
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载找回密码申请失败");
+      toast.error(err instanceof Error ? err.message : t("加载找回密码申请失败"));
     } finally {
       setLoading(false);
     }
-  }, [page, debouncedSearch, statusFilter]);
+  }, [page, debouncedSearch, statusFilter, t]);
 
   React.useEffect(() => {
     void load();
@@ -158,10 +161,10 @@ export default function AdminPasswordResetsPage() {
       );
       setIssued(res);
       setDetailOpen(false);
-      toast.success("已批准，临时密码已下发");
+      toast.success(t("已批准，临时密码已下发"));
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "批准失败");
+      toast.error(err instanceof Error ? err.message : t("批准失败"));
     } finally {
       setBusyId(null);
     }
@@ -183,10 +186,10 @@ export default function AdminPasswordResetsPage() {
       });
       setDetailOpen(false);
       setRejectNote("");
-      toast.success("已驳回，结果已邮件告知客户");
+      toast.success(t("已驳回，结果已邮件告知客户"));
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "驳回失败");
+      toast.error(err instanceof Error ? err.message : t("驳回失败"));
     } finally {
       setBusyId(null);
     }
@@ -195,17 +198,19 @@ export default function AdminPasswordResetsPage() {
   const copyTemp = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
-      toast.success("临时密码已复制");
+      toast.success(t("临时密码已复制"));
     } catch {
-      toast.error("复制失败，请手动选中复制");
+      toast.error(t("复制失败，请手动选中复制"));
     }
   };
 
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="找回密码"
-        description="审核客户的找回密码申请；批准后系统下发强随机临时密码，客户首次登录须强制改密"
+        title={t("找回密码")}
+        description={t(
+          "审核客户的找回密码申请；批准后系统下发强随机临时密码，客户首次登录须强制改密",
+        )}
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -214,7 +219,7 @@ export default function AdminPasswordResetsPage() {
             <ShieldAlert className="h-8 w-8 text-destructive" />
             <div>
               <p className="text-2xl font-semibold tabular-nums">{statusCounts.PENDING}</p>
-              <p className="text-xs text-muted-foreground">待处理申请</p>
+              <p className="text-xs text-muted-foreground">{t("待处理申请")}</p>
             </div>
           </CardContent>
         </Card>
@@ -223,7 +228,7 @@ export default function AdminPasswordResetsPage() {
             <CheckCircle2 className="h-8 w-8 text-muted-foreground" />
             <div>
               <p className="text-2xl font-semibold tabular-nums">{statusCounts.APPROVED}</p>
-              <p className="text-xs text-muted-foreground">已批准（累计）</p>
+              <p className="text-xs text-muted-foreground">{t("已批准（累计）")}</p>
             </div>
           </CardContent>
         </Card>
@@ -232,7 +237,7 @@ export default function AdminPasswordResetsPage() {
             <XCircle className="h-8 w-8 text-muted-foreground" />
             <div>
               <p className="text-2xl font-semibold tabular-nums">{statusCounts.REJECTED}</p>
-              <p className="text-xs text-muted-foreground">已驳回（累计）</p>
+              <p className="text-xs text-muted-foreground">{t("已驳回（累计）")}</p>
             </div>
           </CardContent>
         </Card>
@@ -246,7 +251,7 @@ export default function AdminPasswordResetsPage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="搜索邮箱 / 客户姓名"
+                placeholder={t("搜索邮箱 / 客户姓名")}
                 className="h-10 w-64 pl-8"
               />
             </div>
@@ -256,19 +261,19 @@ export default function AdminPasswordResetsPage() {
                 setStatusFilter(v as "PENDING" | "APPROVED" | "REJECTED" | "all")
               }
             >
-              <SelectTrigger className="w-36" aria-label="按状态筛选">
-                <SelectValue placeholder="全部状态" />
+              <SelectTrigger className="w-36" aria-label={t("按状态筛选")}>
+                <SelectValue placeholder={t("All statuses")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="PENDING">待处理</SelectItem>
-                <SelectItem value="APPROVED">已批准</SelectItem>
-                <SelectItem value="REJECTED">已驳回</SelectItem>
-                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="PENDING">{t("Pending")}</SelectItem>
+                <SelectItem value="APPROVED">{t("已批准")}</SelectItem>
+                <SelectItem value="REJECTED">{t("已驳回")}</SelectItem>
+                <SelectItem value="all">{t("All statuses")}</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" size="sm" className="h-10" onClick={() => void load()}>
               <RefreshCw className="mr-1.5 h-4 w-4" />
-              刷新
+              {t("刷新")}
             </Button>
           </div>
         </CardContent>
@@ -279,13 +284,15 @@ export default function AdminPasswordResetsPage() {
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-0">客户</TableHead>
-                <TableHead className="w-[170px]">提交时间</TableHead>
-                <TableHead className="w-24">状态</TableHead>
-                <TableHead className="min-w-0">申请说明</TableHead>
-                <TableHead className="w-[130px]">提交 IP</TableHead>
-                <TableHead className="w-[150px]">处理</TableHead>
-                <TableHead className="sticky-col-right w-[140px] text-right">操作</TableHead>
+                <TableHead className="min-w-0">{t("客户")}</TableHead>
+                <TableHead className="w-[170px]">{t("提交时间")}</TableHead>
+                <TableHead className="w-24">{t("Status")}</TableHead>
+                <TableHead className="min-w-0">{t("申请说明")}</TableHead>
+                <TableHead className="w-[130px]">{t("提交 IP")}</TableHead>
+                <TableHead className="w-[150px]">{t("处理")}</TableHead>
+                <TableHead className="sticky-col-right w-[140px] text-right">
+                  {t("Actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -304,8 +311,8 @@ export default function AdminPasswordResetsPage() {
                   <TableCell colSpan={7} className="p-0">
                     <EmptyState
                       icon={<KeyRound className="h-6 w-6" />}
-                      title="暂无找回密码申请"
-                      description="客户在前台提交「找回密码」申请后会出现在这里"
+                      title={t("暂无找回密码申请")}
+                      description={t("客户在前台提交「找回密码」申请后会出现在这里")}
                     />
                   </TableCell>
                 </TableRow>
@@ -314,7 +321,7 @@ export default function AdminPasswordResetsPage() {
                   <TableRow key={row.id}>
                     <TableCell className="min-w-0">
                       <CellPair
-                        primary={row.user?.name ?? "（用户已删除）"}
+                        primary={row.user?.name ?? t("（用户已删除）")}
                         secondary={row.email}
                       />
                     </TableCell>
@@ -322,7 +329,7 @@ export default function AdminPasswordResetsPage() {
                       {formatDateTime(row.createdAt)}
                     </TableCell>
                     <TableCell>
-                      <StatusBadge status={row.status} labelMap={{ ...STATUS_LABELS }} />
+                      <StatusBadge status={row.status} labelMap={{ ...statusLabels }} />
                     </TableCell>
                     <TableCell className="max-w-[220px] text-xs text-muted-foreground">
                       <CellText value={row.note || "-"} />
@@ -346,7 +353,7 @@ export default function AdminPasswordResetsPage() {
                         <DataTableActions
                           actions={[
                             {
-                              label: "查看详情",
+                              label: t("View Details"),
                               icon: Eye,
                               onClick: () => {
                                 setDetail(row);
@@ -377,30 +384,34 @@ export default function AdminPasswordResetsPage() {
       {/* 详情 + 处理 */}
       <AdminDrawer open={detailOpen} onOpenChange={setDetailOpen}>
         <AdminDrawerHeader
-          title={detail ? `找回密码申请：${detail.user?.name ?? detail.email}` : "找回密码申请"}
+          title={
+            detail
+              ? `${t("找回密码申请")}：${detail.user?.name ?? detail.email}`
+              : t("找回密码申请")
+          }
           description={detail?.email}
         />
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           {detail ? (
             <>
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold">申请信息</h3>
+                <h3 className="text-sm font-semibold">{t("申请信息")}</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border bg-muted/30 p-4 text-sm">
-                  <div className="text-muted-foreground">客户</div>
-                  <div>{detail.user?.name ?? "（用户已删除）"}</div>
-                  <div className="text-muted-foreground">邮箱</div>
+                  <div className="text-muted-foreground">{t("客户")}</div>
+                  <div>{detail.user?.name ?? t("（用户已删除）")}</div>
+                  <div className="text-muted-foreground">{t("Email")}</div>
                   <div className="break-all">{detail.email}</div>
-                  <div className="text-muted-foreground">状态</div>
+                  <div className="text-muted-foreground">{t("Status")}</div>
                   <div>
-                    <StatusBadge status={detail.status} labelMap={{ ...STATUS_LABELS }} />
+                    <StatusBadge status={detail.status} labelMap={{ ...statusLabels }} />
                   </div>
-                  <div className="text-muted-foreground">提交时间</div>
+                  <div className="text-muted-foreground">{t("提交时间")}</div>
                   <div className="tabular-nums">{formatDateTime(detail.createdAt)}</div>
-                  <div className="text-muted-foreground">提交 IP</div>
+                  <div className="text-muted-foreground">{t("提交 IP")}</div>
                   <div className="font-mono text-xs">{detail.ip || "-"}</div>
-                  <div className="text-muted-foreground">申请说明</div>
-                  <div className="break-words">{detail.note || "（未填写）"}</div>
-                  <div className="text-muted-foreground">处理人</div>
+                  <div className="text-muted-foreground">{t("申请说明")}</div>
+                  <div className="break-words">{detail.note || t("（未填写）")}</div>
+                  <div className="text-muted-foreground">{t("处理人")}</div>
                   <div>
                     {detail.handledByName ?? "-"}
                     {detail.handledAt ? (
@@ -411,7 +422,7 @@ export default function AdminPasswordResetsPage() {
                   </div>
                   {detail.rejectReason ? (
                     <>
-                      <div className="text-muted-foreground">驳回原因</div>
+                      <div className="text-muted-foreground">{t("驳回原因")}</div>
                       <div className="break-words">{detail.rejectReason}</div>
                     </>
                   ) : null}
@@ -420,15 +431,16 @@ export default function AdminPasswordResetsPage() {
 
               {detail.status === "PENDING" ? (
                 <section className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-4">
-                  <h3 className="text-sm font-semibold text-destructive">处理申请</h3>
+                  <h3 className="text-sm font-semibold text-destructive">{t("处理申请")}</h3>
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    批准：系统生成强随机临时密码并邮件发送给客户，该账号全部会话立即失效，
-                    客户首次登录被强制修改密码。驳回：账号密码不变，原因随邮件告知客户。
+                    {t(
+                      "批准：系统生成强随机临时密码并邮件发送给客户，该账号全部会话立即失效，客户首次登录被强制修改密码。驳回：账号密码不变，原因随邮件告知客户。",
+                    )}
                   </p>
                   <Textarea
                     value={rejectNote}
                     onChange={(e) => setRejectNote(e.target.value)}
-                    placeholder="驳回原因（可选，会随邮件发送给客户）"
+                    placeholder={t("驳回原因（可选，会随邮件发送给客户）")}
                     rows={2}
                     maxLength={500}
                   />
@@ -439,7 +451,7 @@ export default function AdminPasswordResetsPage() {
                       onClick={() => void approve(detail)}
                     >
                       <CheckCircle2 className="mr-1.5 h-4 w-4" />
-                      批准并下发临时密码
+                      {t("批准并下发临时密码")}
                     </Button>
                     <Button
                       size="sm"
@@ -448,13 +460,14 @@ export default function AdminPasswordResetsPage() {
                       onClick={() => void reject(detail)}
                     >
                       <XCircle className="mr-1.5 h-4 w-4" />
-                      驳回申请
+                      {t("Reject request")}
                     </Button>
                   </div>
                 </section>
               ) : (
                 <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  该申请已于 {formatDateTime(detail.handledAt)} 处理完毕，无需再次操作。
+                  {t("该申请已于")} {formatDateTime(detail.handledAt)}{" "}
+                  {t("处理完毕，无需再次操作。")}
                 </p>
               )}
             </>
@@ -468,11 +481,11 @@ export default function AdminPasswordResetsPage() {
       <Dialog open={issued !== null} onOpenChange={(open) => !open && setIssued(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>临时密码已生成</DialogTitle>
+            <DialogTitle>{t("临时密码已生成")}</DialogTitle>
             <DialogDescription>
               {issued?.mailConfigured
-                ? `临时密码已发送至 ${issued?.email}。以下明文仅本次显示一次（数据库只存哈希），请勿截图外传。`
-                : `邮件服务未配置，系统无法自动送达。请将以下临时密码通过其他安全渠道转达给 ${issued?.email}。此明文仅本次显示一次。`}
+                ? `${t("临时密码已发送至")} ${issued?.email}。${t("以下明文仅本次显示一次（数据库只存哈希），请勿截图外传。")}`
+                : `${t("邮件服务未配置，系统无法自动送达。请将以下临时密码通过其他安全渠道转达给")} ${issued?.email}。${t("此明文仅本次显示一次。")}`}
             </DialogDescription>
           </DialogHeader>
           <div className="my-2 rounded-md border border-dashed bg-muted/40 px-4 py-3 text-center">
@@ -484,13 +497,13 @@ export default function AdminPasswordResetsPage() {
             </p>
           </div>
           <p className="text-xs text-muted-foreground">
-            客户首次登录后必须立即修改密码，修改成功后该临时密码立即失效。
+            {t("客户首次登录后必须立即修改密码，修改成功后该临时密码立即失效。")}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => void copyTemp(issued?.tempPassword ?? "")}>
-              复制
+              {t("复制")}
             </Button>
-            <Button onClick={() => setIssued(null)}>我已记录</Button>
+            <Button onClick={() => setIssued(null)}>{t("我已记录")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

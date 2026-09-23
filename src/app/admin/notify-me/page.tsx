@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { DataTableActions } from "@/components/admin/data-table-actions";
+import { useT } from "@/components/admin/lang-provider";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { CellText } from "@/components/admin/cell-text";
 import { apiFetch } from "@/lib/fetch-client";
@@ -49,6 +50,7 @@ function variantText(attrs?: Record<string, string> | null): string {
 
 /** 到货通知 — 售罄商品 Notify me 订阅列表 */
 export default function AdminNotifyMePage() {
+  const t = useT();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<NotifyRow[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -59,24 +61,25 @@ export default function AdminNotifyMePage() {
       const res = await apiFetch<{ items: NotifyRow[] }>("/api/admin/notify-me");
       setRows(res.items ?? []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载失败");
+      toast.error(err instanceof Error ? err.message : t("Failed to load"));
     } finally {
       setLoading(false);
     }
-  }, []);
+    // t 来自 useT()，语言不变时引用稳定；加入依赖以满足 exhaustive-deps
+  }, [t]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const remove = async (id: string) => {
-    if (!window.confirm("确定删除该条到货通知吗？")) return;
+    if (!window.confirm(t("确定删除该条到货通知吗？"))) return;
     setBusyId(id);
     try {
       await apiFetch(`/api/admin/notify-me/${id}`, { method: "DELETE" });
       setRows((rs) => rs.filter((r) => r.id !== id));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      toast.error(err instanceof Error ? err.message : t("删除失败"));
     } finally {
       setBusyId(null);
     }
@@ -85,8 +88,8 @@ export default function AdminNotifyMePage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="到货通知"
-        description="售罄商品页面 Notify me 收集的订阅，可删除；可导出邮箱做补货营销"
+        title={t("Notify Me")}
+        description={t("售罄商品页面 Notify me 收集的订阅，可删除；可导出邮箱做补货营销")}
       />
       {loading ? (
         <Card>
@@ -99,8 +102,8 @@ export default function AdminNotifyMePage() {
       ) : rows.length === 0 ? (
         <EmptyState
           icon={<Bell className="h-6 w-6" />}
-          title="暂无到货通知订阅"
-          description="顾客在商品售罄时点「到货通知我」，订阅会出现在这里"
+          title={t("暂无到货通知订阅")}
+          description={t("顾客在商品售罄时点「到货通知我」，订阅会出现在这里")}
         />
       ) : (
         <Card>
@@ -108,13 +111,13 @@ export default function AdminNotifyMePage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="min-w-0">邮箱</TableHead>
-                  <TableHead className="hidden min-w-0 md:table-cell">商品</TableHead>
-                  <TableHead className="hidden min-w-0 lg:table-cell">关注规格</TableHead>
-                  <TableHead className="w-20">语种</TableHead>
-                  <TableHead className="w-24">状态</TableHead>
-                  <TableHead className="hidden w-[120px] xl:table-cell">登记时间</TableHead>
-                  <TableHead className="sticky-col-right w-20 text-right">操作</TableHead>
+                  <TableHead className="min-w-0">{t("Email")}</TableHead>
+                  <TableHead className="hidden min-w-0 md:table-cell">{t("Products")}</TableHead>
+                  <TableHead className="hidden min-w-0 lg:table-cell">{t("关注规格")}</TableHead>
+                  <TableHead className="w-20">{t("语种")}</TableHead>
+                  <TableHead className="w-24">{t("Status")}</TableHead>
+                  <TableHead className="hidden w-[120px] xl:table-cell">{t("登记时间")}</TableHead>
+                  <TableHead className="sticky-col-right w-20 text-right">{t("Actions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -137,7 +140,7 @@ export default function AdminNotifyMePage() {
                       ) : r.productId ? (
                         <span className="text-muted-foreground">{r.productId.slice(-8)}</span>
                       ) : (
-                        <span className="text-muted-foreground">全站</span>
+                        <span className="text-muted-foreground">{t("全站")}</span>
                       )}
                     </TableCell>
                     <TableCell className="hidden lg:table-cell">
@@ -154,7 +157,7 @@ export default function AdminNotifyMePage() {
                             : "inline-flex h-5 items-center whitespace-nowrap rounded bg-muted px-1.5 text-[10px] font-medium leading-none text-muted-foreground"
                         }
                       >
-                        {r.lang === "zh" ? "中文" : "EN"}
+                        {r.lang === "zh" ? t("中文") : "EN"}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -165,7 +168,7 @@ export default function AdminNotifyMePage() {
                             : "inline-flex h-5 items-center whitespace-nowrap rounded-full bg-warning/15 px-2 text-[10px] font-medium uppercase tracking-wider text-warning"
                         }
                       >
-                        {r.status === "notified" ? "已通知" : "待通知"}
+                        {r.status === "notified" ? t("已通知") : t("待通知")}
                       </span>
                     </TableCell>
                     <TableCell className="hidden text-xs tabular-nums text-muted-foreground xl:table-cell">
@@ -183,7 +186,7 @@ export default function AdminNotifyMePage() {
                             ? []
                             : [
                                 {
-                                  label: "删除",
+                                  label: t("Delete"),
                                   icon: Trash2,
                                   onClick: () => void remove(r.id),
                                   destructive: true,

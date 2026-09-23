@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { useT } from "@/components/admin/lang-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -53,6 +54,7 @@ interface ChannelRow {
 const MULTILINE_KEYS = new Set(["privateKey", "alipayPublicKey", "merchantPrivateKey"]);
 
 export default function AdminPaymentChannelsPage() {
+  const t = useT();
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [meta, setMeta] = useState<ChannelMetaDef[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,11 +81,11 @@ export default function AdminPaymentChannelsPage() {
       setChannels(Array.isArray(res?.channels) ? res.channels : []);
       setMeta(Array.isArray(res?.meta) ? res.meta : []);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载支付渠道失败");
+      toast.error(err instanceof Error ? err.message : t("加载支付渠道失败"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -148,18 +150,18 @@ export default function AdminPaymentChannelsPage() {
           method: "PUT",
           body: JSON.stringify({ ...payload, id: dialog.channelId }),
         });
-        toast.success("支付渠道已更新");
+        toast.success(t("支付渠道已更新"));
       } else {
         await apiFetch("/api/admin/payment-channels", {
           method: "POST",
           body: JSON.stringify(payload),
         });
-        toast.success("支付渠道已创建（默认未启用，请配置后手动启用）");
+        toast.success(t("支付渠道已创建（默认未启用，请配置后手动启用）"));
       }
       setDialog(null);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : t("Failed to save"));
     } finally {
       setSaving(false);
     }
@@ -172,10 +174,10 @@ export default function AdminPaymentChannelsPage() {
         method: "PATCH",
         body: JSON.stringify({ enabled }),
       });
-      toast.success(enabled ? "已启用" : "已停用");
+      toast.success(enabled ? t("已启用") : t("已停用"));
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "更新状态失败");
+      toast.error(err instanceof Error ? err.message : t("更新状态失败"));
     } finally {
       setTogglingId(null);
     }
@@ -183,17 +185,19 @@ export default function AdminPaymentChannelsPage() {
 
   /** 统一状态描述（消灭「未创建/未配置/已停用」三套口径） */
   const statusText = (m: ChannelMetaDef, c?: ChannelRow) => {
-    if (!c || !c.configured) return "未配置参数（启用前需先填写）";
-    if (!c.enabled) return "已配置，未启用（前台显示「暂未开通」）";
-    if (c.ready) return "已启用，前台结算页可选";
-    return "已启用（预留：待接入真实网关，前台仍显示「暂未开通」）";
+    if (!c || !c.configured) return t("未配置参数（启用前需先填写）");
+    if (!c.enabled) return t("已配置，未启用（前台显示「暂未开通」）");
+    if (c.ready) return t("已启用，前台结算页可选");
+    return t("已启用（预留：待接入真实网关，前台仍显示「暂未开通」）");
   };
 
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="支付渠道"
-        description="各收款渠道已预留：在下方填入商户参数并启用即可接通。预留渠道接通前，前台结账页显示「暂未开通」置灰，不会影响下单。密钥加密存储，前台不展示。"
+        title={t("支付渠道")}
+        description={t(
+          "各收款渠道已预留：在下方填入商户参数并启用即可接通。预留渠道接通前，前台结账页显示「暂未开通」置灰，不会影响下单。密钥加密存储，前台不展示。",
+        )}
       />
 
       <Card>
@@ -226,21 +230,21 @@ export default function AdminPaymentChannelsPage() {
                         </code>
                         {configured ? (
                           <span className="rounded-full bg-success/10 px-2 py-0.5 text-[11px] text-success">
-                            已配置
+                            {t("已配置")}
                           </span>
                         ) : (
                           <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                            未配置
+                            {t("未配置")}
                           </span>
                         )}
                         {configured &&
                           (channel?.ready ? (
                             <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-foreground">
-                              可收款
+                              {t("可收款")}
                             </span>
                           ) : (
                             <span className="rounded-full bg-warning/10 px-2 py-0.5 text-[11px] text-warning">
-                              预留 · 待接入
+                              {t("预留 · 待接入")}
                             </span>
                           ))}
                       </div>
@@ -265,18 +269,18 @@ export default function AdminPaymentChannelsPage() {
                             !configured /* 未配置不可启用（服务端同样拦截） */
                           }
                           onCheckedChange={(v) => void toggle(channel, v)}
-                          aria-label={`切换 ${channel.name} 启用状态`}
-                          title={configured ? undefined : "请先完成参数配置，再启用"}
+                          aria-label={t("切换 {name} 启用状态").replace("{name}", channel.name)}
+                          title={configured ? undefined : t("请先完成参数配置，再启用")}
                         />
                         <Button size="sm" variant="outline" onClick={() => openEdit(channel)}>
                           <Pencil className="h-3.5 w-3.5" />
-                          编辑
+                          {t("Edit")}
                         </Button>
                       </>
                     ) : (
                       <Button size="sm" variant="outline" onClick={() => openCreate(m)}>
                         <Plus className="h-3.5 w-3.5" />
-                        创建配置
+                        {t("创建配置")}
                       </Button>
                     )}
                   </li>
@@ -296,14 +300,16 @@ export default function AdminPaymentChannelsPage() {
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{dialog?.mode === "edit" ? "编辑支付渠道" : "配置支付渠道"}</DialogTitle>
+            <DialogTitle>
+              {dialog?.mode === "edit" ? t("编辑支付渠道") : t("配置支付渠道")}
+            </DialogTitle>
             <DialogDescription>
-              密钥字段加密存储；编辑时留空表示保留原值，不会回显完整密钥。
+              {t("密钥字段加密存储；编辑时留空表示保留原值，不会回显完整密钥。")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="pc-name">显示名称</Label>
+              <Label htmlFor="pc-name">{t("显示名称")}</Label>
               <Input
                 id="pc-name"
                 value={formName}
@@ -323,7 +329,7 @@ export default function AdminPaymentChannelsPage() {
                     <Label htmlFor={`pc-${f.key}`} className="text-sm font-normal">
                       {f.label}
                       <span className="ml-2 text-xs text-muted-foreground">
-                        （测试沙箱，申请账号前建议开启）
+                        {t("（测试沙箱，申请账号前建议开启）")}
                       </span>
                     </Label>
                     <Switch
@@ -342,7 +348,7 @@ export default function AdminPaymentChannelsPage() {
                       id={`pc-${f.key}`}
                       rows={4}
                       className="font-mono text-xs"
-                      placeholder={f.secret ? "已保存（留空不修改，重新填写则覆盖）" : ""}
+                      placeholder={f.secret ? t("已保存（留空不修改，重新填写则覆盖）") : ""}
                       value={typeof value === "string" ? value : ""}
                       onChange={(e) => setField(f.key, e.target.value)}
                     />
@@ -351,7 +357,7 @@ export default function AdminPaymentChannelsPage() {
                       id={`pc-${f.key}`}
                       type={f.secret ? "password" : "text"}
                       autoComplete="off"
-                      placeholder={f.secret ? "已保存（留空不修改，重新填写则覆盖）" : ""}
+                      placeholder={f.secret ? t("已保存（留空不修改，重新填写则覆盖）") : ""}
                       value={typeof value === "string" ? value : ""}
                       onChange={(e) => setField(f.key, e.target.value)}
                     />
@@ -367,11 +373,11 @@ export default function AdminPaymentChannelsPage() {
               onClick={() => setDialog(null)}
               disabled={saving}
             >
-              取消
+              {t("Cancel")}
             </Button>
             <Button type="button" onClick={() => void handleSave()} disabled={saving}>
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              保存
+              {t("Save")}
             </Button>
           </DialogFooter>
         </DialogContent>

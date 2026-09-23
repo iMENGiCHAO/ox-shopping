@@ -91,7 +91,10 @@ function dictKeys(file: string): Set<string> {
   const src = fs.readFileSync(file, "utf8");
   const keys = new Set<string>();
   const re =
-    /^\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([A-Za-z_$][\w$]*))\s*:\s*\{\s*(?:en|zh)\s*:/gm;
+    // 第三分支刻意放宽为「非空白/引号/括号/冒号」：JS 允许中文件当属性名（Unicode 标识符），
+    // prettier 的 quoteProps=as-needed 会照此去掉引号 —— 只认 ASCII 标识符会让
+    // 中文 key 静默「查不到词条」，守卫与迁移脚本同时漏检（2026-09-23 实测踩中）。
+    /^\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|([^\s"'{}:,()]+))\s*:\s*\{\s*(?:en|zh)\s*:/gm;
   for (const m of src.matchAll(re)) keys.add(unescapeLiteral(m[1] ?? m[2] ?? m[3] ?? ""));
   return keys;
 }

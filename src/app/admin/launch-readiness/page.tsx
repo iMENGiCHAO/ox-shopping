@@ -8,6 +8,7 @@ import {
   getLaunchReadiness,
   type ReadinessStatus,
 } from "@/server/services/launch-readiness.service";
+import { getT } from "@/lib/admin-i18n-server";
 
 export const dynamic = "force-dynamic";
 
@@ -46,14 +47,17 @@ const STATUS_META: Record<
  * （见 launch-readiness.service.ts），不是写死的清单项。
  */
 export default async function LaunchReadinessPage() {
+  const t = await getT();
   const { items, counts, readyToLaunch } = await getLaunchReadiness();
   const ordered = [...items].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);
 
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        title="上线自检"
-        description="上线前逐项核对：能否收到钱、能否发出邮件、配置是否指向真实环境。检测结果实时读取当前配置与数据库。"
+        title={t("上线自检")}
+        description={t(
+          "上线前逐项核对：能否收到钱、能否发出邮件、配置是否指向真实环境。检测结果实时读取当前配置与数据库。",
+        )}
       />
 
       {/* 结论 */}
@@ -66,26 +70,26 @@ export default async function LaunchReadinessPage() {
               <ShieldAlert className="h-4 w-4 text-destructive" />
             )}
             {readyToLaunch
-              ? "无阻塞项，具备上线条件"
+              ? t("无阻塞项，具备上线条件")
               : `有 ${counts.blocked} 项阻塞，暂不具备收款条件`}
           </CardTitle>
           <CardDescription>
             {readyToLaunch
-              ? "警告项按业务情况判断即可（例如单实例部署不启用 Redis 是可接受的）。"
-              : "阻塞项会直接影响真实交易或账号安全，请先处理完再看警告项。"}
+              ? t("警告项按业务情况判断即可（例如单实例部署不启用 Redis 是可接受的）。")
+              : t("阻塞项会直接影响真实交易或账号安全，请先处理完再看警告项。")}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2 text-sm sm:grid-cols-3">
           <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
-            <span className="text-muted-foreground">阻塞</span>
+            <span className="text-muted-foreground">{t("阻塞")}</span>
             <span className="font-medium tabular-nums text-destructive">{counts.blocked}</span>
           </div>
           <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
-            <span className="text-muted-foreground">警告</span>
+            <span className="text-muted-foreground">{t("警告")}</span>
             <span className="font-medium tabular-nums text-warning">{counts.warn}</span>
           </div>
           <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
-            <span className="text-muted-foreground">就绪</span>
+            <span className="text-muted-foreground">{t("就绪")}</span>
             <span className="font-medium tabular-nums text-success">{counts.ready}</span>
           </div>
         </CardContent>
@@ -105,7 +109,7 @@ export default async function LaunchReadinessPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm font-medium">{item.label}</span>
                       <span className={cn("rounded-full px-2 py-0.5 text-[11px]", meta.badge)}>
-                        {meta.label}
+                        {t(meta.label)}
                       </span>
                     </div>
                     <p className="text-[13px] text-muted-foreground">{item.detail}</p>
@@ -119,7 +123,7 @@ export default async function LaunchReadinessPage() {
                     href={item.href}
                     className="inline-flex shrink-0 items-center gap-1 self-start rounded-md border px-3 py-1.5 text-[13px] font-medium transition-colors hover:bg-secondary"
                   >
-                    去处理
+                    {t("去处理")}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </Link>
                 ) : null}

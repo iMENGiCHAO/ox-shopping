@@ -9,6 +9,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminDrawer, AdminDrawerHeader } from "@/components/admin/admin-drawer";
 import { DataTableActions } from "@/components/admin/data-table-actions";
 import { CellPair, CellText } from "@/components/admin/cell-text";
+import { useT } from "@/components/admin/lang-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -75,6 +76,8 @@ interface WithdrawsResponse {
  * 三个动作都会**动钱**（冻结核销 / 解冻退回余额），一律二次确认并把后果写在确认框里。
  */
 export default function AdminWithdrawalsPage() {
+  const t = useT();
+
   const [rows, setRows] = React.useState<WithdrawRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [page, setPage] = React.useState(1);
@@ -117,11 +120,11 @@ export default function AdminWithdrawalsPage() {
         ...(res.counts ?? {}),
       });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载提现申请失败");
+      toast.error(err instanceof Error ? err.message : t("加载提现申请失败"));
     } finally {
       setLoading(false);
     }
-  }, [page, statusFilter]);
+  }, [page, statusFilter, t]);
 
   React.useEffect(() => {
     void load();
@@ -170,7 +173,7 @@ export default function AdminWithdrawalsPage() {
       setDetailOpen(false);
       void load();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "处理提现失败");
+      toast.error(err instanceof Error ? err.message : t("处理提现失败"));
     } finally {
       setBusy(false);
     }
@@ -181,19 +184,23 @@ export default function AdminWithdrawalsPage() {
   return (
     <div className="space-y-4">
       <AdminPageHeader
-        title="提现审核"
-        description="审核分销商的提现申请：通过 → 线下打款 → 标记已打款核销；驳回会把冻结金额解冻退回余额"
+        title={t("提现审核")}
+        description={t(
+          "审核分销商的提现申请：通过 → 线下打款 → 标记已打款核销；驳回会把冻结金额解冻退回余额",
+        )}
         actions={
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             <RefreshCw className={loading ? "h-4 w-4 animate-spin" : "h-4 w-4"} />
-            刷新
+            {t("刷新")}
           </Button>
         }
       />
 
       <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
         <TabsList className="flex-wrap">
-          <TabsTrigger value="all">全部（{totalAll}）</TabsTrigger>
+          <TabsTrigger value="all">
+            {t("全部")}（{totalAll}）
+          </TabsTrigger>
           {WITHDRAW_STATUS_TABS.map((key) => (
             <TabsTrigger key={key} value={key}>
               {WITHDRAW_STATUS_LABELS[key]}（{counts[key] ?? 0}）
@@ -207,14 +214,16 @@ export default function AdminWithdrawalsPage() {
           <Table className="w-full">
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-0">申请人</TableHead>
-                <TableHead className="w-[120px] text-right">金额</TableHead>
-                <TableHead className="min-w-0">收款账户</TableHead>
-                <TableHead className="min-w-0">收款人 / 方式</TableHead>
-                <TableHead className="min-w-0">申请备注</TableHead>
-                <TableHead className="w-[90px]">状态</TableHead>
-                <TableHead className="w-[170px]">申请时间</TableHead>
-                <TableHead className="sticky-col-right w-[120px] text-right">操作</TableHead>
+                <TableHead className="min-w-0">{t("申请人")}</TableHead>
+                <TableHead className="w-[120px] text-right">{t("金额")}</TableHead>
+                <TableHead className="min-w-0">{t("收款账户")}</TableHead>
+                <TableHead className="min-w-0">{t("收款人 / 方式")}</TableHead>
+                <TableHead className="min-w-0">{t("申请备注")}</TableHead>
+                <TableHead className="w-[90px]">{t("Status")}</TableHead>
+                <TableHead className="w-[170px]">{t("申请时间")}</TableHead>
+                <TableHead className="sticky-col-right w-[120px] text-right">
+                  {t("Actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -233,8 +242,8 @@ export default function AdminWithdrawalsPage() {
                   <TableCell colSpan={COL_COUNT} className="p-0">
                     <EmptyState
                       icon={<Wallet className="h-6 w-6" />}
-                      title="没有该状态的提现申请"
-                      description="分销商在前台「我的分销」提交提现后会出现在这里"
+                      title={t("没有该状态的提现申请")}
+                      description={t("分销商在前台「我的分销」提交提现后会出现在这里")}
                     />
                   </TableCell>
                 </TableRow>
@@ -253,7 +262,7 @@ export default function AdminWithdrawalsPage() {
                         value={
                           row.payeeName
                             ? `${row.payeeName} · ${row.payeeMethod ?? "-"}`
-                            : "（未填写实名）"
+                            : t("（未填写实名）")
                         }
                         className="text-xs"
                       />
@@ -278,7 +287,7 @@ export default function AdminWithdrawalsPage() {
                       <DataTableActions
                         actions={[
                           {
-                            label: "处理",
+                            label: t("处理"),
                             icon: Eye,
                             primary: true,
                             onClick: () => openDetail(row),
@@ -303,30 +312,31 @@ export default function AdminWithdrawalsPage() {
 
       <AdminDrawer open={detailOpen} onOpenChange={setDetailOpen}>
         <AdminDrawerHeader
-          title={detail ? `提现审核：${detail.userName}` : "提现审核"}
+          title={detail ? `${t("提现审核")}：${detail.userName}` : t("提现审核")}
           description={detail?.userEmail}
         />
         <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
           {detail ? (
             <>
               <section className="space-y-2">
-                <h3 className="text-sm font-semibold">申请信息</h3>
+                <h3 className="text-sm font-semibold">{t("申请信息")}</h3>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border bg-muted/30 p-4 text-sm">
-                  <div className="text-muted-foreground">申请人</div>
+                  <div className="text-muted-foreground">{t("申请人")}</div>
                   <div className="break-all">{detail.userName}</div>
-                  <div className="text-muted-foreground">邮箱</div>
+                  <div className="text-muted-foreground">{t("Email")}</div>
                   <div className="break-all">{detail.userEmail}</div>
-                  <div className="text-muted-foreground">金额</div>
+                  <div className="text-muted-foreground">{t("金额")}</div>
                   <div className="font-medium tabular-nums">{formatCny(detail.amount)}</div>
-                  <div className="text-muted-foreground">收款账户</div>
-                  <div className="break-all">{detail.accountInfo || "（未填写）"}</div>
+                  <div className="text-muted-foreground">{t("收款账户")}</div>
+                  <div className="break-all">{detail.accountInfo || t("（未填写）")}</div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    收款人：{detail.payeeName || "（未填写实名）"} · 方式：
+                    {t("收款人：")}
+                    {detail.payeeName || t("（未填写实名）")} · {t("方式：")}
                     {detail.payeeMethod || "-"}
                   </div>
-                  <div className="text-muted-foreground">申请备注</div>
-                  <div className="break-words">{detail.remark || "（未填写）"}</div>
-                  <div className="text-muted-foreground">状态</div>
+                  <div className="text-muted-foreground">{t("申请备注")}</div>
+                  <div className="break-words">{detail.remark || t("（未填写）")}</div>
+                  <div className="text-muted-foreground">{t("Status")}</div>
                   <div>
                     <StatusBadge
                       status={detail.status}
@@ -334,36 +344,39 @@ export default function AdminWithdrawalsPage() {
                       variantMap={{ ...WITHDRAW_STATUS_VARIANTS }}
                     />
                   </div>
-                  <div className="text-muted-foreground">申请时间</div>
+                  <div className="text-muted-foreground">{t("申请时间")}</div>
                   <div className="tabular-nums">{formatDateTime(detail.createdAt)}</div>
-                  <div className="text-muted-foreground">审核时间</div>
+                  <div className="text-muted-foreground">{t("审核时间")}</div>
                   <div className="tabular-nums">{formatDateTime(detail.auditedAt)}</div>
-                  <div className="text-muted-foreground">打款时间</div>
+                  <div className="text-muted-foreground">{t("打款时间")}</div>
                   <div className="tabular-nums">{formatDateTime(detail.paidAt)}</div>
-                  <div className="text-muted-foreground">审核备注</div>
+                  <div className="text-muted-foreground">{t("Review Notes")}</div>
                   <div className="break-words">{detail.auditNote || "-"}</div>
-                  <div className="text-muted-foreground">打款凭证号</div>
+                  <div className="text-muted-foreground">{t("打款凭证号")}</div>
                   <div className="break-all font-mono text-xs">{detail.payNote || "-"}</div>
                 </div>
               </section>
 
               {detail.status === "PAID" || detail.status === "REJECTED" ? (
                 <p className="rounded-md border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  该提现单已{detail.status === "PAID" ? "打款核销" : "驳回并解冻"}，无需再次操作。
+                  {detail.status === "PAID"
+                    ? t("该提现单已打款核销，无需再次操作。")
+                    : t("该提现单已驳回并解冻，无需再次操作。")}
                 </p>
               ) : (
                 <section className="space-y-3 rounded-md border border-destructive/40 bg-destructive/5 p-4">
-                  <h3 className="text-sm font-semibold text-destructive">处理提现</h3>
+                  <h3 className="text-sm font-semibold text-destructive">{t("处理提现")}</h3>
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    通过：仅改变状态，金额仍在冻结中；标记已打款：核销冻结，请先完成线下转账；
-                    驳回：冻结金额立即解冻并退回申请人余额。
+                    {t(
+                      "通过：仅改变状态，金额仍在冻结中；标记已打款：核销冻结，请先完成线下转账；驳回：冻结金额立即解冻并退回申请人余额。",
+                    )}
                   </p>
 
                   {detail.status === "PENDING" ? (
                     <Textarea
                       value={note}
                       onChange={(e) => setNote(e.target.value)}
-                      placeholder="审核备注（可选，仅供后台留档）"
+                      placeholder={t("审核备注（可选，仅供后台留档）")}
                       rows={2}
                       maxLength={300}
                     />
@@ -374,14 +387,14 @@ export default function AdminWithdrawalsPage() {
                       <Input
                         value={payNote}
                         onChange={(e) => setPayNote(e.target.value)}
-                        placeholder="打款凭证号（可选，如银行流水号 / 转账单号）"
+                        placeholder={t("打款凭证号（可选，如银行流水号 / 转账单号）")}
                         maxLength={120}
                         className="font-mono"
                       />
                       <Textarea
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
-                        placeholder="驳回原因（仅在驳回时使用，会留档）"
+                        placeholder={t("驳回原因（仅在驳回时使用，会留档）")}
                         rows={2}
                         maxLength={300}
                       />
@@ -396,13 +409,13 @@ export default function AdminWithdrawalsPage() {
                         onClick={() => void submit(detail, "approve")}
                       >
                         <BadgeCheck className="mr-1.5 h-4 w-4" />
-                        通过审核
+                        {t("通过审核")}
                       </Button>
                     ) : null}
                     {detail.status === "APPROVED" ? (
                       <Button size="sm" disabled={busy} onClick={() => void submit(detail, "paid")}>
                         <Banknote className="mr-1.5 h-4 w-4" />
-                        标记已打款
+                        {t("标记已打款")}
                       </Button>
                     ) : null}
                     <Button
@@ -412,7 +425,7 @@ export default function AdminWithdrawalsPage() {
                       onClick={() => void submit(detail, "reject")}
                     >
                       <XCircle className="mr-1.5 h-4 w-4" />
-                      驳回申请
+                      {t("Reject request")}
                     </Button>
                   </div>
                 </section>
