@@ -17,18 +17,18 @@
 
 ## 1. 技术栈
 
-| 层 | 选型 | 版本 |
-|----|------|------|
-| Framework | Next.js | 16.3.3 (App Router + Turbopack + proxy.ts) |
-| UI | React | 19 |
-| Type | TypeScript | 5.6 |
-| DB | PostgreSQL | Homebrew @17（`scripts/start-db.sh`）；macOS 15.7+ 必须先 `scripts/fix-postgres-multithreaded.sh` 打补丁（见 §5.1） |
-| ORM | Prisma | 5.22 |
-| 样式 | Tailwind | 3.x（radius 全部 0 / 12-13px 字号） |
-| 测试 | Vitest | tests/unit 20 文件 + tests/integration 14 文件 = 34 文件 / 317 用例全绿（2026-09-20 实测）；E2E 见 tests/e2e |
-| Auth | 自研 JWT 双令牌 cookie | access 15min / refresh 7d（jose，非 iron-session） |
-| 支付 | 六渠道三态 | mock / stripe（渠道化真实接入）/ paypal / alipay / wechat / bankcard（预留级） |
-| Currency | 内置汇率（USD/CNY/EUR/GBP/JPY/HKD/SGD/AUD/CAD 9 币种）+ 每日刷新 + 后台手动覆写 |
+| 层        | 选型                                                                            | 版本                                                                                                                |
+| --------- | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Framework | Next.js                                                                         | 16.3.3 (App Router + Turbopack + proxy.ts)                                                                          |
+| UI        | React                                                                           | 19                                                                                                                  |
+| Type      | TypeScript                                                                      | 5.6                                                                                                                 |
+| DB        | PostgreSQL                                                                      | Homebrew @17（`scripts/start-db.sh`）；macOS 15.7+ 必须先 `scripts/fix-postgres-multithreaded.sh` 打补丁（见 §5.1） |
+| ORM       | Prisma                                                                          | 5.22                                                                                                                |
+| 样式      | Tailwind                                                                        | 3.x（radius 全部 0 / 12-13px 字号）                                                                                 |
+| 测试      | Vitest                                                                          | tests/unit 20 文件 + tests/integration 14 文件 = 34 文件 / 317 用例全绿（2026-09-20 实测）；E2E 见 tests/e2e        |
+| Auth      | 自研 JWT 双令牌 cookie                                                          | access 15min / refresh 7d（jose，非 iron-session）                                                                  |
+| 支付      | 六渠道三态                                                                      | mock / stripe（渠道化真实接入）/ paypal / alipay / wechat / bankcard（预留级）                                      |
+| Currency  | 内置汇率（USD/CNY/EUR/GBP/JPY/HKD/SGD/AUD/CAD 9 币种）+ 每日刷新 + 后台手动覆写 |
 
 ## 2. 项目结构
 
@@ -112,31 +112,31 @@ bash scripts/restart-dev.sh
 
 ## 4. 关键数据模型
 
-| 模型 | 用途 | 重要字段 |
-|------|------|----------|
-| **User** | 用户 | role: ADMIN/CUSTOMER/SUPPORT, status: ACTIVE/DISABLED；**deletionRequestedAt**（注销申请中）、**mustChangePassword**、**passwordChangedAt** |
-| **PasswordResetRequest** | 找回密码申请（B-2 人工审批） | status: PENDING/APPROVED/REJECTED, email 快照, note, handledById/handledAt, rejectReason, ip |
-| **Product** | 商品 | slug, sku, isPresale, presaleNoteZh/En, **images/attributes/specStock (JsonValue)** |
-| **Category** | 分类 | slug, name/nameEn, image/cardImage/bannerImage, **homeSortOrder**（首页横幅次序 1=左 2=右）, sortOrder, isActive |
-| **ProductCollection** | 商品↔集合多对多 | (productId, categoryId) 复合主键 + sortOrder（集合内陈列顺序） |
-| **Order** | 订单 | orderNumber, status, addressSnapshot (JsonValue), currency, accessToken（游客查单令牌） |
-| **Refund** | 退款 | orderId, reason, status, amount |
-| **Coupon / CouponRedemption** | 折扣码 | usageLimit/usedCount/perUserLimit，核销记录即订单优惠凭证 |
-| **PaymentChannel** | 支付渠道 | code, enabled, config（密钥脱敏返回，三态语义） |
-| **ShippingMethod** | 物流方式 | code（唯一）, 分区费用, orderCount |
-| **NotifyMe** | 到货提醒 | email + productId + 规格，回货触发 |
-| **ContactMessage** | 联系表单留言 | name/email/message/lang/status/notified |
-| **SiteSetting** | 站点设置 | key/value JsonValue（presaleNote / siteName / policyXxx / contact_content……**法务页也存这里，没有独立 LegalPage 模型**） |
-| **AuditLog** | 审计 | userId, action, entity, meta JsonValue |
-| **PaymentLog** | 支付流水 | orderId, provider, event, amount, gatewayId |
-| **Faq / Notification** | 内容与站内信 | Faq 有 questionEn/answerEn；Notification 有 titleEn/bodyEn/isUnread |
-| **DistributionRelation** | 分销树闭包表（无限级） | `(ancestorId,descendantId)` 主键，`depth=0` 是自己 |
-| **DistributorCustomerBind** | 客户归属绑定 | **`customerId` 唯一** = 数据库级「不可抢绑」 |
-| **CommissionRule** | 佣金规则 | `(scopeType,scopeId,level)` 唯一；GLOBAL 的 scopeId 用空串（PG 的 NULL 不进唯一约束） |
-| **CommissionLog** | 佣金流水（只追加） | 幂等键 `(orderId,toUserId,level)`；PENDING/SETTLED/REVERSED |
-| **DistributorAccount** | 分销账户（CNY） | 余额/冻结/累计，由流水汇总 |
-| **WithdrawRecord** | 提现单 | PENDING/APPROVED/PAID/REJECTED（一期线下打款） |
-| **OrderAttribution** | 下单归属快照 | 不可变；自然单 `natural=true` |
+| 模型                          | 用途                         | 重要字段                                                                                                                                    |
+| ----------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| **User**                      | 用户                         | role: ADMIN/CUSTOMER/SUPPORT, status: ACTIVE/DISABLED；**deletionRequestedAt**（注销申请中）、**mustChangePassword**、**passwordChangedAt** |
+| **PasswordResetRequest**      | 找回密码申请（B-2 人工审批） | status: PENDING/APPROVED/REJECTED, email 快照, note, handledById/handledAt, rejectReason, ip                                                |
+| **Product**                   | 商品                         | slug, sku, isPresale, presaleNoteZh/En, **images/attributes/specStock (JsonValue)**                                                         |
+| **Category**                  | 分类                         | slug, name/nameEn, image/cardImage/bannerImage, **homeSortOrder**（首页横幅次序 1=左 2=右）, sortOrder, isActive                            |
+| **ProductCollection**         | 商品↔集合多对多              | (productId, categoryId) 复合主键 + sortOrder（集合内陈列顺序）                                                                              |
+| **Order**                     | 订单                         | orderNumber, status, addressSnapshot (JsonValue), currency, accessToken（游客查单令牌）                                                     |
+| **Refund**                    | 退款                         | orderId, reason, status, amount                                                                                                             |
+| **Coupon / CouponRedemption** | 折扣码                       | usageLimit/usedCount/perUserLimit，核销记录即订单优惠凭证                                                                                   |
+| **PaymentChannel**            | 支付渠道                     | code, enabled, config（密钥脱敏返回，三态语义）                                                                                             |
+| **ShippingMethod**            | 物流方式                     | code（唯一）, 分区费用, orderCount                                                                                                          |
+| **NotifyMe**                  | 到货提醒                     | email + productId + 规格，回货触发                                                                                                          |
+| **ContactMessage**            | 联系表单留言                 | name/email/message/lang/status/notified                                                                                                     |
+| **SiteSetting**               | 站点设置                     | key/value JsonValue（presaleNote / siteName / policyXxx / contact_content……**法务页也存这里，没有独立 LegalPage 模型**）                    |
+| **AuditLog**                  | 审计                         | userId, action, entity, meta JsonValue                                                                                                      |
+| **PaymentLog**                | 支付流水                     | orderId, provider, event, amount, gatewayId                                                                                                 |
+| **Faq / Notification**        | 内容与站内信                 | Faq 有 questionEn/answerEn；Notification 有 titleEn/bodyEn/isUnread                                                                         |
+| **DistributionRelation**      | 分销树闭包表（无限级）       | `(ancestorId,descendantId)` 主键，`depth=0` 是自己                                                                                          |
+| **DistributorCustomerBind**   | 客户归属绑定                 | **`customerId` 唯一** = 数据库级「不可抢绑」                                                                                                |
+| **CommissionRule**            | 佣金规则                     | `(scopeType,scopeId,level)` 唯一；GLOBAL 的 scopeId 用空串（PG 的 NULL 不进唯一约束）                                                       |
+| **CommissionLog**             | 佣金流水（只追加）           | 幂等键 `(orderId,toUserId,level)`；PENDING/SETTLED/REVERSED                                                                                 |
+| **DistributorAccount**        | 分销账户（CNY）              | 余额/冻结/累计，由流水汇总                                                                                                                  |
+| **WithdrawRecord**            | 提现单                       | PENDING/APPROVED/PAID/REJECTED（一期线下打款）                                                                                              |
+| **OrderAttribution**          | 下单归属快照                 | 不可变；自然单 `natural=true`                                                                                                               |
 
 > **没有 `ProductVariant` 模型**：多规格（Color/Size）以 JSON 存在 `Product.attributes`（可选值）
 > 与 `Product.specStock`（各规格库存）里，售罄值另有 `attributes` 内的 `soldOutValues` 语义
@@ -280,16 +280,16 @@ bash scripts/restart-dev.sh
 
 ## 10. 已知技术债
 
-| 项 | 风险 | 建议 |
-|----|------|------|
-| PG binary patch | brew 升级/重装 PG 会重置补丁 | 升级后重跑 `scripts/fix-postgres-multithreaded.sh`（幂等） |
-| next/* .d.ts 缺失 | typecheck 9+ 噪音（`next/index.d.ts` 未下载） | 等真实 CI `npm ci` 一次自动下载；不影响 dev/build/runtime |
-| 前台 `/zh` 文案走查 | 词典已覆盖，长尾文案可能仍英文 | 逐页走查 `/zh` |
-| 联系表单留言无后台收件箱 | 留言仅入库 + 邮件通知，无列表页 | 视量补 `/admin/contact-messages` |
-| mobile < 375px 未覆盖 | 极小屏可能溢出 | 视觉基线目前覆盖桌面；补小屏视口 |
-| 视觉基线偶发 flaky | 慢卷 fullPage 生成慢/数据驱动区漂移 | 已 mask 动态区 + 固定测试商品；单跑复核 |
-| **Prisma client 缓存** | schema 改后 dev 仍用旧 client → API 500 | 已提供 `scripts/restart-dev.sh`；改 schema 后必须跑 |
-| **dev 进程孤儿** | kill -9 父进程后 next-server 成孤儿占端口 | 已提供 `scripts/stop-dev.sh` 强杀父子进程 |
+| 项                       | 风险                                          | 建议                                                       |
+| ------------------------ | --------------------------------------------- | ---------------------------------------------------------- |
+| PG binary patch          | brew 升级/重装 PG 会重置补丁                  | 升级后重跑 `scripts/fix-postgres-multithreaded.sh`（幂等） |
+| next/* .d.ts 缺失        | typecheck 9+ 噪音（`next/index.d.ts` 未下载） | 等真实 CI `npm ci` 一次自动下载；不影响 dev/build/runtime  |
+| 前台 `/zh` 文案走查      | 词典已覆盖，长尾文案可能仍英文                | 逐页走查 `/zh`                                             |
+| 联系表单留言无后台收件箱 | 留言仅入库 + 邮件通知，无列表页               | 视量补 `/admin/contact-messages`                           |
+| mobile < 375px 未覆盖    | 极小屏可能溢出                                | 视觉基线目前覆盖桌面；补小屏视口                           |
+| 视觉基线偶发 flaky       | 慢卷 fullPage 生成慢/数据驱动区漂移           | 已 mask 动态区 + 固定测试商品；单跑复核                    |
+| **Prisma client 缓存**   | schema 改后 dev 仍用旧 client → API 500       | 已提供 `scripts/restart-dev.sh`；改 schema 后必须跑        |
+| **dev 进程孤儿**         | kill -9 父进程后 next-server 成孤儿占端口     | 已提供 `scripts/stop-dev.sh` 强杀父子进程                  |
 
 ## 11. 上线清单（PRODUCTION_CHECKLIST.md 摘要）
 
@@ -297,8 +297,13 @@ bash scripts/restart-dev.sh
 - [ ] `npx tsc --noEmit` 0 错（除 next/* 噪音）
 - [ ] `npm run test:unit` + `npm run test:integration` 全绿
 - [ ] `npm run test:e2e`（Playwright，含视觉基线）
-- [ ] `prisma migrate deploy`（生产用 migrate，dev 库用 db push）
-- [ ] `.env` 用生产值（DATABASE_URL / JWT_ACCESS_SECRET / JWT_REFRESH_SECRET / SITE_URL）
+- [ ] 生产容器入口只执行 `prisma migrate deploy`；缺迁移目录会拒启，禁止用 `db push` 兜底
+- [ ] 存活 `/api/healthz` 不查 DB；就绪 `/healthz` 查 DB，DB 故障必须返回 503
+- [ ] `npm run preflight` 复用真实 `env.ts` 守卫、真实 DB 查询和 `prisma migrate status`
+- [ ] 每日备份生成 SHA-256；每季度在空临时库用 `scripts/restore-db.sh` 演练恢复
+- [ ] `.env` 用生产值；`DATABASE_URL`/`REDIS_URL` 凭据已 URL 编码，`REQUIRE_STRONG_SECRETS` 未关闭
+- [ ] S3 六项真实配置齐全（缺项会拒启，不会降级 local）；邮件非 console、支付非 mock
+- [ ] Sentry DSN/environment/release 与 `TZ`/`APP_TIMEZONE` 已配置并完成受控告警验收
 - [ ] **`MAIL_PROVIDER` 不能是 `console`**（否则找回密码临时密码邮件发不出去）
 - [ ] reverse proxy（nginx.conf）配置 CSP nonce
 - [ ] Cron 任务（汇率刷新 / 库存清理 / 订单超时）注册到系统 cron
@@ -322,6 +327,7 @@ bash scripts/restart-dev.sh
 ## 13. 与大爷的协作偏好（梦哥笔记）
 
 ### 大爷喜欢
+
 - 直接的工程化建议（不空泛）
 - 详实的代码 + 注释
 - 中文交流
@@ -329,12 +335,14 @@ bash scripts/restart-dev.sh
 - 商业可交付的最终质量
 
 ### 大爷不喜欢
+
 - 过多技术理论解释
 - 模糊的"我再想想"
 - 中英混用的 UI（后台）
 - 一直"待完成"的事项
 
 ### 沟通节奏
+
 - 大爷 = 老板（"我去睡觉了你接着干"）
 - 梦哥 = 全栈架构师（主动推进 + 主动决策）
 - 沙箱审批禁用 → 必要时直接 `sandbox_permissions: danger-full-access`（但本会话不用）
@@ -352,4 +360,3 @@ bash scripts/restart-dev.sh
 
 正确顺序：`npx prisma migrate deploy && npx prisma generate` → **重启 dev**（`scripts/stop-dev.sh` 后重开）
 → 再跑 QA。生产部署同理（pm2/systemd 需要 reload，否则新字段在运行进程里不可见）。
-

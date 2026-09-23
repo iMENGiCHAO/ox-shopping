@@ -289,23 +289,39 @@ async function sendViaConsole(to: string, subject: string, html: string, templat
   }
 }
 
-/** 发送邮件。发送失败只记录日志，不阻断业务流程。 */
-export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>): Promise<void> {
-  const meta = templates[input.template];
-  // 语言策略：调用方显式指定 > 默认 zh（与项目主语言一致；忘记密码等未登录场景友好）
-  const lang: MailLang = (input.data as { lang?: MailLang }).lang ?? "zh";
-  // 从 SiteSetting 拉取品牌名（多语），缺失兜底 "Ox Shopping"
-  const names = await loadSiteName();
-  // Inject brand name + url into every payload — these are derived from env /
-  // language so individual callers don't have to remember to set them.
-  const base = { siteUrl: env.SITE_URL, siteName: siteNameFor(lang, names) };
-  const data = { ...base, ...(input.data as object) };
-  const html = await meta.render(data);
-  const subject = meta.subject(lang, base.siteName);
-  // 通道与发件人取**运行时配置**（后台可改，保存后立即生效；env 仅兜底）
-  const cfg = await getMailRuntimeConfig();
+export type MailDeliveryChannel = "resend" | "smtp" | "console";
+
+/**
+ * 邮件投递结果。`sendMail` 改为返回结果而不是仅记录日志，调用方仍可像以前一样
+ * `await` / `void` / 忽略返回值，因此对既有调用完全向后兼容。
+ */
+export interface MailSendResult {
+  /** 仅真实发送通道成功返回 true；console 落盘不等于已投递。 */
+  delivered: boolean;
+  channel: MailDeliveryChannel;
+  error?: string;
+}
+
+/** 发送邮件。发送失败只记录日志，不阻断既有业务流程，并返回可供重试判断的结果。 */
+export async function sendMail<T extends MailTemplate>(
+  input: SendMailInput<T>,
+): Promise<MailSendResult> {
+  let channel: MailDeliveryChannel = "console";
   try {
-    const channel = effectiveChannel(cfg);
+    const meta = templates[input.template];
+    // 语言策略：调用方显式指定 > 默认 zh（与项目主语言一致；忘记密码等未登录场景友好）
+    const lang: MailLang = (input.data as { lang?: MailLang }).lang ?? "zh";
+    // 从 SiteSetting 拉取品牌名（多语），缺失兜底 "Ox Shopping"
+    const names = await loadSiteName();
+    // Inject brand name + url into every payload — these are derived from env /
+    // language so individual callers don't have to remember to set them.
+    const base = { siteUrl: env.SITE_URL, siteName: siteNameFor(lang, names) };
+    const data = { ...base, ...(input.data as object) };
+    const html = await meta.render(data);
+    const subject = meta.subject(lang, base.siteName);
+    // 通道与发件人取**运行时配置**（后台可改，保存后立即生效；env 仅兜底）
+    const cfg = await getMailRuntimeConfig();
+    channel = effectiveChannel(cfg);
     if (channel === "resend") {
       await sendViaResend(input.to, subject, html, cfg);
     } else if (channel === "smtp") {
@@ -313,10 +329,17 @@ export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>):
     } else {
       await sendViaConsole(input.to, subject, html, input.template);
     }
+    // console 只落日志/本地文件，不能宣称邮件已实际送达；需要可靠投递的调用方可留 draft 重试。
+    if (channel === "console") {
+      return { delivered: false, channel };
+    }
     logger.info({ to: input.to, template: input.template, channel }, "邮件已发送");
+    return { delivered: true, channel };
   } catch (err) {
-    // 邮件失败不应阻断主流程(订单仍创建成功)
+    // 邮件失败不改变既有「不抛异常」行为，但把失败显式交给到货提醒等服务做重试判断。
+    const error = err instanceof Error ? err.message : String(err);
     logger.error({ err, to: input.to, template: input.template }, "邮件发送失败");
+    return { delivered: false, channel, error };
   }
 }
 

@@ -21,7 +21,11 @@ if (!isProduction) {
 // 进程内定时任务（订单过期取消 / Token 清理 / 掉单对账）。
 // 挂在 prisma 单例上：本模块只会在 Node 服务端被导入，天然不进 edge 打包图；
 // startScheduler 内部有 globalThis 守卫，每进程仅启动一次。CRON_ENABLED=false 可关闭。
-if (process.env.NEXT_RUNTIME !== "edge" && process.env.CRON_ENABLED !== "false") {
+if (
+  process.env.NEXT_RUNTIME !== "edge" &&
+  process.env.NEXT_PHASE !== "phase-production-build" &&
+  process.env.CRON_ENABLED !== "false"
+) {
   void import("@/server/jobs/start")
     .then((m) => m.startScheduler())
     .catch(() => {});

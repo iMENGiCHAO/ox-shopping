@@ -20,8 +20,11 @@ export default async function AccountLayout({ children }: { children: React.Reac
   // 个人资料 → 收货地址 → 我的订单 → 消息通知（修改密码已并入个人资料页）
   const NAV = buildAccountNav(t);
 
+  // data-apple-area：账户区中间内容（导航 + 正文）整体换成 Apple 风格令牌
+  // （#F5F5F7 灰底圆角面板 + 白卡大圆角 + Apple 蓝主色），顶栏/底栏保持
+  // shop.x.com 黑白方角不变（见 globals.css 作用域注释）。
   return (
-    <div className="container py-6 md:py-8">
+    <div className="container my-6 p-4 md:my-8 md:p-6" data-apple-area>
       <div className="mb-4 md:mb-6">
         <h1 className="text-xl font-bold md:text-2xl">{t("My Account")}</h1>
         <p className="mt-0.5 text-xs text-muted-foreground md:mt-1 md:text-sm">

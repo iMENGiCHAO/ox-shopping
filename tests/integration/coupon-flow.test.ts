@@ -245,9 +245,15 @@ describe("折扣码 · 试算是只读的", () => {
         cookies: cookiesOf(jar),
         body: { code, items: [{ productId, quantity }], shippingMethod: "standard" },
       });
-      return ((await res.json()) as {
-        data: { ok: boolean; reason?: string; quote?: { shippingFeeUsd: number; discountUsd: number } };
-      }).data;
+      return (
+        (await res.json()) as {
+          data: {
+            ok: boolean;
+            reason?: string;
+            quote?: { shippingFeeUsd: number; discountUsd: number };
+          };
+        }
+      ).data;
     };
 
     /**
@@ -332,7 +338,10 @@ describe("折扣码 · 下单核销", () => {
     expect(o.couponCode).toBe(code);
     expect(o.discount).toBeGreaterThan(0);
     // 金额恒等式：total = subtotal + shippingFee + tax − discount
-    expect(Number((o.subtotal + o.shippingFee + o.tax - o.discount).toFixed(2))).toBeCloseTo(o.total, 2);
+    expect(Number((o.subtotal + o.shippingFee + o.tax - o.discount).toFixed(2))).toBeCloseTo(
+      o.total,
+      2,
+    );
 
     // 券已核销一次
     const afterCoupon = await prisma.coupon.findUniqueOrThrow({ where: { id: coupon.id } });
@@ -346,6 +355,44 @@ describe("折扣码 · 下单核销", () => {
     expect(Number(redemptions[0]!.discountAmount)).toBeCloseTo(o.discount, 2);
   });
 
+  it("CNY 核销金额按订单币种落库，历史误存 USD 的行也按 Order.discount 展示", async () => {
+    const code = `${CODE_PREFIX}CNY`;
+    const coupon = await makeCoupon({ code, type: "FIXED", value: 5 });
+
+    const { POST } = await import("@/app/api/orders/route");
+    const res = await callApi(POST, {
+      method: "POST",
+      cookies: { ...cookiesOf(jar), currency: "CNY" },
+      body: {
+        items: [{ productId, quantity: 1 }],
+        addressId,
+        shippingMethod: "standard",
+        couponCode: code,
+      },
+    });
+    expect(res.status).toBe(200);
+    const created = (await getData(res)) as {
+      order: { id: string; currency: string; discount: number; total: number };
+    };
+    expect(created.order.currency).toBe("CNY");
+    expect(created.order.discount).toBeGreaterThan(0);
+
+    const redemption = await prisma.couponRedemption.findFirstOrThrow({
+      where: { couponId: coupon.id, orderId: created.order.id },
+    });
+    expect(Number(redemption.discountAmount)).toBeCloseTo(created.order.discount, 2);
+
+    // 模拟旧版本历史行：字段里误存了 USD 数字。展示层必须以 Order.discount 为准。
+    await prisma.couponRedemption.update({
+      where: { id: redemption.id },
+      data: { discountAmount: 5 },
+    });
+    const { listUserRedemptions } = await import("@/server/services/coupon.service");
+    const listed = (await listUserRedemptions(userId)).find((row) => row.id === redemption.id);
+    expect(listed?.currency).toBe("CNY");
+    expect(listed?.discountAmount).toBeCloseTo(created.order.discount, 2);
+  });
+
   it("超过每人限次被拒（PER_USER_LIMIT），且不会重复核销", async () => {
     const code = `${CODE_PREFIX}PERUSER`;
     const coupon = await makeCoupon({ code, type: "FIXED", value: 5, perUserLimit: 1 });
@@ -355,7 +402,13 @@ describe("折扣码 · 下单核销", () => {
       callApi(POST, {
         method: "POST",
         cookies: cookiesOf(jar),
-        body: { items: [{ productId, quantity: 1 }], addressId, shippingMethod: "standard", couponCode: code, ...extra },
+        body: {
+          items: [{ productId, quantity: 1 }],
+          addressId,
+          shippingMethod: "standard",
+          couponCode: code,
+          ...extra,
+        },
       });
 
     const first = await order();
@@ -373,7 +426,13 @@ describe("折扣码 · 下单核销", () => {
 
   it("总量用尽的券被拒（USAGE_LIMIT）", async () => {
     const code = `${CODE_PREFIX}EXHAUSTED`;
-    const coupon = await makeCoupon({ code, type: "FIXED", value: 5, usageLimit: 1, perUserLimit: 0 });
+    const coupon = await makeCoupon({
+      code,
+      type: "FIXED",
+      value: 5,
+      usageLimit: 1,
+      perUserLimit: 0,
+    });
     await prisma.coupon.update({ where: { id: coupon.id }, data: { usedCount: 1 } });
 
     const { POST } = await import("@/app/api/coupons/apply/route");
@@ -396,7 +455,14 @@ describe("折扣码 · 下单核销", () => {
     });
     expect(res.status).toBe(200);
     const created = (await getData(res)) as {
-      order: { discount: number; couponCode: string | null; subtotal: number; shippingFee: number; tax: number; total: number };
+      order: {
+        discount: number;
+        couponCode: string | null;
+        subtotal: number;
+        shippingFee: number;
+        tax: number;
+        total: number;
+      };
     };
     expect(created.order.discount).toBe(0);
     expect(created.order.couponCode).toBeNull();
@@ -416,7 +482,12 @@ describe("折扣码 · 取消订单回补", () => {
       await callApi(POST, {
         method: "POST",
         cookies: cookiesOf(jar),
-        body: { items: [{ productId, quantity: 1 }], addressId, shippingMethod: "standard", couponCode: code },
+        body: {
+          items: [{ productId, quantity: 1 }],
+          addressId,
+          shippingMethod: "standard",
+          couponCode: code,
+        },
       }),
     )) as { order: { orderNumber: string } };
 
@@ -439,7 +510,12 @@ describe("折扣码 · 取消订单回补", () => {
     const reuse = await callApi(POST, {
       method: "POST",
       cookies: cookiesOf(jar),
-      body: { items: [{ productId, quantity: 1 }], addressId, shippingMethod: "standard", couponCode: code },
+      body: {
+        items: [{ productId, quantity: 1 }],
+        addressId,
+        shippingMethod: "standard",
+        couponCode: code,
+      },
     });
     expect(reuse.status).toBe(200);
   });
@@ -492,7 +568,11 @@ describe("游客结账", () => {
     const { POST } = await import("@/app/api/orders/route");
     const res = await callApi(POST, {
       method: "POST",
-      body: { items: [{ productId, quantity: 1 }], contactEmail: "g@example.com", shippingMethod: "standard" },
+      body: {
+        items: [{ productId, quantity: 1 }],
+        contactEmail: "g@example.com",
+        shippingMethod: "standard",
+      },
     });
     expect(res.status).toBe(400);
   });
@@ -530,11 +610,43 @@ describe("游客结账", () => {
     expect((await prisma.coupon.findUniqueOrThrow({ where: { id: coupon.id } })).usedCount).toBe(1);
   });
 
+  it("游客公开商品补全返回 isPresale，供游客购物车与结账共用可购谓词", async () => {
+    const original = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+    const { GET } = await import("@/app/api/cart/preview/route");
+    try {
+      await prisma.product.update({ where: { id: productId }, data: { isPresale: true } });
+      const res = await callApi(GET, {
+        headers: { "x-test-url": `/api/cart/preview?ids=${productId}` },
+      });
+      expect(res.status).toBe(200);
+      const data = (await getData(res)) as { products: { id: string; isPresale: boolean }[] };
+      expect(data.products.find((product) => product.id === productId)?.isPresale).toBe(true);
+    } finally {
+      await prisma.product.update({
+        where: { id: productId },
+        data: { isPresale: original.isPresale },
+      });
+    }
+  });
+
   it("游客单不泄漏 accessToken 到订单列表序列化中", async () => {
     // 序列化层是安全边界：accessToken 一旦随列表流出，拿到列表的人就能查他人订单
     const { serializeOrder } = await import("@/server/serializers");
     const row = await prisma.order.findFirstOrThrow({ where: { accessToken: { not: null } } });
     const safe = serializeOrder(row) as Record<string, unknown>;
     expect("accessToken" in safe).toBe(false);
+  });
+});
+
+describe("后台消息中心 RBAC", () => {
+  it("SUPPORT 可读取自己的消息，CUSTOMER 仍被拒绝", async () => {
+    const { GET } = await import("@/app/api/admin/notifications/route");
+    const supportJar = (await login("support@example.com", "Support@123456")).jar;
+
+    const support = await callApi(GET, { cookies: cookiesOf(supportJar) });
+    expect(support.status).toBe(200);
+
+    const customer = await callApi(GET, { cookies: cookiesOf(jar) });
+    expect(customer.status).toBe(403);
   });
 });

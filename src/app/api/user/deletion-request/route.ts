@@ -25,7 +25,9 @@ export const POST = apiHandler(async (req) => {
     select: { deletionRequestedAt: true },
   });
   if (existing?.deletionRequestedAt) {
-    throw conflict("You already have a pending account-deletion request. To withdraw it, cancel the current request first");
+    throw conflict(
+      "You already have a pending account-deletion request. To withdraw it, cancel the current request first",
+    );
   }
 
   const now = new Date();
@@ -49,10 +51,11 @@ export const POST = apiHandler(async (req) => {
     type: "system",
     title: "客户申请注销账户",
     titleEn: "Customer requested account deletion",
-    body: `${user.name}（${user.email}）提交了账户注销申请，请在客户管理中处理：确认注销（匿名化删除）或驳回。`,
-    bodyEn: `${user.name} (${user.email}) has requested account deletion. Review it in User Management: approve (anonymized deletion) or reject.`,
+    body: "有客户提交了账户注销申请，请在客户管理中通过用户标识核对：确认注销（匿名化删除）或驳回。",
+    bodyEn:
+      "A customer requested account deletion. Review it in User Management by user ID: approve (anonymized deletion) or reject.",
     link: "/admin/users",
-    meta: { userId: user.id, email: user.email },
+    meta: { userId: user.id },
   });
 
   return json({ ok: true, deletionRequestedAt: now.toISOString(), adminsNotified: notified });

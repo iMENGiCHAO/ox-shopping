@@ -26,6 +26,8 @@ export interface CreatePaymentInput {
   currency: string;
   subject: string;
   customerEmail?: string;
+  /** 游客订单查询令牌；支付回跳必须透传，避免付款后丢失订单访问权。 */
+  accessToken?: string | null;
   /**
    * 品牌名（收银台展示用，如 PayPal application_context.brand_name）。
    * 由 order.service 从站点设置注入；缺省时渠道侧回落到 `brandFallback`。
@@ -40,9 +42,14 @@ export type CreatePaymentResult =
 
 export interface VerifyNotifyResult {
   orderNumber: string;
+  /** 支付交易号；Stripe 必须传 PaymentIntent id，不能传 Checkout Session id。 */
   transactionId: string;
   /** 单位：元 */
   amount: number;
+  /** 币种（ISO 4217）；回调提供时必须与订单币种精确匹配。 */
+  currency?: string;
+  /** Stripe Checkout Session id（只用于会话维度对账，不写入 paymentId）。 */
+  sessionId?: string;
 }
 
 export interface RefundInput {
@@ -52,6 +59,8 @@ export interface RefundInput {
   gatewayId?: string | null;
   currency: string;
   reason?: string;
+  /** 渠道幂等键；同一退款重试必须复用，禁止产生第二笔网关退款。 */
+  idempotencyKey?: string;
 }
 
 export interface PaymentProvider {
@@ -95,7 +104,10 @@ export interface PaymentProvider {
     config: Record<string, unknown>,
   ): Promise<VerifyNotifyResult | null>;
   /** 退款（订单退款走原支付渠道） */
-  refund(input: RefundInput, config: Record<string, unknown>): Promise<{ gatewayRefundId: string }>;
+  refund(
+    input: RefundInput,
+    config: Record<string, unknown>,
+  ): Promise<{ gatewayRefundId: string; status?: "succeeded" | "pending" | "failed" }>;
 }
 
 /** 非空字符串取值助手 */

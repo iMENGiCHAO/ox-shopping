@@ -1,34 +1,53 @@
 #!/usr/bin/env bash
-# 数据库逻辑备份：pg_dump 自定义格式 + gzip，本地保留 14 天。
-# 生产建议挂 cron（宿主机或 CI）：
-#   0 3 * * * /path/to/ecommerce/scripts/backup-db.sh >> /var/log/ecommerce-backup.log 2>&1
-# 更稳妥的方案：由托管数据库（RDS/Cloud SQL）的自动快照兜底。
+# PostgreSQL 自定义格式备份 + 外层 gzip + SHA-256；只生成备份，不修改数据库。
 set -euo pipefail
+umask 077
 cd "$(dirname "$0")/.."
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 RETAIN_DAYS="${RETAIN_DAYS:-14}"
 mkdir -p "$BACKUP_DIR"
 
-# 读取 .env 的 DATABASE_URL（不覆盖已有环境变量）
 if [[ -z "${DATABASE_URL:-}" && -f .env ]]; then
-  DATABASE_URL=$(grep -E '^DATABASE_URL=' .env | head -1 | cut -d= -f2- | tr -d '"')
+  DATABASE_URL="$(sed -n 's/^DATABASE_URL=//p' .env | tail -1)"
+  DATABASE_URL="${DATABASE_URL%\"}"; DATABASE_URL="${DATABASE_URL#\"}"
+  DATABASE_URL="${DATABASE_URL%\'}"; DATABASE_URL="${DATABASE_URL#\'}"
   export DATABASE_URL
 fi
-[[ -n "${DATABASE_URL:-}" ]] || { echo "✗ 未找到 DATABASE_URL"; exit 1; }
+[[ -n "${DATABASE_URL:-}" ]] || { echo "✗ 未找到 DATABASE_URL（环境变量或项目根 .env）" >&2; exit 1; }
+[[ "$RETAIN_DAYS" =~ ^[0-9]+$ ]] || { echo "✗ RETAIN_DAYS 必须是非负整数" >&2; exit 1; }
 
-PG_DUMP="$(command -v pg_dump || echo /usr/local/opt/postgresql@17/bin/pg_dump)"
-STAMP=$(date +%Y%m%d-%H%M%S)
-OUT="$BACKUP_DIR/ecommerce-$STAMP.dump"
+PG_DUMP="${PG_DUMP:-$(command -v pg_dump || true)}"
+[[ -n "$PG_DUMP" && -x "$PG_DUMP" ]] || {
+  echo "✗ 找不到 pg_dump；请安装与数据库大版本兼容的 PostgreSQL client 或设置 PG_DUMP" >&2
+  exit 1
+}
 
-echo "→ dumping to $OUT"
-"$PG_DUMP" --format=custom --no-owner --no-privileges --file="$OUT" "$DATABASE_URL"
-gzip -f "$OUT"
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+FINAL="$BACKUP_DIR/ecommerce-$STAMP.dump.gz"
+PARTIAL="$FINAL.partial"
+CHECKSUM="$FINAL.sha256"
+trap 'rm -f "$PARTIAL"' EXIT
 
-# 保留策略
-find "$BACKUP_DIR" -name 'ecommerce-*.dump.gz' -mtime +"$RETAIN_DAYS" -delete
+echo "→ 创建 PostgreSQL 自定义格式备份"
+"$PG_DUMP" --format=custom --no-owner --no-privileges --file="$PARTIAL" "$DATABASE_URL"
+gzip -f "$PARTIAL"
+mv "$PARTIAL" "$FINAL"
+SHA256_CMD="sha256sum"
+command -v sha256sum >/dev/null 2>&1 || SHA_CMD="shasum"
+[[ -n "$SHA_CMD" ]] || { echo "✗ 找不到 sha256sum 或 shasum" >&2; exit 1; }
+(
+  cd "$BACKUP_DIR"
+  if [[ -n "$SHA_CMD" ]]; then
+    shasum -a 256 "$(basename "$FINAL")" > "$(basename "$CHECKSUM")"
+  else
+    sha256sum "$(basename "$FINAL")" > "$(basename "$CHECKSUM")"
+  fi
+)
 
-LATEST=$(ls -t "$BACKUP_DIR"/ecommerce-*.dump.gz | head -1)
-SIZE=$(du -h "$LATEST" | cut -f1)
-echo "✓ 备份完成：$LATEST ($SIZE)，保留 ${RETAIN_DAYS} 天"
-echo "  恢复：pg_restore --clean --if-exists -d \$DATABASE_URL $LATEST"
+find "$BACKUP_DIR" -type f \( -name 'ecommerce-*.dump.gz.partial' -o -name 'ecommerce-*.dump.gz' -o -name 'ecommerce-*.dump.gz.sha256' \) -mtime "+$RETAIN_DAYS" -delete
+
+SIZE="$(du -h "$FINAL" | awk '{print $1}')"
+echo "✓ 备份完成：$FINAL ($SIZE)"
+echo "  校验：cd '$BACKUP_DIR' && ${SHA_CMD:-sha256sum} ${SHA_CMD:+-a 256} -c '$(basename "$CHECKSUM")'"
+echo "  恢复演练必须使用 scripts/restore-db.sh，并设置 RESTORE_CONFIRM=restore"

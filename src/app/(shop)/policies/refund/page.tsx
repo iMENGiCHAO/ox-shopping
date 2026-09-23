@@ -6,11 +6,13 @@ import { getLang, getT } from "@/lib/shop-i18n-server";
 import { POLICY_TITLES } from "@/lib/policy-defaults";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const t = await getT();
   const lang = await getLang();
   return {
     title: lang === "zh" ? POLICY_TITLES.refund.zh : POLICY_TITLES.refund.en,
-    description: t("Refund Policy: 7-day no-reason returns, refund conditions, and process"),
+    description:
+      lang === "zh"
+        ? "退款政策：适用范围、申请条件、处理时间与退货支持说明"
+        : "Refund Policy: eligibility, conditions, processing times, and return support",
   };
 }
 

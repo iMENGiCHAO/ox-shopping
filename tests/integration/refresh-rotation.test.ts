@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { REFRESH_TOKEN_COOKIE } from "@/lib/constants";
 import { sha256 } from "@/lib/utils";
 import { resetRateLimit } from "@/lib/rate-limit";
+import { sanitizeUrlForObservability } from "@/lib/api";
 
 /**
  * refresh token 轮换的**复用策略**回归测试。
@@ -23,14 +24,13 @@ import { resetRateLimit } from "@/lib/rate-limit";
  * 另一条同样会触发的路径：并发响应覆盖 Cookie 顺序，客户端留下的是
  * 「已被吊销且无后继」的 B ⇒ 下一次请求直接命中重放分支。
  *
- * 现策略（见 `lib/auth/session.ts` 的 `ROTATION_REUSE_GRACE_MS`）：
- * 「链未闭合」**或**「旧 token 在刚被轮换后的 60 秒宽限期内」都按善意复用处理。
- * 宽限期外的链已闭合复用**仍然是真重放**，照旧吊销全部会话。
+ * 现策略：同进程并发请求 single-flight，共用同一轮结果；任何已消费 token
+ * 再次出现都按重放拒绝并吊销全部会话，绝不凭旧 token 再签发令牌。
  *
- * 因此本文件断言的三件事：
- *   1. 链未闭合的善意重试 → 200，不殃及其它设备
- *   2. 宽限期内的并发复用 → 全部 200，会话存活（生产缺陷的回归护栏）
- *   3. 超出宽限期 + 链已闭合 → 401 且吊销全部（安全底线未被放宽掉）
+ * 因此本文件断言：
+ *   1. 旧 token 顺序重发 → 401 且没有新会话
+ *   2. 同进程并发复用 → 全部 200，会话存活
+ *   3. 正常后继 token → 可继续轮换
  */
 
 const unique = () => `rot-${Date.now()}-${Math.floor(Math.random() * 1e6)}@test.local`;
@@ -59,6 +59,20 @@ async function backdateRevocation(refreshToken: string, ageMs: number) {
   });
 }
 
+describe("API 可观测性 URL 脱敏", () => {
+  it("query token、签名与 fragment 不进入日志/Sentry 上下文", () => {
+    const safe = sanitizeUrlForObservability(
+      "https://shop.test/api/orders/ORD-1?token=order-secret&state=visible&signature=sig-secret#access-secret",
+    );
+    expect(safe).toContain("token=%5BREDACTED%5D");
+    expect(safe).toContain("state=visible");
+    expect(safe).toContain("signature=%5BREDACTED%5D");
+    expect(safe).not.toContain("order-secret");
+    expect(safe).not.toContain("sig-secret");
+    expect(safe).not.toContain("access-secret");
+  });
+});
+
 describe("refresh token 复用策略", () => {
   const emails: string[] = [];
 
@@ -85,7 +99,7 @@ describe("refresh token 复用策略", () => {
     emails.length = 0;
   });
 
-  it("链未闭合的善意重试：不被吊销全部会话，仍返回可用会话", async () => {
+  it("链未闭合的旧 token 重发：拒绝且不签发新会话", async () => {
     const email = unique();
     emails.push(email);
     const r = await registerAndLogin(email);
@@ -100,16 +114,15 @@ describe("refresh token 复用策略", () => {
     const tokenB = firstJar.get(REFRESH_TOKEN_COOKIE);
     expect(tokenB).toBeTruthy();
 
-    // 模拟"客户端未收到响应、仍持旧 token A 重发"（善意重试）
+    // 旧 token 再次出现必须拒绝；绝不能凭旧 token 再签发新会话。
     const retry = await doRefresh(tokenA);
-    expect(retry.status).toBe(200);
-    const retryJar = new CookieJar();
-    retryJar.absorb(retry);
-    expect(retryJar.get(REFRESH_TOKEN_COOKIE)).toBeTruthy();
+    expect(retry.status).toBe(401);
 
-    // 重建的会话可用
-    const retryUser = (await getData(retry)) as { user: { email: string } };
-    expect(retryUser.user.email).toBe(email);
+    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
+    const active = await prisma.refreshToken.count({
+      where: { userId: user.id, revokedAt: null },
+    });
+    expect(active).toBe(0);
   });
 
   it("宽限期内的并发复用：全部成功，且不吊销全部会话（生产缺陷回归护栏）", async () => {

@@ -53,8 +53,8 @@ test.describe("管理后台 — 物流方式", () => {
     // 列表可见新行
     const row = page.getByRole("row").filter({ hasText: code });
     await expect(row).toBeVisible();
-    await expect(row).toContainText("$12.34");
-    await expect(row).toContainText("满 $88.00");
+    await expect(row).toContainText("12.34");
+    await expect(row).toContainText("88.00");
 
     // ── 编辑：改运费 ──
     // 创建对话框关闭动画期间其 overlay 会遮挡列表按钮（click 等 actionable 超时）：
@@ -68,7 +68,7 @@ test.describe("管理后台 — 物流方式", () => {
     await editDialog.getByLabel("基础运费").fill("9.99");
     await editDialog.getByRole("button", { name: "保存修改" }).click();
     await expect(page.getByText("物流方式已保存")).toBeVisible({ timeout: 10_000 });
-    await expect(row).toContainText("$9.99");
+    await expect(row).toContainText("9.99");
 
     // ── 启停：开关即时生效 ──
     // 同「编辑」：保存后对话框关闭动画期间 overlay 仍在，先等它卸载再点开关

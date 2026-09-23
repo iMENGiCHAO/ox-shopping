@@ -1,6 +1,13 @@
 import "server-only";
-import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { env, effectiveStorageDriver } from "@/lib/env";
@@ -44,7 +51,7 @@ export function validateUpload(file: { type: string; size: number }): UploadVali
       error: `不支持的文件类型：${file.type || "未知"}(仅支持 jpg/png/webp/gif/avif)`,
     };
   }
-  if (file.size <= 0) return { ok: false, error: "文件为空" };
+  if (!Number.isSafeInteger(file.size) || file.size <= 0) return { ok: false, error: "文件为空" };
   if (file.size > UPLOAD_MAX_BYTES) {
     return {
       ok: false,
@@ -52,6 +59,39 @@ export function validateUpload(file: { type: string; size: number }): UploadVali
     };
   }
   return { ok: true };
+}
+
+const IMAGE_FORMAT_MIME: Record<string, string> = {
+  jpeg: "image/jpeg",
+  png: "image/png",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif",
+};
+
+/**
+ * 校验实际字节内容，而不仅信客户端 MIME。sharp 会读取 magic/容器并尝试解码；
+ * 解码成功且格式与声明 MIME 一致才接受，避免把 HTML/SVG/伪造扩展名写入公开桶。
+ */
+export async function validateImageBuffer(
+  buffer: Buffer,
+  mime: string,
+  size = buffer.byteLength,
+): Promise<UploadValidation> {
+  const basic = validateUpload({ type: mime, size });
+  if (!basic.ok) return basic;
+  try {
+    const image = sharp(buffer, { limitInputPixels: 40_000_000 });
+    const metadata = await image.metadata();
+    if (!metadata.format || IMAGE_FORMAT_MIME[metadata.format] !== mime) {
+      return { ok: false, error: "文件内容不是所声明的图片格式" };
+    }
+    // metadata 只验证容器头；stats 会实际解码像素，拒绝截断/损坏图片。
+    await image.stats();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "文件内容不是可解析的图片" };
+  }
 }
 
 /**
@@ -97,6 +137,7 @@ function localPathFor(key: string): string {
 export async function getPresignedUpload(
   originalName: string,
   mime: string,
+  size: number,
   purpose: UploadPurpose = "misc",
 ): Promise<{ url: string; key: string } | null> {
   if (effectiveStorageDriver !== "s3") return null;
@@ -107,9 +148,62 @@ export async function getPresignedUpload(
     Bucket: env.S3_BUCKET,
     Key: key,
     ContentType: mime,
+    ContentLength: size,
   });
   const url = await getSignedUrl(s3, command, { expiresIn: 300 });
   return { url, key };
+}
+
+function isManagedUploadKey(key: string): boolean {
+  return /^uploads\/(?:categories|products|brand|misc)\/\d{4}\/\d{2}\/[A-Za-z0-9-]+\.(?:jpe?g|png|webp|gif|avif)$/.test(
+    key,
+  );
+}
+
+/**
+ * S3 直传完成闸门。客户端 PUT 成功后必须调用：服务端重新读取对象元数据和全部
+ * 字节，核对声明大小/MIME，并用图片解码器验证 magic；非法对象立即删除。
+ */
+export async function completePresignedUpload(
+  key: string,
+  expectedMime: string,
+  expectedSize: number,
+): Promise<{ ok: boolean; error?: string; url?: string }> {
+  if (effectiveStorageDriver !== "s3") return { ok: false, error: "S3 未启用" };
+  if (!isManagedUploadKey(key)) return { ok: false, error: "非法存储对象 key" };
+  const declared = validateUpload({ type: expectedMime, size: expectedSize });
+  if (!declared.ok) return declared;
+
+  const s3 = getS3();
+  if (!s3) return { ok: false, error: "S3 未配置" };
+
+  try {
+    const head = await s3.send(new HeadObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    if (!head) throw new Error("上传对象元数据为空");
+    const actualMime = ((head.ContentType ?? "").split(";", 1)[0] ?? "").trim().toLowerCase();
+    if ((head.ContentLength ?? -1) !== expectedSize) {
+      throw new Error("上传大小与声明不一致");
+    }
+    if (actualMime !== expectedMime) {
+      throw new Error("上传类型与声明不一致");
+    }
+
+    const object = await s3.send(new GetObjectCommand({ Bucket: env.S3_BUCKET, Key: key }));
+    if (!object.Body) throw new Error("上传对象为空");
+    const bytes = await object.Body.transformToByteArray();
+    const content = await validateImageBuffer(Buffer.from(bytes), expectedMime, bytes.byteLength);
+    if (!content.ok) throw new Error(content.error ?? "上传内容不合法");
+    return { ok: true, url: publicUrlFor(key) };
+  } catch (err) {
+    // 校验失败或对象不可读时不把半成品留在公开桶里。
+    await s3
+      .send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }))
+      .catch(() => undefined);
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "上传验证失败",
+    };
+  }
 }
 
 /** 服务端保存文件(本地模式直传使用)，返回公开 URL */
@@ -119,6 +213,8 @@ export async function saveUpload(
   mime: string,
   purpose: UploadPurpose = "misc",
 ): Promise<{ url: string; key: string }> {
+  const content = await validateImageBuffer(buffer, mime);
+  if (!content.ok) throw new Error(content.error ?? "文件内容不合法");
   const key = objectKey(originalName, purpose);
 
   if (effectiveStorageDriver === "s3") {

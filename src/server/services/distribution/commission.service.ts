@@ -75,6 +75,23 @@ export function commissionBase(order: { subtotal: unknown; discount: unknown }):
  * 与 `getCommissionChain()` 的返回同构，因为快照正是它在下单归属时写下的。
  * 任一项结构不合法即返回 null（宁可兜底实时链，也不拿半截数据算钱）。
  */
+function parseRuleSnapshot(raw: unknown): {
+  rules: CommissionRuleLike[];
+  config: Parameters<typeof planCommissions>[0]["config"];
+  capturedAt: Date;
+} | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as { rules?: unknown; config?: unknown; capturedAt?: unknown };
+  if (!Array.isArray(value.rules) || !value.config || typeof value.config !== "object") return null;
+  const captured = typeof value.capturedAt === "string" ? new Date(value.capturedAt) : new Date();
+  if (Number.isNaN(captured.getTime())) return null;
+  return {
+    rules: value.rules as CommissionRuleLike[],
+    config: value.config as Parameters<typeof planCommissions>[0]["config"],
+    capturedAt: captured,
+  };
+}
+
 function parseRelationPathSnapshot(raw: unknown): AncestorNode[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   const out: AncestorNode[] = [];
@@ -115,7 +132,12 @@ export async function accrueForOrder(
 
   const attribution = await prisma.orderAttribution.findUnique({
     where: { orderId },
-    select: { distributorId: true, natural: true, relationPathSnapshot: true },
+    select: {
+      distributorId: true,
+      natural: true,
+      relationPathSnapshot: true,
+      ruleSnapshot: true,
+    },
   });
   if (!attribution?.distributorId) return { count: 0, skipped: "NATURAL" };
 
@@ -126,7 +148,6 @@ export async function accrueForOrder(
   if (baseAmount <= 0) return { count: 0, skipped: "ZERO_BASE" };
 
   const config = await getDistributionConfig();
-  // 规则表为空时先补齐默认三级规则。
   //
   // 为什么必须放在**计佣路径**里，而不是只放在后台规则页：
   // 规则若只在「后台打开规则页」时惰性写入，则只要没人点过那个页面，
@@ -157,38 +178,58 @@ export async function accrueForOrder(
     snapshotChain = pruned.length > 0 ? pruned : null;
   }
 
-  const [chain, rules, items] = await Promise.all([
+  const ruleSnapshot = parseRuleSnapshot(attribution.ruleSnapshot);
+  if (!ruleSnapshot) {
+    // 历史数据兼容：先补默认规则，再用实时口径计佣并立即固化。
+    await ensureDefaultCommissionRules();
+  }
+  const [chain, liveRules, items] = await Promise.all([
     snapshotChain ?? getCommissionChain(attribution.distributorId),
-    // P2-13：走缓存版（每笔支付订单都要读规则；后台改规则时精准失效）
-    getActiveCommissionRules(),
+    ruleSnapshot ? Promise.resolve([]) : getActiveCommissionRules(),
     prisma.orderItem.findMany({
       where: { orderId },
       select: { productId: true, product: { select: { categoryId: true } } },
     }),
   ]);
+  const rules = ruleSnapshot?.rules ?? liveRules.map((r) => ({ ...r, ratio: Number(r.ratio) }));
+  const effectiveConfig = ruleSnapshot?.config ?? config;
 
   const productIds = [...new Set(items.map((i) => i.productId).filter((v): v is string => !!v))];
   const categoryIds = [
     ...new Set(items.map((i) => i.product?.categoryId).filter((v): v is string => !!v)),
   ];
 
-  // 历史订单无快照：本次采用实时链后立刻固化，避免同一订单下次口径漂移
-  if (!snapshotChain) {
+  // 历史订单无快照：本次采用实时链/规则后立刻固化，避免同一订单下次口径漂移。
+  if (!snapshotChain || !ruleSnapshot) {
     await prisma.orderAttribution
       .update({
         where: { orderId },
-        data: { relationPathSnapshot: chain as unknown as Prisma.InputJsonValue },
+        data: {
+          ...(!snapshotChain
+            ? { relationPathSnapshot: chain as unknown as Prisma.InputJsonValue }
+            : {}),
+          ...(!ruleSnapshot
+            ? {
+                ruleSnapshot: {
+                  capturedAt: new Date().toISOString(),
+                  rules: liveRules,
+                  config,
+                } as unknown as Prisma.InputJsonValue,
+              }
+            : {}),
+        },
       })
       .catch((err) => {
-        logger.warn({ err, orderId }, "分销：补写归属快照失败（不影响本次计佣）");
+        logger.warn({ err, orderId }, "分销：补写归属/规则快照失败（不影响本次计佣）");
       });
   }
 
   const planned = planCommissions({
     baseAmount,
     ancestors: chain,
-    rules: rules.map((r) => ({ ...r, ratio: Number(r.ratio) })) as CommissionRuleLike[],
-    config,
+    rules: rules as CommissionRuleLike[],
+    config: effectiveConfig,
+    now: ruleSnapshot?.capturedAt,
     buyerId: order.userId,
     productIds,
     categoryIds,

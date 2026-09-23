@@ -642,11 +642,12 @@ export default function AdminProductsPage() {
                         )
                       ) : /* 单品：直接改总库存数字 */
                       stockEditId === row.id ? (
-                        <div className="flex items-center gap-1">
+                        /* 实心背景浮层：避免编辑时与相邻「已售」列文字重叠 */
+                        <div className="relative z-10 flex items-center gap-1 rounded-md border bg-card p-1 shadow-popover">
                           <Input
                             value={stockValue}
                             onChange={(e) => setStockValue(e.target.value)}
-                            className="h-7 w-16 px-1 text-sm tabular-nums"
+                            className="h-7 w-16 border-input px-1 text-sm tabular-nums"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === "Enter") void saveStock(row);

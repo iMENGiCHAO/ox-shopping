@@ -62,6 +62,7 @@ export const POST = apiHandler(async (req, ctx) => {
         userId: user?.id ?? null,
         reason: cleanReason,
         amount: new Prisma.Decimal(input.amount.toFixed(2)),
+        idempotencyKey: `refund_request_${crypto.randomUUID()}`,
       },
     });
   });

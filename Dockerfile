@@ -45,10 +45,12 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# 容器健康检查：/healthz 返回 200 视为存活（standalone 镜像内置 node 可用）
+# 容器健康检查：/healthz 是 readiness，数据库不可用时返回 503。
+# /api/healthz 是不访问外部依赖的 liveness，供反代/编排探活使用。
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# 等待数据库 → 建表（有迁移用 migrate deploy，否则 db push）→ 启动。
+# 等待数据库 → 只允许 migrate deploy → 可选 seed → 启动。
+# 缺少迁移目录时必须失败，禁止生产镜像回退 db push（db push 可能造成不可审计的数据破坏）。
 # seed 默认不执行（生产运营数据不得被种子覆盖）；本地演示可设 SEED_ON_START=true。
-ENTRYPOINT ["/bin/sh", "-c", "node scripts/wait-for-db.mjs && (if [ -d prisma/migrations ] && [ \"$(ls -A prisma/migrations 2>/dev/null)\" ]; then npx prisma migrate deploy; else npx prisma db push; fi) && { [ \"$SEED_ON_START\" = \"true\" ] && npx prisma db seed || true; } && node server.js"]
+ENTRYPOINT ["/bin/sh", "-c", "node scripts/wait-for-db.mjs && test -n \"$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit)\" && npx prisma migrate deploy && if [ \"$SEED_ON_START\" = \"true\" ]; then npx prisma db seed; fi && exec node server.js"]

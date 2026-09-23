@@ -447,9 +447,7 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
 
     // 行小计对齐：Σ 行小计 = 订单小计（订单页明细求和必须等于 Subtotal 行）
     const lineSubtotalsUser = allocateLineAmounts(
-      input.items.map(
-        (item) => Number(freshById.get(item.productId)!.price) * item.quantity,
-      ),
+      input.items.map((item) => Number(freshById.get(item.productId)!.price) * item.quantity),
       subtotalUser,
       exchangeRate,
     );
@@ -712,7 +710,9 @@ export async function createPaymentUrl(
     // 订单币种不匹配时按原币种金额传给网关必然金额错乱/被拒——直接拒绝。
     const supported = provider.supportedCurrencies;
     if (supported && !supported.includes(order.currency.toUpperCase())) {
-      throw badRequest("This payment method does not support your checkout currency — switch currency or choose another one");
+      throw badRequest(
+        "This payment method does not support your checkout currency — switch currency or choose another one",
+      );
     }
     const result = await provider.createPayment(
       {
@@ -747,7 +747,9 @@ export async function createPaymentUrl(
       // 币种兜底校验（与前台置灰同口径；stripe 未声明币种 = 全币种放行）
       const supported = provider.supportedCurrencies;
       if (supported && !supported.includes(order.currency.toUpperCase())) {
-        throw badRequest("This payment method does not support your checkout currency — switch currency or choose another one");
+        throw badRequest(
+          "This payment method does not support your checkout currency — switch currency or choose another one",
+        );
       }
       const keys = {
         secretKey: str(channel.config, "secretKey") || undefined,
@@ -774,6 +776,7 @@ export async function createPaymentUrl(
           currency: order.currency,
           subject,
           customerEmail,
+          accessToken: order.accessToken,
           brandName,
         },
         channel.config,
@@ -861,10 +864,27 @@ export async function markOrderPaid(
   if (!order) throw notFound("Order not found");
   if (order.status !== "PENDING_PAYMENT") return order;
 
-  // 原子认领：并发场景只有一个调用方能把状态推进到 PAID
+  // 原子认领：并发场景只有一个调用方能把状态推进到 PAID。
+  // 已支付但未终结的订单若收到同一网关交易号重复回调，不改状态；不同交易号
+  // 绝不覆盖原 paymentId，否则后续退款可能退到错误 PaymentIntent。
+  if (order.status !== "PENDING_PAYMENT") {
+    if (
+      paymentId &&
+      order.paymentId &&
+      order.paymentId !== paymentId &&
+      ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)
+    ) {
+      throw new ApiError(400, "CONFLICT", "Order already has a different payment transaction");
+    }
+    return order;
+  }
   const claimed = await prisma.order.updateMany({
-    where: { id: order.id, status: "PENDING_PAYMENT" },
-    data: { status: "PAID", paidAt: new Date(), paymentId: paymentId ?? undefined },
+    where: {
+      id: order.id,
+      status: "PENDING_PAYMENT",
+      OR: [{ paymentId: null }, ...(paymentId ? [{ paymentId }] : [])],
+    },
+    data: { status: "PAID", paidAt: new Date(), ...(paymentId ? { paymentId } : {}) },
   });
   if (claimed.count === 0) {
     return (await prisma.order.findUnique({
@@ -888,9 +908,7 @@ export async function markOrderPaid(
   });
 
   // 邮件收件人：优先订单联系邮箱（游客单只有这个），登录单兜底账号邮箱
-  const user = order.userId
-    ? await prisma.user.findUnique({ where: { id: order.userId } })
-    : null;
+  const user = order.userId ? await prisma.user.findUnique({ where: { id: order.userId } }) : null;
   const mailTo = order.contactEmail ?? user?.email ?? null;
   if (mailTo) {
     void sendMail({
@@ -954,8 +972,7 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
   // COD（货到付款）特殊路径：未发货的 COD 单无资金往来（现金交易），
   // 允许直接取消并回补库存——不必走退款流程（网关退款对现金交易无意义）。
   const cancellable =
-    order.status === "PENDING_PAYMENT" ||
-    (order.isCashOnDelivery && order.status === "PROCESSING");
+    order.status === "PENDING_PAYMENT" || (order.isCashOnDelivery && order.status === "PROCESSING");
   if (!cancellable) {
     throw badRequest("This order cannot be cancelled in its current state");
   }
@@ -966,10 +983,7 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
     const claimed = await tx.order.updateMany({
       where: {
         id: order.id,
-        OR: [
-          { status: "PENDING_PAYMENT" },
-          { status: "PROCESSING", isCashOnDelivery: true },
-        ],
+        OR: [{ status: "PENDING_PAYMENT" }, { status: "PROCESSING", isCashOnDelivery: true }],
       },
       data: { status: "CANCELLED", cancelledAt: new Date() },
     });
@@ -1087,9 +1101,19 @@ export async function updateOrderStatus(
   to: OrderStatus,
   actor: { id: string; name: string } | null,
   extra?: { trackingCompany?: string; trackingNumber?: string },
-  /** skipGatewayRefund：调用方已自行完成网关退款（如「退款审核」路径），仅需本地记账 */
-  opts?: { skipGatewayRefund?: boolean },
+  /** 兼容旧调用参数；所有退款现统一经 outbox。 */
+  _opts?: { skipGatewayRefund?: boolean },
 ): Promise<Order> {
+  // PAID 只能由支付网关/模拟支付/对账确认产生。管理员手工状态接口绝不能
+  // 绕过真实收款把普通订单直接写成 PAID。
+  if (to === "PAID") {
+    throw new ApiError(
+      400,
+      "BAD_REQUEST",
+      "PAID status can only be set by a verified payment callback",
+    );
+  }
+
   // COD（货到付款）取消特殊路径：未发货的 COD 单无资金往来（现金交易），
   // 允许直接取消并回补库存——不必走退款流程（网关退款对现金交易无意义）。
   // 必须放在 canTransition 之前：静态状态机 PROCESSING → CANCELLED 禁止（在线单已进履约
@@ -1131,7 +1155,7 @@ export async function updateOrderStatus(
         `Order in status "${order.status}" cannot be marked as refunded directly`,
       );
     }
-    return await refundEntireOrder(order, actor?.id ?? null, opts);
+    return await refundEntireOrder(order, actor?.id ?? null);
   }
 
   // 统一「有效物流」口径（大爷实测 bug 修复）：extra 优先（「发货」对话框
@@ -1154,12 +1178,22 @@ export async function updateOrderStatus(
     data.trackingCompany = effTrackingCompany;
     data.trackingNumber = effTrackingNumber;
   }
-  if (to === "DELIVERED") data.deliveredAt = new Date();
-  if (to === "PAID") data.paidAt = new Date();
-
-  const updated = await prisma.order.update({
-    where: { id: order.id },
+  if (to === "DELIVERED") {
+    data.deliveredAt = new Date();
+    // COD 的线上收款确认点是送达；普通在线单保持原支付 paidAt 语义。
+    if (order.isCashOnDelivery) data.paidAt = order.paidAt ?? new Date();
+  }
+  // 普通状态 CAS：以读取到的旧状态作为谓词，阻止两个管理员基于同一快照并发推进。
+  // Prisma update({ id }) 不会检查状态，TOCTOU 下可把已退款单覆盖成已发货。
+  const claimed = await prisma.order.updateMany({
+    where: { id: order.id, status: order.status },
     data,
+  });
+  if (claimed.count === 0) {
+    throw new ApiError(400, "CONFLICT", "Order status has changed; refresh and try again");
+  }
+  const updated = await prisma.order.findUniqueOrThrow({
+    where: { id: order.id },
     include: { items: true },
   });
 
@@ -1233,8 +1267,250 @@ export async function updateOrderStatus(
   return updated;
 }
 
-/**
- * 整单退款：admin 在后台把已支付订单直接置为 REFUNDED 时的统一入口。
+type RefundExecutionResult =
+  | { state: "SUCCEEDED"; refundId: string; gatewayRefundId: string | null }
+  | { state: "PENDING"; refundId: string; gatewayRefundId: string | null }
+  | { state: "FAILED"; refundId: string; gatewayRefundId: string | null; error: string };
+
+/** 审核退款：锁订单后重新计算 remaining，再把退款与 outbox 同事务提交。 */
+export async function approveRefund(
+  refundId: string,
+  opts: { adminNote?: string | null } = {},
+): Promise<RefundExecutionResult> {
+  const claimed = await prisma.$transaction(async (tx) => {
+    const snapshot = await tx.refund.findUnique({ where: { id: refundId } });
+    if (!snapshot) throw notFound("退款申请不存在");
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${snapshot.orderId} FOR UPDATE`;
+
+    const fresh = await tx.refund.findUniqueOrThrow({ where: { id: refundId } });
+    const order = await tx.order.findUniqueOrThrow({ where: { id: fresh.orderId } });
+    if (!(["REQUESTED", "FAILED"] as string[]).includes(fresh.status)) {
+      throw badRequest("该退款申请已处理，请勿重复操作");
+    }
+    const occupied = await tx.refund.aggregate({
+      where: {
+        orderId: order.id,
+        id: { not: fresh.id },
+        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED"] },
+      },
+      _sum: { amount: true },
+    });
+    const used = Number(occupied._sum.amount ?? 0);
+    if (used + Number(fresh.amount) > Number(order.total) + 1e-9) {
+      throw badRequest(
+        `累计退款超出订单金额：已占用/已退 ${used.toFixed(2)}，本笔 ${Number(fresh.amount).toFixed(2)}，订单总额 ${Number(order.total).toFixed(2)}`,
+      );
+    }
+    const updated = await tx.refund.update({
+      where: { id: fresh.id },
+      data: { status: "APPROVED", adminNote: opts.adminNote ?? null, lastError: null },
+    });
+    await tx.refundOutbox.upsert({
+      where: { refundId: fresh.id },
+      create: {
+        refundId: fresh.id,
+        uniqueKey: fresh.idempotencyKey,
+        status: "RETRY",
+        nextAttemptAt: new Date(),
+      },
+      update: { status: "RETRY", nextAttemptAt: new Date(), lastError: null },
+    });
+    return updated;
+  });
+
+  return await processRefundOutboxItem(claimed.id);
+}
+
+/** 领取并执行一笔退款 outbox；稳定幂等键跨所有重试不变。 */
+export async function processRefundOutboxItem(refundId: string): Promise<RefundExecutionResult> {
+  const now = new Date();
+  const stale = new Date(now.getTime() - 5 * 60_000);
+  const claimed = await prisma.refundOutbox.updateMany({
+    where: {
+      refundId,
+      OR: [
+        { status: { in: ["PENDING", "RETRY"] }, nextAttemptAt: { lte: now } },
+        { status: "PROCESSING", claimedAt: { lt: stale } },
+      ],
+    },
+    data: { status: "PROCESSING", claimedAt: now, attempts: { increment: 1 } },
+  });
+  if (claimed.count === 0) {
+    const current = await prisma.refund.findUniqueOrThrow({ where: { id: refundId } });
+    return {
+      state: current.status === "REFUNDED" ? "SUCCEEDED" : "PENDING",
+      refundId,
+      gatewayRefundId: current.gatewayRefundId,
+    };
+  }
+
+  // Lease acquisition is not authority to spend money. Only APPROVED/PENDING may
+  // call a gateway; REQUESTED/REJECTED or already-completed work is terminal locally.
+  const refund = await prisma.refund.findUniqueOrThrow({
+    where: { id: refundId },
+    include: { order: { include: { items: true } } },
+  });
+  if (refund.status === "REQUESTED" || refund.status === "REJECTED") {
+    await prisma.refundOutbox.update({
+      where: { refundId },
+      data: { status: "COMPLETED", claimedAt: null, lastError: "Refund is not approved" },
+    });
+    return {
+      state: "FAILED",
+      refundId,
+      gatewayRefundId: refund.gatewayRefundId,
+      error: "Refund is not approved",
+    };
+  }
+  if (refund.status === "REFUNDED") {
+    await prisma.refundOutbox.update({
+      where: { refundId },
+      data: { status: "COMPLETED", claimedAt: null },
+    });
+    return { state: "SUCCEEDED", refundId, gatewayRefundId: refund.gatewayRefundId };
+  }
+  const { order } = refund;
+  const providerKey = order.paymentProvider ?? effectivePaymentMode;
+  let gatewayRefundId: string | null = null;
+  let state: RefundExecutionResult["state"] = "SUCCEEDED";
+
+  try {
+    if (providerKey === "mock" || providerKey === "cod") {
+      gatewayRefundId = providerKey === "mock" ? `mock_${refund.idempotencyKey}` : null;
+    } else if (providerKey === "stripe" && order.paymentId) {
+      const stripeChannel = await getChannelRuntimeByCode("stripe");
+      const keys =
+        stripeChannel?.enabled && str(stripeChannel.config, "secretKey")
+          ? { secretKey: str(stripeChannel.config, "secretKey") }
+          : undefined;
+      const result = await createStripeRefund(
+        order.paymentId,
+        Number(refund.amount),
+        keys,
+        refund.idempotencyKey,
+      );
+      gatewayRefundId = result.id;
+      state =
+        result.status === "succeeded"
+          ? "SUCCEEDED"
+          : result.status === "failed" || result.status === "canceled"
+            ? "FAILED"
+            : "PENDING";
+    } else {
+      const channel = await getChannelRuntimeByCode(providerKey);
+      if (!channel?.enabled) throw new Error("Payment channel is not enabled");
+      const result = await getProvider(channel.provider).refund(
+        {
+          orderNumber: order.orderNumber,
+          amount: Number(refund.amount),
+          gatewayId: order.paymentId,
+          currency: order.currency,
+          idempotencyKey: refund.idempotencyKey,
+        },
+        channel.config,
+      );
+      gatewayRefundId = result.gatewayRefundId;
+      state =
+        result.status === "failed"
+          ? "FAILED"
+          : result.status === "pending"
+            ? "PENDING"
+            : "SUCCEEDED";
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "未知错误";
+    await prisma.$transaction([
+      prisma.refund.update({
+        where: { id: refundId },
+        data: { status: "FAILED", lastError: message },
+      }),
+      prisma.refundOutbox.update({
+        where: { refundId },
+        data: {
+          status: "RETRY",
+          nextAttemptAt: new Date(Date.now() + 60_000),
+          lastError: message,
+        },
+      }),
+    ]);
+    logger.error({ err, orderId: order.id, refundId }, "退款网关调用失败，已进入重试队列");
+    return { state: "FAILED", refundId, gatewayRefundId: null, error: message };
+  }
+
+  if (state === "PENDING") {
+    await prisma.$transaction([
+      prisma.refund.update({
+        where: { id: refundId },
+        data: { status: "PENDING", gatewayRefundId },
+      }),
+      prisma.refundOutbox.update({
+        where: { refundId },
+        data: {
+          status: "RETRY",
+          nextAttemptAt: new Date(Date.now() + 60_000),
+          lastError: "Gateway accepted refund but has not confirmed success yet",
+        },
+      }),
+    ]);
+    return { state: "PENDING", refundId, gatewayRefundId };
+  }
+
+  if (state === "FAILED") {
+    const message = "Gateway rejected the refund";
+    await prisma.$transaction([
+      prisma.refund.update({
+        where: { id: refundId },
+        data: { status: "FAILED", gatewayRefundId, lastError: message },
+      }),
+      prisma.refundOutbox.update({
+        where: { refundId },
+        data: {
+          status: "RETRY",
+          nextAttemptAt: new Date(Date.now() + 60_000),
+          lastError: message,
+        },
+      }),
+    ]);
+    return { state: "FAILED", refundId, gatewayRefundId, error: message };
+  }
+
+  await prisma.$transaction([
+    prisma.refund.update({
+      where: { id: refundId },
+      data: {
+        status: "REFUNDED",
+        gatewayRefundId,
+        lastError: null,
+        processedAt: new Date(),
+      },
+    }),
+    prisma.refundOutbox.update({
+      where: { refundId },
+      data: { status: "COMPLETED", lastError: null, claimedAt: null },
+    }),
+  ]);
+
+  // 只有网关明确成功后才冲正；失败/pending 绝不提前改订单终态或分销账。
+  await distributionBridge.onOrderRefunded(order.id);
+  const completed = await prisma.refund.aggregate({
+    where: { orderId: order.id, status: "REFUNDED" },
+    _sum: { amount: true },
+  });
+  if (Number(completed._sum.amount ?? 0) >= Number(order.total) - 1e-9) {
+    await markOrderRefundedByGateway(order, gatewayRefundId);
+  }
+  void logPayment({
+    orderId: order.id,
+    provider: providerKey,
+    event: "refunded",
+    amount: Number(refund.amount),
+    gatewayId: gatewayRefundId,
+    payload: { refundId, idempotencyKey: refund.idempotencyKey },
+  });
+  return { state: "SUCCEEDED", refundId, gatewayRefundId };
+}
+
+/** 整单退款：admin 在后台把已支付订单直接置为 REFUNDED 时的统一入口。
  * 行为：
  *   1) 幂等检查：已是 REFUNDED 直接返回
  *   2) 事务内行锁订单 + 条件更新状态（并发安全）+ 库存回补 + 落库 Refund 记录
@@ -1245,288 +1521,83 @@ export async function updateOrderStatus(
 async function refundEntireOrder(
   order: OrderWithItems,
   actorId: string | null,
-  opts?: { skipGatewayRefund?: boolean },
+  _opts?: { skipGatewayRefund?: boolean },
 ): Promise<Order> {
   // 幂等：已是终态直接返回（防止重复调用重复发起网关退款）
   if (order.status === "REFUNDED" || order.status === "CANCELLED") {
     return order;
   }
 
-  let refundRecordId: string | null = null;
-  const restockedProductIds: string[] = [];
-
-  /* P0-3 修复：网关退款只能退「尚未退过的余额」。
-     病因：整单退款路径无论此前是否已部分退款，都按 `order.total` 发起全额网关退款 ——
-     「部分退款（50）→ 后台把订单改成已退款」会对同一笔支付退 100，超退的钱在本地
-     退款表里还查不到（记录被复用），账实不符且客户实收超过应付。
-     这里先算出累计已退款额，事务内创建记录时用「剩余可退额」，事务外只退剩余部分。 */
-  const priorRefundedAgg = await prisma.refund.aggregate({
-    where: { orderId: order.id, status: "REFUNDED" },
-    _sum: { amount: true },
-  });
-  const priorRefunded = Number(priorRefundedAgg._sum.amount ?? 0);
-  const refundableRemaining = Math.max(
-    0,
-    Math.round((Number(order.total) - priorRefunded) * 100) / 100,
-  );
-
-  // Step 1: 事务内先完成状态变更 + 库存回补 + 退款记录（gatewayRefundId 暂空）
-  const updated = await prisma.$transaction(async (tx) => {
+  // 所有整单退款也必须先进入同一退款 outbox。旧实现先把订单写 REFUNDED 再调用网关，
+  // 网关失败时会留下「本地已退、网关未退」的假账；这里在调用网关前只认领退款记录。
+  const queued = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
-
-    // 事务内二次校验状态（防并发：两个请求同时通过外层幂等检查）
-    const fresh = await tx.order.findUnique({ where: { id: order.id } });
-    if (!fresh || !["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(fresh.status)) {
-      throw new ApiError(
-        400,
-        "BAD_REQUEST",
-        `Order in status "${fresh?.status ?? "unknown"}" cannot be marked as refunded directly`,
-      );
+    const fresh = await tx.order.findUniqueOrThrow({ where: { id: order.id } });
+    if (!["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(fresh.status)) {
+      throw new ApiError(400, "BAD_REQUEST", "Order status has changed; refresh and try again");
     }
-
-    // 条件更新：仅在原状态仍是可退款的中间态时推进
-    const claimed = await tx.order.updateMany({
+    const occupied = await tx.refund.aggregate({
       where: {
-        id: order.id,
-        status: { in: ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"] },
+        orderId: order.id,
+        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED"] },
       },
-      data: { status: "REFUNDED", refundedAt: new Date() },
+      _sum: { amount: true },
     });
-    if (claimed.count === 0) {
-      throw new ApiError(
-        400,
-        "BAD_REQUEST",
-        "Order status has changed, please refresh and try again",
-      );
-    }
-
-    // 库存回补（按扣减记录精确恢复）
-    const productIds = [
-      ...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v)),
-    ];
-    if (productIds.length > 0) {
-      await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) FOR UPDATE`;
-      const products = await tx.product.findMany({
-        where: { id: { in: productIds } },
-        select: { id: true, isPresale: true, specStock: true },
-      });
-      const map = new Map(products.map((p) => [p.id, p]));
-      for (const item of order.items) {
-        if (!item.productId) continue;
-        const p = map.get(item.productId);
-        const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
-        const restoreQty =
-          !hasRecord && p?.isPresale ? 0 : hasRecord ? item.stockDeducted : item.quantity;
-        if (restoreQty > 0) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: {
-              stock: { increment: restoreQty },
-              soldCount: { decrement: item.quantity },
-            },
-          });
-          restockedProductIds.push(item.productId);
-        } else if (item.quantity > 0) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { soldCount: { decrement: item.quantity } },
-          });
-        }
-        const restoredSpec = applySpecRestock(
-          p?.specStock,
-          item.specDeducted as Record<string, number> | null,
-        );
-        if (restoredSpec) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { specStock: restoredSpec as unknown as Prisma.InputJsonValue },
-          });
-        }
-      }
-    }
-
-    // 折扣码回补：整单退款同样把券还给客户（与库存回补同一事务）
-    await restoreCouponInTx(tx, { id: order.id, couponId: order.couponId });
-
-    // 落 refund 记录（如果用户未单独走 /api/orders/[orderNumber]/refund，则补一条）
+    const remaining = Math.max(
+      0,
+      Math.round((Number(order.total) - Number(occupied._sum.amount ?? 0)) * 100) / 100,
+    );
     const existing = await tx.refund.findFirst({
-      where: { orderId: order.id, status: { in: ["REQUESTED", "APPROVED", "REFUNDED"] } },
+      where: { orderId: order.id, status: "REQUESTED" },
+      orderBy: { createdAt: "asc" },
     });
-    if (!existing) {
-      const refund = await tx.refund.create({
+    const refund =
+      existing ??
+      (await tx.refund.create({
         data: {
           orderId: order.id,
           userId: order.userId,
           reason: "管理员后台整单退款",
-          // 只记「本次实际可退的余额」：此前已部分退款时不重复计入（否则退款表合计 > 订单总额）
-          amount: new Prisma.Decimal((refundableRemaining > 0 ? refundableRemaining : Number(order.total)).toFixed(2)),
-          status: "REFUNDED",
+          amount: new Prisma.Decimal(remaining.toFixed(2)),
+          status: "APPROVED",
+          idempotencyKey: `refund_order_${order.id}_${Date.now()}`,
           adminNote: actorId ? `actor=${actorId}` : null,
-          // gatewayRefundId 暂空，事务提交后发起网关退款再回写
-          gatewayRefundId: null,
         },
+      }));
+    if (remaining <= 0 && !existing) {
+      throw badRequest("Order has already been fully refunded or reserved");
+    }
+    if (existing) {
+      await tx.refund.update({
+        where: { id: existing.id },
+        data: { status: "APPROVED", adminNote: actorId ? `actor=${actorId}` : null },
       });
-      refundRecordId = refund.id;
-    } else {
-      // 已有退款记录（如用户申请后 admin 直接改状态），确保状态推进到 REFUNDED
-      if (existing.status !== "REFUNDED") {
-        await tx.refund.update({ where: { id: existing.id }, data: { status: "REFUNDED" } });
-      }
-      refundRecordId = existing.id;
     }
-
-    return tx.order.findUnique({ where: { id: order.id }, include: { items: true } });
-  });
-
-  // 退款回补库存后：若商品从售罄变回有货，通知等待「到货提醒」的客户
-  for (const pid of restockedProductIds) {
-    void notifyRestock(pid);
-  }
-
-  // Step 2: 事务提交成功后再发起网关退款（此时订单状态已确定为 REFUNDED，
-  // 重复调用会在外层幂等检查或事务内条件更新处被拦截，不会重复退款）
-  let gatewayRefundId: string | null = null;
-  const refundProviderKey = order.paymentProvider ?? effectivePaymentMode;
-
-  // 网关退款失败：订单已标退款但钱未退，必须告警人工介入
-  const failRefund = (providerLabel: string, msg: string, bodyZh: string, bodyEn: string) => {
-    logger.error(
-      { err: msg, orderId: order.id, orderNumber: order.orderNumber, refundRecordId },
-      "[refund] 订单已标记退款但网关退款失败，需人工处理",
-    );
-    void notifyAdmins({
-      type: "system",
-      title: "退款异常需人工处理",
-      titleEn: "Refund failed - manual action required",
-      body: bodyZh,
-      bodyEn,
-      link: "/admin/orders",
-      meta: { orderNumber: order.orderNumber, provider: providerLabel, error: msg },
-    });
-  };
-
-  // skipGatewayRefund：调用方（退款审核路径）已完成网关退款，此处只做本地记账，避免重复退款
-  if (!opts?.skipGatewayRefund && refundProviderKey === "stripe" && order.paymentId) {
-    if (refundableRemaining <= 0) {
-      // 已全额退过（例如此前部分退款累计已等于订单总额）→ 绝不能再退，只留日志
-      logger.info(
-        { orderId: order.id, orderNumber: order.orderNumber, priorRefunded },
-        "[refund] 订单已按累计全额退过款，本次跳过网关退款（防超退）",
-      );
-    } else {
-      try {
-        // 渠道化 Stripe：后台配置了 stripe 渠道时按渠道密钥退款；否则回落 env 密钥
-        const stripeChannel = await getChannelRuntimeByCode("stripe");
-        const stripeKeys =
-          stripeChannel?.enabled && str(stripeChannel.config, "secretKey")
-            ? { secretKey: str(stripeChannel.config, "secretKey") }
-            : undefined;
-        // 只退「剩余可退额」（不是 order.total）——防部分退款后再整单退款造成超退（P0-3）
-        const r = await createStripeRefund(order.paymentId, refundableRemaining, stripeKeys);
-        gatewayRefundId = r.id;
-        // 回写网关退款 ID 到退款记录
-        if (refundRecordId) {
-          await prisma.refund.update({
-            where: { id: refundRecordId },
-            data: { gatewayRefundId },
-          });
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "未知错误";
-        failRefund(
-          "stripe",
-          msg,
-          `订单 ${order.orderNumber} 已标记为退款，但 Stripe 网关退款失败：${msg}。请登录 Stripe 后台手动退款并核对。`,
-          `Order ${order.orderNumber} marked REFUNDED but Stripe refund failed: ${msg}. Please refund manually in Stripe dashboard.`,
-        );
-      }
-    }
-  } else if (!opts?.skipGatewayRefund && refundProviderKey === "cod") {
-    // COD（货到付款）：现金交易无网关，退款为线下动作——只提示性记录，不告警
-    // （此前会走进渠道分支抛「渠道未启用」并触发「退款异常需人工处理」告警，对 COD 是噪音）。
-    logger.info(
-      { orderId: order.id, orderNumber: order.orderNumber },
-      "[refund] COD 现金订单退款为线下动作，已记录（无网关退款）",
-    );
-  } else if (
-    !opts?.skipGatewayRefund &&
-    refundProviderKey &&
-    refundProviderKey !== "mock" &&
-    refundableRemaining > 0
-  ) {
-    // 真实渠道（alipay / wechat）走 Provider.refund；mock 无网关退款（保持现状）
-    try {
-      const channel = await getChannelRuntimeByCode(refundProviderKey);
-      if (!channel || !channel.enabled) throw new Error("This payment channel is not enabled");
-      const provider = getProvider(channel.provider);
-      const paid = await provider.refund(
-        {
-          orderNumber: order.orderNumber,
-          // 同 Stripe 分支：只退剩余可退额，防「部分退款 + 整单退款」超退（P0-3）
-          amount: refundableRemaining > 0 ? refundableRemaining : 0,
-          gatewayId: order.paymentId ?? null,
-          currency: order.currency,
-        },
-        channel.config,
-      );
-      gatewayRefundId = paid.gatewayRefundId;
-      if (refundRecordId) {
-        await prisma.refund.update({
-          where: { id: refundRecordId },
-          data: { gatewayRefundId },
-        });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "未知错误";
-      failRefund(
-        refundProviderKey,
-        msg,
-        `订单 ${order.orderNumber} 已标记为退款，但支付渠道退款失败：${msg}。请人工核对并退款。`,
-        `Order ${order.orderNumber} marked REFUNDED but channel refund failed: ${msg}. Please refund manually.`,
-      );
-    }
-  }
-
-  void logPayment({
-    orderId: order.id,
-    provider: refundProviderKey,
-    event: "refunded",
-    amount: Number(order.total),
-    gatewayId: gatewayRefundId,
-    payload: { source: "admin_status_change" },
-  });
-
-  // 邮件通知客户：优先订单联系邮箱（游客单只有这个），登录单兜底账号邮箱
-  const user = order.userId
-    ? await prisma.user.findUnique({ where: { id: order.userId } })
-    : null;
-  const refundMailTo = order.contactEmail ?? user?.email ?? null;
-  if (refundMailTo) {
-    void sendMail({
-      to: refundMailTo,
-      template: "refund-update",
-      data: {
-        name: greetingName(user?.name, order),
-        orderNumber: order.orderNumber,
-        statusText: "已退款（管理员操作）",
-        amount: formatMoney(Number(order.total), order.currency),
-        orderUrl: orderUrlFor(order),
+    await tx.refundOutbox.upsert({
+      where: { refundId: refund.id },
+      create: {
+        refundId: refund.id,
+        uniqueKey: refund.idempotencyKey,
+        status: "RETRY",
+        nextAttemptAt: new Date(),
       },
+      update: { status: "RETRY", nextAttemptAt: new Date(), lastError: null },
     });
-  }
-
-  await audit({
-    userId: actorId ?? order.userId,
-    action: "ORDER_REFUND_BY_ADMIN",
-    entity: "Order",
-    entityId: order.id,
-    meta: { orderNumber: order.orderNumber, from: order.status, gatewayRefundId },
+    return refund;
   });
-
-  // 分销（隔离模块）：整单退款 → 佣金冲正（bridge 自带开关与异常隔离）
-  await distributionBridge.onOrderRefunded(order.id);
-
-  return updated!;
+  const result = await processRefundOutboxItem(queued.id);
+  if (result.state === "FAILED") throw badRequest(`退款失败：${result.error}`);
+  const finalOrder = await prisma.order.findUniqueOrThrow({
+    where: { id: order.id },
+    include: { items: true },
+  });
+  // An existing REQUESTED may itself be partial. After its gateway success, enqueue
+  // the locked remaining balance as a separate refund instead of calling the full
+  // order refunded while money is still outstanding.
+  if (result.state === "SUCCEEDED" && finalOrder.status !== "REFUNDED") {
+    return await refundEntireOrder(finalOrder, actorId, _opts);
+  }
+  return finalOrder;
 }
 
 /**
@@ -1613,6 +1684,7 @@ export async function markOrderRefundedByGateway(
           reason: "网关侧退款（Stripe webhook charge.refunded）",
           amount: new Prisma.Decimal(Number(order.total).toFixed(2)),
           status: "REFUNDED",
+          idempotencyKey: `gateway_${gatewayRefundId ?? order.id}`,
           gatewayRefundId: gatewayRefundId ?? null,
         },
       });

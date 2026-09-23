@@ -52,9 +52,7 @@ export default function CartPage() {
     let cancelled = false;
     void (async () => {
       try {
-        const res = await apiFetch<{ methods: ShippingMethodLite[] }>(
-          "/api/shipping-methods",
-        );
+        const res = await apiFetch<{ methods: ShippingMethodLite[] }>("/api/shipping-methods");
         if (cancelled) return;
         const list = res.methods ?? [];
         setMethods(list);
@@ -76,7 +74,8 @@ export default function CartPage() {
   const freeShipping = !isCOD && freeOver > 0 && subtotal >= freeOver;
   const shippingFee = isCOD || freeShipping ? 0 : (selectedMethod?.fee ?? 0);
   const toFreeShipping = freeOver > 0 && subtotal < freeOver ? freeOver - subtotal : 0;
-  const hasOutOfStock = items.some((it) => it.stock <= 0);
+  // 预售商品即使当前 stock=0 仍可购买；只有「非预售且库存为 0」才阻断结账。
+  const hasOutOfStock = items.some((it) => it.stock <= 0 && !it.isPresale);
   const hasPresale = items.some((it) => it.isPresale);
 
   const handleremove = async (cartItemId: string) => {
@@ -204,7 +203,7 @@ export default function CartPage() {
                   <QuantityInput
                     value={item.quantity}
                     min={1}
-                    max={Math.min(99, Math.max(1, item.stock))}
+                    max={item.isPresale ? 5 : Math.min(99, Math.max(1, item.stock))}
                     onChange={(q) => {
                       void updateQuantity(item.id, q).catch((err: Error) =>
                         toast.error(err.message),
@@ -279,15 +278,11 @@ export default function CartPage() {
                   {t("Pay on delivery:")} {format(selectedMethod?.fee ?? 0)}
                 </span>
               ) : freeShipping ? (
-                <span className="text-success">
-                  {t("Free shipping unlocked")}
-                </span>
+                <span className="text-success">{t("Free shipping unlocked")}</span>
               ) : shippingFee > 0 ? (
                 <>
                   {format(shippingFee)}{" "}
-                  <span className="text-foreground/50">
-                    ({t("calculated at checkout")})
-                  </span>
+                  <span className="text-foreground/50">({t("calculated at checkout")})</span>
                 </>
               ) : null}
             </p>

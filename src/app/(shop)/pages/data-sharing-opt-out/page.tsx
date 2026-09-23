@@ -8,10 +8,7 @@ import { POLICY_TITLES } from "@/lib/policy-defaults";
 export async function generateMetadata(): Promise<Metadata> {
   const lang = await getLang();
   return {
-    title:
-      lang === "zh"
-        ? POLICY_TITLES.dataSharingOptOut.zh
-        : POLICY_TITLES.dataSharingOptOut.en,
+    title: lang === "zh" ? POLICY_TITLES.dataSharingOptOut.zh : POLICY_TITLES.dataSharingOptOut.en,
     description:
       "Opt out of the sale or sharing of your personal information for targeted advertising.",
   };
@@ -56,6 +53,16 @@ export default async function DataSharingOptOutPage() {
         ) : null
       }
     >
+      <div className="mb-8 border-l-4 border-primary bg-muted/40 px-5 py-4 text-sm leading-6 text-foreground/75">
+        <p className="font-medium text-foreground">
+          {lang === "zh" ? "隐私选择说明" : "Your privacy choices"}
+        </p>
+        <p className="mt-2">
+          {lang === "zh"
+            ? "Ox Shopping 不出售您的个人信息，也不会将其用于跨情境行为广告。您可在账户资料页导出账号数据、撤回注销申请，或通过下方客服邮箱提交访问、更正、删除请求。请勿在邮件中发送密码或完整支付凭证。"
+            : "Ox Shopping does not sell your personal information or share it for cross-context behavioral advertising. From your Profile, you can export account data or withdraw a deletion request. You may also submit access, correction, or deletion requests using the support email below. Never include your password or full payment credentials in email."}
+        </p>
+      </div>
       {renderPolicyMarkdown(getPolicyText(settings.policies, "dataSharingOptOut", lang))}
     </PolicyPage>
   );

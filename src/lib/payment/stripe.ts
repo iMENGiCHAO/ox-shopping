@@ -190,13 +190,18 @@ export async function createStripeRefund(
   paymentIntentId: string,
   amountYuan: number,
   keys?: StripeKeysOverride,
+  idempotencyKey?: string,
 ): Promise<Stripe.Refund> {
   const stripe = clientFor(keys);
   if (!stripe) throw new Error("Stripe 未配置");
-  return stripe.refunds.create({
-    payment_intent: paymentIntentId,
-    amount: toCents(amountYuan),
-  });
+  return stripe.refunds.create(
+    {
+      payment_intent: paymentIntentId,
+      amount: toCents(amountYuan),
+      ...(idempotencyKey ? { metadata: { idempotencyKey } } : {}),
+    },
+    idempotencyKey ? { idempotencyKey } : undefined,
+  );
 }
 
 export { effectivePaymentMode, formatMoney };

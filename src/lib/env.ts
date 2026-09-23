@@ -3,13 +3,25 @@ import { z } from "zod";
 
 /**
  * 环境变量统一解析与校验。
- * 未配置的外部服务自动降级：支付→mock、邮件→console、存储→local。
+ * 非生产环境允许外部服务降级：支付→mock、邮件→console、存储→local；
+ * 生产强配置守卫会拒绝弱密钥、mock 支付、无密码 Redis 和不完整 S3。
  */
 
 const booleanFromString = z
   .enum(["true", "false", "1", "0", ""])
   .transform((v) => v === "true" || v === "1")
   .default("false");
+
+/** 空字符串代表“未配置”，但一旦填写必须是绝对 http(s) URL。 */
+const optionalHttpUrl = z.union([
+  z.literal(""),
+  z
+    .string()
+    .url()
+    .refine((value) => value.startsWith("https://") || value.startsWith("http://"), {
+      message: "必须使用 http:// 或 https:// URL",
+    }),
+]);
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -63,9 +75,7 @@ const envSchema = z.object({
    * 受 Stripe 支持范围限制的子集，CNY 在 Stripe 通道下会被拒 → 走 mock。
    * 注：用户选择其他币种时由汇率换算，Order.currency 记录实际支付币种。
    */
-  CURRENCY: z
-    .enum(["USD", "EUR", "GBP", "JPY", "HKD", "CNY", "AUD", "CAD", "SGD"])
-    .default("USD"),
+  CURRENCY: z.enum(["USD", "EUR", "GBP", "JPY", "HKD", "CNY", "AUD", "CAD", "SGD"]).default("USD"),
 
   // 邮件
   MAIL_PROVIDER: z.enum(["resend", "smtp", "console"]).default("console"),
@@ -99,12 +109,12 @@ const envSchema = z.object({
 
   // 存储
   STORAGE_DRIVER: z.enum(["s3", "local"]).default("local"),
-  S3_ENDPOINT: z.string().optional().default(""),
-  S3_REGION: z.string().default("us-east-1"),
-  S3_BUCKET: z.string().default("ecommerce"),
+  S3_ENDPOINT: optionalHttpUrl.default(""),
+  S3_REGION: z.string().trim().min(1).default("us-east-1"),
+  S3_BUCKET: z.string().trim().min(1).default("ecommerce"),
   S3_ACCESS_KEY_ID: z.string().optional().default(""),
   S3_SECRET_ACCESS_KEY: z.string().optional().default(""),
-  S3_PUBLIC_URL: z.string().optional().default(""),
+  S3_PUBLIC_URL: optionalHttpUrl.default(""),
   S3_FORCE_PATH_STYLE: booleanFromString.default("true"),
   UPLOAD_MAX_BYTES: z.coerce
     .number()
@@ -119,7 +129,36 @@ const envSchema = z.object({
   ORDER_EXPIRE_SECONDS: z.coerce.number().int().positive().default(1800),
 
   // 监控
-  SENTRY_DSN: z.string().optional().default(""),
+  SENTRY_DSN: optionalHttpUrl.default(""),
+  SENTRY_ENVIRONMENT: z
+    .string()
+    .trim()
+    .min(1)
+    .default(process.env.NODE_ENV ?? "development"),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce
+    .number()
+    .min(0)
+    .max(1)
+    .default(process.env.NODE_ENV === "production" ? 0.1 : 0),
+  SENTRY_RELEASE: z.string().trim().optional().default(""),
+
+  // 部署时区：日志、迁移和维护窗口统一使用显式 IANA 时区。
+  APP_TIMEZONE: z
+    .string()
+    .trim()
+    .min(1)
+    .default("UTC")
+    .refine(
+      (value) => {
+        try {
+          new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+          return true;
+        } catch {
+          return false;
+        }
+      },
+      { message: "必须是有效 IANA 时区，例如 UTC 或 Asia/Shanghai" },
+    ),
 
   // 日志
   LOG_LEVEL: z.enum(["trace", "debug", "info", "warn", "error", "fatal"]).default("info"),
@@ -247,7 +286,11 @@ export const mockPaymentAllowedInProd: boolean =
   env.ALLOW_MOCK_PAYMENT_IN_PROD || !env.REQUIRE_STRONG_SECRETS;
 
 // ---------- 生产守卫：mock 支付（免费下单）直接拒绝启动 ----------
-if (env.REQUIRE_STRONG_SECRETS && effectivePaymentMode === "mock" && !env.ALLOW_MOCK_PAYMENT_IN_PROD) {
+if (
+  env.REQUIRE_STRONG_SECRETS &&
+  effectivePaymentMode === "mock" &&
+  !env.ALLOW_MOCK_PAYMENT_IN_PROD
+) {
   const msg =
     `[启动失败] 生产环境(REQUIRE_STRONG_SECRETS=true)支付模式为 mock(模拟支付/免费下单)：\n` +
     `  - 若要真实收款：配置 STRIPE_SECRET_KEY(+STRIPE_WEBHOOK_SECRET) 或在后台「支付渠道 → Stripe」填入密钥\n` +
@@ -305,14 +348,39 @@ if (
   }
 }
 
-/** S3 存储是否可用(显式 s3 且配置齐全) */
-export const isS3Configured =
-  env.STORAGE_DRIVER === "s3" &&
-  env.S3_ENDPOINT.length > 0 &&
-  env.S3_ACCESS_KEY_ID.length > 0 &&
-  env.S3_SECRET_ACCESS_KEY.length > 0;
+/** S3 存储所需的完整配置；生产环境不允许缺项后静默退回 local。 */
+const requiredS3Keys = [
+  "S3_ENDPOINT",
+  "S3_REGION",
+  "S3_BUCKET",
+  "S3_ACCESS_KEY_ID",
+  "S3_SECRET_ACCESS_KEY",
+  "S3_PUBLIC_URL",
+] as const;
 
-/** 实际生效的存储驱动 */
+const missingS3Keys = requiredS3Keys.filter((key) => !env[key].trim());
+
+/** S3 存储是否可用（显式 s3 且六项配置齐全）。 */
+export const isS3Configured = env.STORAGE_DRIVER === "s3" && missingS3Keys.length === 0;
+
+// ---------- 生产守卫：存储不得静默降级到容器本地盘 ----------
+if (env.REQUIRE_STRONG_SECRETS && !isS3Configured) {
+  const detail =
+    env.STORAGE_DRIVER === "local"
+      ? "STORAGE_DRIVER=local：容器重建会丢失上传文件"
+      : `STORAGE_DRIVER=s3 但配置不完整：${missingS3Keys.join(", ")}`;
+  const msg =
+    `[启动失败] ${detail}。\n` +
+    `生产必须配置 S3_ENDPOINT、S3_REGION、S3_BUCKET、S3_ACCESS_KEY_ID、` +
+    `S3_SECRET_ACCESS_KEY、S3_PUBLIC_URL；配置缺失时禁止静默降级到 local。`;
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    console.warn(`[警告] ${msg}`);
+  } else {
+    throw new Error(msg);
+  }
+}
+
+/** 实际生效的存储驱动（仅非生产降级配置可能得到 local）。 */
 export const effectiveStorageDriver: "s3" | "local" = isS3Configured ? "s3" : "local";
 
 /**

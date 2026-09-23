@@ -6,6 +6,7 @@ import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { adminUserUpdateSchema } from "@/lib/validations/admin";
 import { revokeAllUserTokens } from "@/lib/auth/session";
+import { anonymizeAccountData } from "@/lib/auth/account-deletion";
 import { routeParam } from "@/app/api/_lib/params";
 import { sendMail } from "@/lib/mail";
 
@@ -155,7 +156,7 @@ export const PUT = apiHandler(async (req, ctx) => {
     action: "ADMIN_USER_UPDATE",
     entity: "User",
     entityId: id,
-    meta: { changes: input },
+    meta: { fields: Object.keys(input) },
     req,
   });
 
@@ -206,24 +207,14 @@ export const DELETE = apiHandler(async (req, ctx) => {
     data: { name: target.name },
   }).catch(() => undefined);
 
-  await prisma.user.update({
-    where: { id },
-    data: {
-      email: `deleted-${id}@invalid.local`,
-      name: "已注销用户",
-      status: "DISABLED",
-      emailVerified: false,
-      deletionRequestedAt: null,
-    },
-  });
-  await revokeAllUserTokens(id);
+  await anonymizeAccountData(id, target.email);
 
   await audit({
     userId: actor.id,
     action: "ADMIN_USER_DELETE",
     entity: "User",
     entityId: id,
-    meta: { email: target.email, name: target.name, role: target.role },
+    meta: { anonymized: true, role: target.role },
     req,
   });
 

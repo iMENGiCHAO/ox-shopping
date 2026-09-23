@@ -1,12 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { badRequest, conflict, unauthorized } from "@/lib/errors";
 import { verifyPassword } from "@/lib/auth/password";
-import {
-  issueSession,
-  requireUser,
-  revokeAllUserTokens,
-  setAuthCookies,
-} from "@/lib/auth/session";
+import { issueSession, requireUser, revokeAllUserTokens, setAuthCookies } from "@/lib/auth/session";
 import { signEmailToken } from "@/lib/auth/jwt";
 import { sendMail } from "@/lib/mail";
 import { env } from "@/lib/env";
@@ -31,7 +26,8 @@ export const PUT = apiHandler(async (req) => {
   const ok = await verifyPassword(input.currentPassword, full.passwordHash);
   if (!ok) throw badRequest("Current password is incorrect");
 
-  if (input.newEmail === full.email) throw badRequest("The new email is the same as your current email");
+  if (input.newEmail === full.email)
+    throw badRequest("The new email is the same as your current email");
 
   const taken = await prisma.user.findUnique({ where: { email: input.newEmail } });
   if (taken) throw conflict("This email is already used by another account");
@@ -63,7 +59,7 @@ export const PUT = apiHandler(async (req) => {
     action: "USER_CHANGE_EMAIL",
     entity: "User",
     entityId: user.id,
-    meta: { from: full.email, to: updated.email },
+    meta: { changed: true },
     req,
   });
   return res;

@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
 /**
  * 站内消息中心服务：
@@ -69,9 +70,7 @@ export async function createNotification(input: NotificationInput): Promise<void
 
 /** 批量写（同一用户多条）。无账号可归属的条目（游客订单）直接丢弃。 */
 export async function createNotifications(inputs: NotificationInput[]): Promise<number> {
-  const deliverable = inputs.filter(
-    (i): i is NotificationInput & { userId: string } => !!i.userId,
-  );
+  const deliverable = inputs.filter((i): i is NotificationInput & { userId: string } => !!i.userId);
   if (deliverable.length === 0) return 0;
   const data = deliverable.map((i) => ({
     userId: i.userId,
@@ -91,16 +90,28 @@ export async function createNotifications(inputs: NotificationInput[]): Promise<
  * 通知所有活跃管理员/客服（ADMIN + SUPPORT）。
  * 用于「前端动作 → 后台必知」：新订单、退款申请、新用户注册、补货提醒等，
  * 保证运营信息不静默。返回写入条数。
+ *
+ * 调用方通常为 fire-and-forget（`void notifyAdmins`），所以这里对查询/批量写入做
+ * 3 次短重试；createNotifications 是单次原子 createMany，失败重试不会重复半批数据。
  */
 export async function notifyAdmins(input: Omit<NotificationInput, "userId">): Promise<number> {
-  const admins = await prisma.user.findMany({
-    where: { role: { in: ["ADMIN", "SUPPORT"] }, status: "ACTIVE" },
-    select: { id: true },
-  });
-  if (admins.length === 0) return 0;
-  return createNotifications(
-    admins.map((a) => ({ ...input, userId: a.id })),
-  );
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const admins = await prisma.user.findMany({
+        where: { role: { in: ["ADMIN", "SUPPORT"] }, status: "ACTIVE" },
+        select: { id: true },
+      });
+      if (admins.length === 0) return 0;
+      return await createNotifications(admins.map((a) => ({ ...input, userId: a.id })));
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  // 保持既有 fire-and-forget 契约：最终失败不向上抛，避免反向阻断订单/补货主流程；
+  // 但必须留错误日志，不能在重试耗尽后重新变成静默失败。
+  logger.error({ err: lastError, type: input.type }, "管理员通知重试耗尽");
+  return 0;
 }
 
 /** 列消息（按时间倒序） */

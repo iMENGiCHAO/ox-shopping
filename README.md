@@ -1,15 +1,15 @@
 # Ox Shopping（Ecommerce）
 
-生产级、可商用、开箱即用的全栈电商网站。技术栈：
+面向商业交付的全栈电商独立站，提供本地一键演示与生产部署两种模式。生产放量前必须通过 [当前能力矩阵](docs/CURRENT_CAPABILITY_MATRIX.md)、[商业交付手册](docs/COMMERCIAL_DELIVERY_RUNBOOK.md) 和上线自检；演示模式不等于生产收款能力。技术栈：
 
 - **框架**：Next.js 16（App Router，Turbopack）+ TypeScript（严格模式）+ React 19
 - **样式**：Tailwind CSS + shadcn/ui（Radix UI）
 - **数据库**：PostgreSQL 16 + Prisma ORM
 - **缓存/限流**：Redis（ioredis，可通过环境变量关闭，自动降级内存实现）
 - **认证**：自建 JWT（jose）+ httpOnly Cookie + Refresh Token 轮换（重放检测）+ bcrypt 密码哈希 + CSRF double-submit
-- **支付**：Stripe Checkout + Webhook；未配置密钥时自动降级为**模拟支付**（全流程可跑）
+- **支付**：Stripe Checkout + Webhook 为当前真实收款通道；支付宝/微信/银行卡/PayPal 为预留接口；模拟支付仅用于本地演示，绝不等于生产收款
 - **邮件**：Resend / Nodemailer SMTP / 控制台（未配置时打印日志并落盘 `.mail-out/`）；模板使用 react-email
-- **文件存储**：S3 兼容（AWS S3 / Cloudflare R2 / MinIO，预签名上传）；本地开发默认本地磁盘
+- **文件存储**：S3 兼容（AWS S3 / Cloudflare R2 / MinIO，预签名上传）；本地磁盘只用于开发/演示，生产必须使用对象存储
 - **验证**：Zod（请求与表单）
 - **测试**：Vitest（单元 + 集成）+ Playwright（E2E）
 - **部署**：Docker 多阶段构建 + docker-compose + Nginx + GitHub Actions CI
@@ -25,6 +25,7 @@
   长文本截断）；**双向信息通知闭环**：前端动作（新订单/付款/退款/新用户/补货）
   自动通知后台「消息中心」，后台处理（发货/退款/取消）自动邮件+站内通知客户；
   分类编辑内置落地页横幅（首页横幅由前两个分类驱动）；侧栏可收起/展开
+
 ---
 
 ## 目录结构
@@ -80,21 +81,21 @@ docker compose up -d --build
 首次启动会自动：创建 Postgres/Redis/MinIO 容器 → 等待数据库就绪 → 执行 Prisma 迁移 → （本地演示）写入种子数据 → 启动应用。
 生产容器默认**不执行种子**（`SEED_ON_START=false`），运营数据不会被重置。
 
-| 服务 | 地址 |
-| --- | --- |
-| 商城前台 | http://localhost:3000 |
-| 管理后台 | http://localhost:3000/admin |
+| 服务                       | 地址                                             |
+| -------------------------- | ------------------------------------------------ |
+| 商城前台                   | http://localhost:3000                            |
+| 管理后台                   | http://localhost:3000/admin                      |
 | MinIO 控制台（仅本地演示） | http://localhost:9001（minioadmin / minioadmin） |
 
 **种子账号**（密码均为对应 `@123456` 形式）：
 
-| 角色 | 邮箱 | 密码 |
-| --- | --- | --- |
-| 管理员 ADMIN | admin@example.com | Admin@123456 |
-| 顾客 CUSTOMER | user@example.com | User@123456 |
-| 客服 SUPPORT | support@example.com | Support@123456 |
+| 角色          | 邮箱                | 密码           |
+| ------------- | ------------------- | -------------- |
+| 管理员 ADMIN  | admin@example.com   | Admin@123456   |
+| 顾客 CUSTOMER | user@example.com    | User@123456    |
+| 客服 SUPPORT  | support@example.com | Support@123456 |
 
-docker-compose 默认使用**模拟支付**（Pay 环节跳转到站内模拟支付页）与**控制台邮件**，未配置任何外部服务即可完整跑通下单→支付→发货→退款全流程。
+本地演示覆盖文件使用**模拟支付**与**控制台邮件**，用于验证下单→支付→发货→退款链路。生产环境不会自动降级到免费模拟支付；真实上线必须配置可用支付、邮件和对象存储，并通过 `/admin/launch-readiness` 与 `npm run preflight`。
 
 ---
 
@@ -130,24 +131,24 @@ npm run dev               # http://localhost:3000
 
 完整注释见 [`.env.example`](./.env.example)。核心项：
 
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `DATABASE_URL` | 本地 ecommerce 库 | PostgreSQL 连接串 |
-| `REDIS_URL` / `REDIS_ENABLED` | redis://localhost:6379 / true | 缓存与限流；关闭后降级内存实现 |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | dev 值 | **生产必须替换**：`openssl rand -base64 48` |
-| `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_TTL` | 900 / 604800 | 15 分钟 / 7 天 |
-| `PAYMENT_MODE` | auto | `auto`/`stripe`/`mock`；未配置 Stripe 密钥时自动 mock |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | 空 | Stripe 密钥与 Webhook 签名密钥 |
-| `CURRENCY` | CNY | 币种。**注意：Stripe 不支持 CNY**，启用 Stripe 时请改 USD 等 |
-| `MAIL_PROVIDER` | console | `resend` / `smtp` / `console`（console 打印日志并落盘 `.mail-out/`） |
-| `RESEND_API_KEY` / `SMTP_*` | 空 | 邮件服务配置 |
-| `STORAGE_DRIVER` | local | `s3` / `local`；S3 兼容（AWS S3/R2/MinIO） |
-| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL` / `S3_FORCE_PATH_STYLE` | — | 对象存储；`S3_PUBLIC_URL` 为浏览器访问前缀 |
-| `UPLOAD_MAX_BYTES` | 10485760 | 上传大小上限（10MB） |
-| `SHIPPING_FEE` / `FREE_SHIPPING_THRESHOLD` / `TAX_RATE` | 10 / 99 / 0 | 运费、满额包邮、税率 |
-| `ORDER_EXPIRE_SECONDS` | 1800 | 未支付订单自动取消（读取订单列表时惰性触发） |
-| `SENTRY_DSN` | 空 | 配置后启用异常上报 |
-| `LOG_LEVEL` | info | pino 日志级别 |
+| 变量                                                                                                                | 默认                          | 说明                                                                     |
+| ------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------ |
+| `DATABASE_URL`                                                                                                      | 本地 ecommerce 库             | PostgreSQL 连接串                                                        |
+| `REDIS_URL` / `REDIS_ENABLED`                                                                                       | redis://localhost:6379 / true | 缓存与限流；关闭后降级内存实现                                           |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`                                                                          | dev 值                        | **生产必须替换**：`openssl rand -base64 48`                              |
+| `ACCESS_TOKEN_TTL` / `REFRESH_TOKEN_TTL`                                                                            | 900 / 604800                  | 15 分钟 / 7 天                                                           |
+| `PAYMENT_MODE`                                                                                                      | auto                          | `auto`/`stripe`/`mock`；未配置 Stripe 密钥时自动 mock                    |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`                                                                       | 空                            | Stripe 密钥与 Webhook 签名密钥                                           |
+| `CURRENCY`                                                                                                          | USD                           | 基础币种。**注意：Stripe 不支持 CNY**，启用 Stripe 时保持 USD 等支持币种 |
+| `MAIL_PROVIDER`                                                                                                     | console                       | `resend` / `smtp` / `console`（console 打印日志并落盘 `.mail-out/`）     |
+| `RESEND_API_KEY` / `SMTP_*`                                                                                         | 空                            | 邮件服务配置                                                             |
+| `STORAGE_DRIVER`                                                                                                    | local                         | `s3` / `local`；S3 兼容（AWS S3/R2/MinIO）                               |
+| `S3_ENDPOINT` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL` / `S3_FORCE_PATH_STYLE` | —                             | 对象存储；`S3_PUBLIC_URL` 为浏览器访问前缀                               |
+| `UPLOAD_MAX_BYTES`                                                                                                  | 10485760                      | 上传大小上限（10MB）                                                     |
+| `SHIPPING_FEE` / `FREE_SHIPPING_THRESHOLD` / `TAX_RATE`                                                             | 10 / 99 / 0                   | 运费、满额包邮、税率                                                     |
+| `ORDER_EXPIRE_SECONDS`                                                                                              | 1800                          | 未支付订单自动取消（读取订单列表时惰性触发）                             |
+| `SENTRY_DSN`                                                                                                        | 空                            | 配置后启用异常上报                                                       |
+| `LOG_LEVEL`                                                                                                         | info                          | pino 日志级别                                                            |
 
 ---
 
@@ -280,9 +281,9 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 **Q：忘记管理员密码？**
 本地：`npm run db:studio` 打开 Prisma Studio 查看/修改；或重置 `users` 表 `passwordHash`（可用 `node -e "console.log(require('bcryptjs').hashSync('新密码',12))"` 生成）。
 
-## 许可证
+## 许可证与第三方资产
 
-代码可自由商用。发票 PDF 使用的 Noto Sans CJK 字体遵循 [SIL Open Font License 1.1](https://scripts.sil.org/OFL)，保留该字体即符合许可要求。
+仓库根目录当前未包含由版权所有人选择的开源许可证，因此**在添加明确 `LICENSE` 前，不应默认转售、分发或授予第三方使用权**。发票 PDF 使用的 Noto Sans CJK 字体遵循 [SIL Open Font License 1.1](https://scripts.sil.org/OFL)。商品图、品牌素材及参考站相关资产的授权边界见 [NOTICE.md](NOTICE.md)；商业交付前必须由资产权利人确认并替换无授权素材。
 
 ---
 
@@ -290,18 +291,19 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 
 本项目已经过系统性硬化，覆盖：CSRF / admin 守卫 / 退款事务 / 状态机 / 限流 / sanitize / 多币种 / i18n / 品牌打通 / 死代码清理 / 死循环 bug 修复。
 
-完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。下面是按"严重度"分层的快速索引：
+完整变更记录见 [CHANGELOG.md](CHANGELOG.md)，本轮商业交付前的证据化审计见 [PROJECT_AUDIT_2026-09-23.md](docs/PROJECT_AUDIT_2026-09-23.md)。下面是按“严重度”分层的快速索引：
 
 ### 一句话总结
+
 - 安全：CSRF double-submit + /admin 守卫 + Stripe 退款 + 行锁 + sanitize 全链路 + Redis Lua 原子限流
 - 资金：退款事务全状态计入 + 状态机硬化 + 整单退款走 `refundEntireOrder`（Stripe + 库存回补 + 邮件 + audit）
 - 体验：mock-pay 真实状态校验 / 灯箱黑底 / 多币种 locale 修正 / 品牌资源统一
 
 ### 部署前必须检查
+
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` ≥ 32 位随机串（`openssl rand -base64 48`）
 - `CURRENCY` 在白名单内（`USD EUR GBP JPY HKD CNY AUD CAD SGD`）
 - `REQUIRE_STRONG_SECRETS=true`（生产默认）
 - `INVOICE_FONT_PATH`（可选，未配置时用 `public/fonts/NotoSansCJKsc-Regular.otf`）
 - 邮件 `MAIL_FROM` 用自家域名（`MAIL_FROM="Ox Shopping <no-reply@yourdomain.com>"`）
 - Stripe `STRIPE_WEBHOOK_SECRET` 必须在 Stripe Dashboard 创建 webhook 并复制签名密钥
-

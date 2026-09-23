@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { apiHandler, json } from "@/lib/api";
-import { requireAdmin } from "@/lib/auth/session";
+import { requireStaff } from "@/lib/auth/session";
 import { badRequest } from "@/lib/errors";
 import {
   deleteAll,
@@ -20,7 +20,7 @@ export const runtime = "nodejs";
  * 此接口供后台消息中心页读取，保证运营信息不静默。
  */
 export const GET = apiHandler(async (req: NextRequest) => {
-  const user = await requireAdmin();
+  const user = await requireStaff();
   const unreadOnly = req.nextUrl.searchParams.get("unreadOnly") === "true";
   const list = await listForUser(user.id, { limit: 50 });
   const filtered = unreadOnly ? list.filter((n) => n.isUnread) : list;
@@ -30,7 +30,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
 
 /** PATCH /api/admin/notifications — 标已读（单条或全部） */
 export const PATCH = apiHandler(async (req: NextRequest) => {
-  const user = await requireAdmin();
+  const user = await requireStaff();
   const id = req.nextUrl.searchParams.get("id");
   if (id) {
     await markRead(user.id, id);
@@ -46,7 +46,7 @@ export const PATCH = apiHandler(async (req: NextRequest) => {
  * DELETE /api/admin/notifications?all=true — 清空全部
  */
 export const DELETE = apiHandler(async (req: NextRequest) => {
-  const user = await requireAdmin();
+  const user = await requireStaff();
   const id = req.nextUrl.searchParams.get("id");
   const all = req.nextUrl.searchParams.get("all") === "true";
   const readOnly = req.nextUrl.searchParams.get("readOnly") === "true";

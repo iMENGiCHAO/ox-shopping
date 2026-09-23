@@ -1,22 +1,25 @@
 # 任务计划：电商整站样式与功能审查（shop + admin → 商业交付）
 
 ## Goal
+
 对电商整站（前台 shop + 后台 admin）做全面样式与功能审查，对照参考站 shop.x.com 设计规范逐项比对，
 找出并修复所有影响商业交付的问题（样式偏差、交互缺失、功能 bug、响应式问题、冗余/失效功能），
 直到整站达到可商业交付完成度。
 
 ## 基线事实
+
 - 技术栈：Next.js 16 App Router + TS 严格 + React 19 + Tailwind + shadcn/ui + Prisma/PG + Redis(可选)
 - 设计规范：docs/DESIGN.md（shop.x.com 对齐：白底黑头黑脚、0 圆角、常规字重；admin 用 .admin-theme 作用域现代 SaaS 风）
 - dev server 3000 端口（梦哥重启后 PID 4696 前后），PG 5432 UP，REDIS_ENABLED=false（自动降级，正常）
 - 工作区为大规模未提交改动集（139 文件 +2163/-4185，Feature Trim + Cleanup），HEAD 为旧基线
 - 项目在 Time Machine 网络卷：Turbopack dev 编译慢（首次路由编译曾 60s 超时），环境特性
-- QA 工具：scripts/design-assertions.cjs + scripts/qa/*.mjs + tests/e2e/*.spec.ts
+- QA 工具：scripts/design-assertions.cjs + scripts/qa/_.mjs + tests/e2e/_.spec.ts
 - 种子账号：admin@example.com / Admin@123456，user@example.com / User@123456
 
 ## Phases
 
 ### Phase 15: 后台顶级化整理 + 分销资金审查 + 客服留言下线 — Status: complete
+
 大爷（2026-09-22/23）：后台整理到顶级（样式/功能/好用）、查伪功能+硬编码+数据孤岛、修 bug、
 分析商业交付差距；追加：分销系统做完善；「已发货」误报缺物流；客服留言前端无入口；
 到货通知补货是否自动发邮件；邮箱发送服务器配置预览。
@@ -39,20 +42,24 @@
       认领与菜单项可见、4xx 仅有 Next dev 字体代理
 
 ### Phase 1: 环境与基线摸底 — Status: complete
+
 - [x] 确认 dev/PG/Redis 状态
 - [x] design-assertions 15/15 通过
 - [x] qa-a11y / qa-mobile / qa-links / qa-lang 全过
 - [x] lint 53 warnings 0 errors 基线；typecheck 0 错误
 
 ### Phase 2: 视觉走查（shop 前台）— Status: complete
+
 - [x] 模型无图能力 → 程序化 DOM/CSS 断言替代（qa-shot 截图 + design-assertions + 自写检查脚本）
 - [x] 对照 DESIGN.md 逐项检查令牌、布局、交互（首页/PLP/PDP/header/footer）
 - [x] 修复：header 右侧顺序、币种触发钮双重透明度、DESIGN.md PDP 比例描述
 
 ### Phase 3: 视觉走查（admin 后台）— Status: complete
+
 - [x] admin-theme 令牌（8px 圆角/冷调浅灰底）✓、数据表 sticky 列 ✓、侧栏 15 链接 ✓、375px 无溢出 ✓
 
 ### Phase 4: 功能审查 — Status: complete
+
 - [x] e2e 全流程（登录→浏览→加购→结算→支付→订单）✓
 - [x] admin 流程 + 通知闭环 ✓
 - [x] 修复：GDPR Cookie 横幅失效功能（从未挂载→shop layout 挂载+闭环验证）
@@ -60,11 +67,13 @@
 - [x] 死代码：删 5 个零引用组件
 
 ### Phase 5: 修复所有问题 — Status: complete
+
 - [x] 4 个 P1/P2 修复（见 findings.md）
 - [x] lint 53→11 warnings（0 errors）
 - [x] prettier 格式化本次修改的 11 个文件
 
 ### Phase 6: 回归验证与交付 — Status: complete
+
 - [x] typecheck 0 错误；单测 84/84；视觉基线 5/5；E2E 全过
 - [x] 终验：重跑全套 QA（design/a11y/mobile/links/lang/sweep）
 - [x] 清理临时诊断脚本（合并为 scripts/qa/qa-layout.mjs + 新增 E2E 用例）
@@ -72,6 +81,7 @@
 - [x] 交付报告
 
 ### Phase 7: 大爷七项收尾 + 环境抢救 — Status: complete
+
 - [x] ① PDP 缩略图滑动过渡（transform 轨道 500ms 缓出，细粒度采样验证）
 - [x] ② 灯箱拖拽成环（取模邻居，0→5/5→0 双向）+ 松手平滑归中 + 换片抖动根因修复（flyKeyRef）
 - [x] ③ 通盘检查：admin/settings 删无用只读卡+冗余按钮；DESIGN.md 币种描述修正（CNY→USD）；
@@ -88,6 +98,7 @@
 workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的改动一并接管修复）。
 
 原站实测基线（Playwright 直连 shop.x.com，非猜测）：
+
 - 店铺页脚**7 条**：FAQs · Search · Accessibility Statement · Privacy Policy(原站为外链 x.com，
   本地按大爷要求改站内可编辑页) · Terms and Conditions(/pages/terms-and-conditions)
   · Cookie Consent(?preview_privacy_banner=1) · **Your Privacy Choices**(/pages/data-sharing-opt-out)
@@ -131,8 +142,7 @@ workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的
       （/admin/password-resets）→ 管理员批准 → 邮件发强随机临时密码 → 首次登录强制改密。
       交付：PasswordResetRequest 模型 + 迁移 20260919233506；src/lib/auth/temp-password.ts
       （14 位 CSPRNG 强随机、剔除 0O1lI）；password-reset.service（申请/批准/驳回/列表）；
-      防枚举 + 双限流；批准即吊销全部旧会话；`pwd_change_required` cookie（proxy 307/403）
-      + requireUser() 读 DB 双重门控；改密复用 PUT /api/user/password（清标记/清 cookie/重签）；
+      防枚举 + 双限流；批准即吊销全部旧会话；`pwd_change_required` cookie（proxy 307/403）+ requireUser() 读 DB 双重门控；改密复用 PUT /api/user/password（清标记/清 cookie/重签）；
       新页 /auth/change-password（挂 (checkout) 组，无强制要求渲染兜底态防重定向死循环）；
       邮件模板 temp-password / reset-rejected；单测 6 例 + 集成 8 例 + QA qa-password-reset.mjs 24/24
 - [x] 13.9b 死代码清理（2026-09-22 完成）：token 自助重置链路整链清除 ——
@@ -153,6 +163,7 @@ workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的
 要做**隔离、解耦、用接口调用**的方式。
 
 设计前提（决定了一切实现取舍）：**商城可以完全不知道自己装了分销**。
+
 - 商城只 import 一个 `bridge.ts`（接口面），从不 import 分销内部实现；
   bridge 内部动态 import + try/catch —— 分销出任何故障都只记日志，不影响下单/支付/发货/退款；
 - 总开关 `DISTRIBUTION_ENABLED=false` 时：代理不写 cookie、钩子零开销、API 全 404、入口隐藏，
@@ -160,13 +171,11 @@ workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的
 - 商城侧改动只有 6 处加法（proxy / register / orders / order.service×3 / scheduler）+ 两个导航项。
 
 - [x] 14.1 数据层：`DistributionRelation`（闭包表）/`DistributorCustomerBind`（customerId 唯一=不可抢绑）/
-      `CommissionRule`/`CommissionLog`（幂等键）/`DistributorAccount`/`WithdrawRecord`/`OrderAttribution`
-      + User 6 个字段；迁移 `20260920185628_distribution_module`
+      `CommissionRule`/`CommissionLog`（幂等键）/`DistributorAccount`/`WithdrawRecord`/`OrderAttribution` + User 6 个字段；迁移 `20260920185628_distribution_module`
 - [x] 14.2 纯函数契约层 `src/lib/distribution/{contract,rules,mask,referral}.ts`：比例优先级
       （PRODUCT>CATEGORY>GLOBAL）、总比例封顶、自购、层级上限、闭包行规划、脱敏、推广码签名 cookie；
       `tests/unit/distribution.test.ts` 30/30
-- [x] 14.3 服务层 `src/server/services/distribution/*`：config/relation/bind/commission/account/report
-      + http 守卫 + bridge（唯一集成面）
+- [x] 14.3 服务层 `src/server/services/distribution/*`：config/relation/bind/commission/account/report + http 守卫 + bridge（唯一集成面）
 - [x] 14.4 商城接入 6 处：proxy 推广 cookie；注册绑定；下单归属快照；支付计佣；
       确认收货结算；退款/取消冲正（两个退款入口都挂）；调度器分钟级对账补偿
 - [x] 14.5 API：分销商端 11 个 + 平台端 12 个（全部要求登录/管理员，行级权限与脱敏在服务端完成）
@@ -178,6 +187,7 @@ workbuddy 并行重构被终止，梦哥完整接手（其未完成/有缺陷的
 - [ ] 14.9 文档：PROJECT_DEVELOPMENT / QUICKSTART / PRODUCTION_DEPLOY / PRODUCTION_CHECKLIST + CHANGELOG
 
 ### 测试抓到的两个真 bug（已修）
+
 1. **闭包表在真实流程里没人写** → `getCommissionChain` 恒为空 → 佣金一分钱都算不出。
    根因：建立上级关系写在了一个从未被调用的函数里；已改为「自动升级时按客户绑定重建闭包」，
    并补齐换绑后重建。
@@ -199,8 +209,7 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
       DELETE 同路由 = 用户自助撤回（无在途 409，审计 DATA_DELETION_CANCEL）；
       /api/auth/me 返回 deletionRequestedAt（前端渲染状态卡）；
       profile 页注销卡条件渲染：在途→红框状态卡（申请时间+撤回按钮），无→原提交 UI；
-      admin 闭环：users 列表 deletion=1 筛选 + 行内「注销申请中」红徽标 + 详情申请日期行
-      + 处理块（驳回备注 Textarea + 两按钮）；admin 不能处理自己（400）；
+      admin 闭环：users 列表 deletion=1 筛选 + 行内「注销申请中」红徽标 + 详情申请日期行 + 处理块（驳回备注 Textarea + 两按钮）；admin 不能处理自己（400）；
       新 POST /api/admin/users/[id]/deletion：approve=匿名化（先发 account-deleted
       确认邮件到原邮箱再 email=deleted-{id}@invalid.local、name=已注销用户、DISABLED、
       revokeAllUserTokens 全端会话即时吊销），reject=清字段+deletion-rejected 邮件
@@ -232,22 +241,21 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
       14/14 → qa-phase11 全段 → 收尾交付
 
 ## Phase 8: 物流模板创建体验重做（大爷 2026-09-16 提出）— Status: complete
-- [x] 8.1 Service/API：listAllShippingMethods 带 orderCount；POST 重复代号友好 409（CODE_EXISTS）
-      + 代号格式校验；GET 返回 orderCount
+
+- [x] 8.1 Service/API：listAllShippingMethods 带 orderCount；POST 重复代号友好 409（CODE_EXISTS）+ 代号格式校验；GET 返回 orderCount
 - [x] 8.2 新建 shipping-method-dialog.tsx：创建/编辑一体对话框——快速模板（标准/特快/到付/免邮）、
       分区分组表单（标签+说明文字）、RHF+zod 行内校验、代号自动生成、顾客结账页实时预览
-- [x] 8.3 重构 shipping-methods-manager.tsx：只读展示表（替代 6 输入框内联编辑）+ 启用快捷开关
-      + 编辑对话框 + ConfirmDialog 删除（含订单引用提示）+ EmptyState + 新建按钮；
+- [x] 8.3 重构 shipping-methods-manager.tsx：只读展示表（替代 6 输入框内联编辑）+ 启用快捷开关 + 编辑对话框 + ConfirmDialog 删除（含订单引用提示）+ EmptyState + 新建按钮；
       修启用开关与编辑按钮重叠（操作列 min-w-7rem nowrap + 表 min-w-880px，1024px 实测 18px 间隙）
 - [x] 8.4 页面换 AdminPageHeader + 描述更新；管理壳顶栏 h1→span（修每页双 h1）
 - [x] 8.5 新 E2E：tests/e2e/admin-shipping.spec.ts 2/2 通过（全流程 + 校验）
 - [x] 8.6 预检通过；qa-shipping 29/29 + 几何检查 6 视口全过
 
 ## Phase 10: 支付渠道预留接口整改（大爷 2026-09-16 提出）— Status: complete
+
 - [x] 10.1 统一预留三态：未配置/已配置/可收款（PaymentProvider.isReady；前台 available=enabled+configured+ready；
       启用门控=必须先配置，服务端 badRequest 拦截）；后台状态徽标与描述语全渠道统一
-- [x] 10.2 新增 stripe（渠道化真实接入：channel config 密钥 → 真 Checkout Session，含 verifyNotify 两条事件路径
-      + 渠道密钥退款）+ paypal（预留级 Orders v2 参数组装，同 bankcard 模式）；
+- [x] 10.2 新增 stripe（渠道化真实接入：channel config 密钥 → 真 Checkout Session，含 verifyNotify 两条事件路径 + 渠道密钥退款）+ paypal（预留级 Orders v2 参数组装，同 bankcard 模式）；
       alipay/wechat/bankcard 显式声明 isReady=false（预留语义不再依赖缺省）
 - [x] 10.3 stripe.ts 密钥覆盖 clientFor/keys 参数（缺省 env 单例）；order.service 渠道化 stripe 分支
       （会话复用 + paymentSessionId 落库对账）；webhook/scheduler/退款路径渠道密钥优先、env 回落
@@ -263,6 +271,7 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 ## Phase 11: 六项业务整改（大爷 2026-09-17 提出）— Status: complete
 
 摸底结论（现状）：
+
 - 法务：admin/legal→site_settings→前台 policies 已同键关联；但 ① footer 缺「退款政策」入口
   ② readPolicy 把 string 规范化为 {zh:内置默认, en:value}——admin 中文编辑保存后**中文前台不生效**（关联脱节根因）
 - 注册：IP 限流 3/min + 密码强度 + 邮箱唯一 + 验证邮件 + 审计 + 管理员站内通知已有；
@@ -294,41 +303,44 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
       /QA 全家桶 + CHANGELOG + findings + 交付报告
 
 ## Phase 9: 整站第二轮审查（shop + admin → 商业交付复核）— Status: complete
+
 - [x] 9.1 跑全套 QA + e2e 全量：design 15/15、links 39/39、a11y/mobile/lang/sweep 全绿
       （sweep 仅 dev 冷编译一次性 404 噪音 + 访客 /api/cart 401 预期，复测干净）；
       E2E 14/14（含视觉基线 5/5）；单测 135/135
-- [x] 9.2 逐页走查复核：视觉基线锁定 shop 前台；qa-admin 全后台页面 + qa-label 面包屑
-      + qa-hydration/i18n/auth/notify/loginstate/login-ui/order 全绿；新增交互由
+- [x] 9.2 逐页走查复核：视觉基线锁定 shop 前台；qa-admin 全后台页面 + qa-label 面包屑 + qa-hydration/i18n/auth/notify/loginstate/login-ui/order 全绿；新增交互由
       qa-shipping 29 + qa-payment-channels 36 + 几何 6 视口专项覆盖
 - [x] 9.3 本轮新发现问题：qa-order.mjs 传参口径缺注释（误报 404）→ 已修注释；
       无产品级缺陷
 - [x] 9.4 回归全绿 + CHANGELOG 更新（2026-09-17 条目）+ 交付报告
-- [x] 9.2 逐页走查复核：视觉基线锁定 shop 前台；qa-admin 全后台页面 + qa-label 面包屑
-      + qa-hydration/i18n/auth/notify/loginstate/login-ui/order 全绿；新增交互由
+- [x] 9.2 逐页走查复核：视觉基线锁定 shop 前台；qa-admin 全后台页面 + qa-label 面包屑 + qa-hydration/i18n/auth/notify/loginstate/login-ui/order 全绿；新增交互由
       qa-shipping 29 + qa-payment-channels 36 + 几何 6 视口专项覆盖
 - [x] 9.3 本轮新发现问题：qa-order.mjs 传参口径缺注释（误报 404）→ 已修注释；
       无产品级缺陷
 - [x] 9.4 回归全绿 + CHANGELOG 更新（2026-09-17 条目）+ 交付报告
 
 ## Errors Encountered
-| Error | Attempt | Resolution |
-|-------|---------|------------|
-| qa-links/qa-admin 首跑超时 | 1 | dev 冷编译（网络卷），后台跑+预热后正常 |
-| edit 工具对 ' 实体匹配失败 | 2 | 改用 python 精准插入 |
-| /tmp 脚本解析不到 node_modules | 2 | 脚本放项目 scripts/qa 下 |
-| E2E 并行 prettier --write 竞态失败 | 1 | 串行重跑通过 |
-| dev server 崩溃一次（Turbopack 内部错误） | 1 | 重启 + 缓存自动清理后恢复 |
-| PG postmaster "became multithreaded" 全版本必炸 | 8+ | macOS 15.7.7+icu4c78：LC_ALL 无效、
-  DYLD interpose 被共享缓存拒绝、@14 也有此检查 → 二进制补丁 xor eax,eax + 幂等脚本 |
-| 视觉基线每轮随机挂（首页/PLP/PDP 轮流转） | 10+ | 三重根因：orderBy 并列漂移（加 id 决胜）、
-  灰占位假完成（naturalWidth≤2 强制重载）、懒加载漏触发（loading=eager 强制）+ 2% 噪声底 |
-| e2e shop 全链路卡在 mock 支付跳转 | 2 | DB 快照缺 payment_channels 表 →
-  prisma migrate deploy 补 2 迁移 + 重播渠道种子恢复 |
-| 支付渠道页 API 500（改动后） | 1 | dev server Turbopack 旧缓存编译态损坏；vitest 对库复现函数正常 →
-  scripts/restart-dev.sh 重启即恢复（该函数逻辑本身无错） |
-| qa-payment-channels 首跑 11 FAIL | 2 | ① isVisible() 不自动等待：重启后客户端渠道 fetch 未返回即断言 →
-  goto 后显式等列表文本；② 动作 toast 等 15s < 路由冷编译（网络卷数十秒）→ 放宽 60s + 开头幂等还原 |
-| session-catchup 首次调用误传 sandbox_permissions | 1 | 当前策略已是 danger-full-access；撤销多余参数后原命令成功 |
+
+| 错误 | 尝试 | 解决方案 |
+|---|---:|---|
+| qa-links/qa-admin 首跑超时 | 1 | dev 冷编译，后台预热后正常 |
+| edit 工具实体匹配失败 | 2 | 改用更具体的上下文替换 |
+| `/tmp` 脚本解析不到 node_modules | 2 | 脚本移到 `scripts/qa` |
+| E2E 并行格式化竞态 | 1 | 改为串行执行 |
+| Turbopack dev 崩溃 | 1 | 重启并清理缓存 |
+| PostgreSQL multithreaded 检查 | 8+ | 使用项目内幂等修复脚本 |
+| 视觉基线随机漂移 | 10+ | 稳定排序、真实图片等待、固定视口与容差 |
+| E2E mock 支付卡住 | 2 | 补 payment_channels 迁移与种子 |
+| 支付渠道 API 500 | 1 | 重启 dev server，旧 Turbopack 缓存损坏 |
+| qa-payment-channels 首跑失败 | 2 | 显式等待列表/toast，放宽冷编译超时 |
+| session-catchup 参数误传 | 1 | 撤销多余参数后成功 |
+| Prettier bin shim 无执行权限 | 1 | 改用 `node node_modules/prettier/bin/prettier.cjs` |
+| lsof 不存在 | 1 | 改用 Node TCP connect 探针 |
+| E2E 被旧 dev server 锁阻塞 | 1 | 仅终止已确认的项目 dev PID，改用 3100 隔离端口 |
+| Vitest 5 与 Vite peer 冲突 | 1 | 改用已修复的 Vitest 4.1.11 + Vite 6.4.3 |
+| npm audit 全量 high/critical | 1 | 升级 Vitest/Vite 后 audit 0 |
+| RefundOutbox 历史 REQUESTED/REJECTED 误入队列 | 1 | migration 只回填 APPROVED/REFUNDED，worker 再做状态硬守卫 |
+| distribution 规则快照为空 | 1 | 归属前先确保默认规则落库 |
+
 
 ### Phase 16: 项目全栈深度分析（2026-09-23）— Status: complete
 
@@ -341,3 +353,18 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 - [x] 16.5 风险：安全、并发、资金正确性、性能、部署、数据与第三方依赖
 - [x] 16.6 验证：typecheck/lint/build + 安全只读 unit 248 例；因 destructive global setup 未跑 integration/E2E
 - [x] 16.7 输出：`docs/PROJECT_AUDIT_2026-09-23.md`（综合 56/100、P0/P1/P2、0–4 周路线图）
+
+### Phase 17: 商业交付工程化整改（2026-09-23）— Status: in_progress
+
+大爷授权进入完整整改：目标不是“继续提建议”，而是把 P0/P1 清零并补齐生产门禁、可靠性、部署、备份、监控、文档和验收，最终达到开箱即用商业交付。
+
+- [x] 17.0 Git 安全基线：创建 `chore/commercial-hardening`，提交当前审计基线 `df11ed5`
+- [x] 17.1 测试安全：global setup fail-closed；unit 不触发 DB DDL；补 P0/P1 回归
+- [x] 17.2 资金一致性：退款状态机/outbox/幂等、状态 CAS、禁用手工 PAID、Stripe token/ID、COD
+- [x] 17.3 安全隐私：refresh 重放、token 日志脱敏、上传约束、SSRF、注销/导出、生产依赖
+- [x] 17.4 业务闭环：游客预售、优惠券币种、支付死单、SUPPORT 消息、通知可靠投递
+- [x] 17.5 生产工程：env/S3/readiness/preflight、CI 空库迁移+Docker smoke、audit、备份恢复、监控
+- [ ] 17.6 集成验收：typecheck/lint/unit/integration/E2E/build/audit 全绿；test preflight 12/12；本机无 Docker，待 CI Docker smoke
+- [x] 17.7 商业文档：修正 README/部署/检查清单/能力矩阵，交付一键启动与恢复手册
+
+**团队协作约束**：共享工作区，不允许两个 agent 同时写同一文件；每个任务先 team_task_get/claim，按 write_scopes 修改，完成时回报文件与验证结果。Lead 负责共享文件、跨域集成、最终 diff 与全量回归。

@@ -94,11 +94,12 @@ export const distributionBridge = {
     }
   },
 
-  /** 订单确认收货：立即结算该订单佣金（不必等持有期） */
+  /** 订单确认收货：先补计提（尤其 COD 在此时才确认收款），再立即结算。 */
   async onOrderDelivered(orderId: string): Promise<void> {
     if (!isDistributionEnabled()) return;
     try {
-      const { settleOrder } = await import("./commission.service");
+      const { accrueForOrder, settleOrder } = await import("./commission.service");
+      await accrueForOrder(orderId);
       await settleOrder(orderId);
     } catch (err) {
       logger.error({ err, orderId }, "分销：佣金结算钩子失败（已忽略）");

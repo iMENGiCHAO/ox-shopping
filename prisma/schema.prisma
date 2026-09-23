@@ -54,8 +54,19 @@ enum OrderStatus {
 enum RefundStatus {
   REQUESTED
   APPROVED
+  /// 已审核通过、等待网关退款；此时尚不可冲正佣金或标记订单 REFUNDED
+  PENDING
+  /// 网关调用失败，可按 nextRetryAt 重试；不可视为已退款
+  FAILED
   REJECTED
   REFUNDED
+}
+
+enum RefundOutboxStatus {
+  PENDING
+  PROCESSING
+  RETRY
+  COMPLETED
 }
 
 /// 折扣码类型：
@@ -460,16 +471,44 @@ model Refund {
   adminNote String?
   // 支付网关退款单号（Stripe refund.id；mock 为空）
   gatewayRefundId String?
+  /// 同一退款在所有重试中共用的渠道幂等键；DB 唯一约束防止重复建 outbox。
+  idempotencyKey  String    @unique
+  attempts        Int       @default(0)
+  lastError       String?   @db.Text
+  nextRetryAt     DateTime?
+  processedAt     DateTime?
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   user  User? @relation(fields: [userId], references: [id])
+  outbox RefundOutbox?
 
   @@index([orderId])
   @@index([status, createdAt])
   @@index([userId])
   @@map("refunds")
+}
+
+/// 退款可靠发件箱：审核通过与「需要向网关退款」在同一事务提交。
+/// worker 以 claimedAt 租约领取；每次重试复用 Refund.idempotencyKey。
+model RefundOutbox {
+  id            String             @id @default(cuid())
+  refundId      String             @unique
+  status        RefundOutboxStatus @default(PENDING)
+  attempts      Int                @default(0)
+  /// 同一退款跨重试稳定幂等键；额外唯一约束防重复任务。
+  uniqueKey     String             @unique
+  nextAttemptAt DateTime           @default(now())
+  claimedAt     DateTime?
+  lastError     String?            @db.Text
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  refund Refund @relation(fields: [refundId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@map("refund_outbox")
 }
 
 // ============ 审计日志 ============
@@ -992,6 +1031,8 @@ model OrderAttribution {
   distributorId        String?
   /// 下单时的关系链快照：JSON 数组 [{ userId, depth }]，从归属分销商向上
   relationPathSnapshot Json?
+  /// 下单归属时命中的完整规则与配置快照；历史数据缺失时计佣仅兼容回退实时读取。
+  ruleSnapshot         Json?
   bindId               String?
   /// 是否自然流量（显式落库，报表按此统计「未归属订单」）
   natural              Boolean  @default(false)

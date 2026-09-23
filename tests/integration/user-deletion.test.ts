@@ -1,7 +1,10 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { callApi, getData, login, registerAndLogin } from "../helpers/api";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
+import sharp from "sharp";
+import { validateImageBuffer } from "@/lib/storage";
+import { isSafeLogoUrl } from "@/lib/logo-contrast";
 
 /**
  * 账户注销申请闭环（Phase 12：大爷指正——申请必须与后台管理衔接，不能只躺在审计日志里）
@@ -24,17 +27,63 @@ let userId: string;
 let userJar: { get: (n: string) => string | undefined; absorb: (r: Response) => void };
 let adminJar: { get: (n: string) => string | undefined; absorb: (r: Response) => void };
 
+afterAll(async () => {
+  await prisma.notifyMe.deleteMany({
+    where: { email: { in: [userEmail, `deleted-${userId}@invalid.local`] } },
+  });
+  if (userId) await prisma.user.deleteMany({ where: { id: userId } });
+});
+
 beforeAll(async () => {
   const reg = await registerAndLogin(userEmail);
   userJar = reg.jar;
   // 注册接口返回 { data: { user: {... } } }，直接按邮箱查库拿 id（不依赖返回形状）
   const user = await prisma.user.findUniqueOrThrow({ where: { email: userEmail } });
   userId = user.id;
+  await prisma.address.create({
+    data: {
+      userId,
+      recipientName: "Deletion Test",
+      phone: "13800000000",
+      province: "Test",
+      city: "Test",
+      district: "Test",
+      detail: "Test address",
+    },
+  });
+  await prisma.notification.create({
+    data: {
+      userId,
+      type: "system",
+      title: "Test notification",
+      body: "Test body",
+    },
+  });
+  await prisma.notifyMe.create({
+    data: { email: userEmail, productId: null, status: "draft" },
+  });
   const admin = await login("admin@example.com", "Admin@123456");
   adminJar = admin.jar;
 });
 
 describe("注销申请 — 用户端状态闭环", () => {
+  it("数据导出覆盖个人数据且排除凭证字段", async () => {
+    const { GET } = await import("@/app/api/user/export/route");
+    const res = await callApi(GET, { cookies: cookiesOf(userJar) });
+    expect(res.status).toBe(200);
+    const body = (await getData(res)) as {
+      addresses: Array<{ id: string }>;
+      notifications: unknown[];
+      excludedSecurityFields: string[];
+    };
+    expect(body.addresses.some((address) => address.id)).toBe(true);
+    expect(body.notifications.length).toBeGreaterThan(0);
+    expect(body.excludedSecurityFields).toContain("passwordHash");
+    expect(body.excludedSecurityFields).toContain("refreshToken.tokenHash");
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(userJar.get(REFRESH_TOKEN_COOKIE));
+  });
+
   it("提交申请：状态落库 + me 可见", async () => {
     const { POST } = await import("@/app/api/user/deletion-request/route");
     const res = await callApi(POST, {
@@ -166,6 +215,15 @@ describe("注销申请 — admin 处理闭环", () => {
     expect(user.status).toBe("DISABLED");
     expect(user.deletionRequestedAt).toBeNull();
 
+    // 隐私范围：地址、站内消息清除；邮箱型订阅只匿名化当前用户的数据。
+    expect(await prisma.address.count({ where: { userId } })).toBe(0);
+    expect(await prisma.notification.count({ where: { userId } })).toBe(0);
+    const subscriptions = await prisma.notifyMe.findMany({ where: { email: userEmail } });
+    expect(subscriptions).toHaveLength(0);
+    expect(
+      await prisma.notifyMe.count({ where: { email: `deleted-${userId}@invalid.local` } }),
+    ).toBe(1);
+
     // 全端会话吊销：旧 access token 立即失效
     const { GET: meGet } = await import("@/app/api/auth/me/route");
     const me = await callApi(meGet, { cookies: cookiesOf(userJar) });
@@ -174,5 +232,25 @@ describe("注销申请 — admin 处理闭环", () => {
     // 旧邮箱无法再登录
     const relogin = await login(userEmail, "User@123456");
     expect(relogin.response.status).toBe(401);
+  });
+});
+
+describe("上传与远程 Logo 安全回归", () => {
+  it("只接受 MIME 与真实图片 magic 一致的上传内容", async () => {
+    const png = await sharp({
+      create: { width: 1, height: 1, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
+    })
+      .png()
+      .toBuffer();
+    expect((await validateImageBuffer(png, "image/png")).ok).toBe(true);
+    expect((await validateImageBuffer(Buffer.from("<script>"), "image/png")).ok).toBe(false);
+    expect((await validateImageBuffer(png, "image/jpeg")).ok).toBe(false);
+  });
+
+  it("拒绝 loopback、私网和本地协议作为远程 Logo", async () => {
+    expect(await isSafeLogoUrl("http://127.0.0.1/logo.png")).toBe(false);
+    expect(await isSafeLogoUrl("http://169.254.169.254/latest/meta-data")).toBe(false);
+    expect(await isSafeLogoUrl("http://localhost/logo.png")).toBe(false);
+    expect(await isSafeLogoUrl("file:///etc/passwd")).toBe(false);
   });
 });

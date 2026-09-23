@@ -1,4 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const sendMailMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/mail", () => ({ sendMail: sendMailMock }));
 
 import { prisma } from "@/lib/prisma";
 import { notifyRestock } from "@/server/services/notify-me.service";
@@ -45,8 +48,13 @@ describe("到货通知：补货自动触发", () => {
     });
   });
 
+  beforeEach(() => {
+    sendMailMock.mockReset();
+    sendMailMock.mockResolvedValue({ delivered: true, channel: "smtp" });
+  });
+
   afterAll(async () => {
-    await prisma.notifyMe.deleteMany({ where: { email } });
+    await prisma.notifyMe.deleteMany({ where: { email: { startsWith: SUITE } } });
     await prisma.product.deleteMany({ where: { slug: { startsWith: SUITE } } });
     await prisma.category.deleteMany({ where: { slug: { startsWith: SUITE } } });
   });
@@ -65,6 +73,52 @@ describe("到货通知：补货自动触发", () => {
     const sub = await prisma.notifyMe.findFirstOrThrow({ where: { email } });
     expect(sub.status).toBe("notified");
     expect(sub.notifiedAt).not.toBeNull();
+  });
+
+  it("console 未投递或发送异常时保持 draft，后续触发可成功重试", async () => {
+    const consoleEmail = `${SUITE}-console@test.local`;
+    const errorEmail = `${SUITE}-error@test.local`;
+    await prisma.notifyMe.createMany({
+      data: [
+        { email: consoleEmail, productId, status: "draft" },
+        { email: errorEmail, productId, status: "draft" },
+      ],
+    });
+
+    sendMailMock
+      .mockResolvedValueOnce({ delivered: false, channel: "console" })
+      .mockRejectedValueOnce(new Error("smtp unavailable"));
+
+    expect(await notifyRestock(productId)).toBe(0);
+    const failed = await prisma.notifyMe.findMany({
+      where: { email: { in: [consoleEmail, errorEmail] } },
+      orderBy: { email: "asc" },
+    });
+    expect(failed).toHaveLength(2);
+    expect(failed.every((row) => row.status === "draft" && row.notifiedAt === null)).toBe(true);
+
+    // beforeEach 的成功结果代表真实通道恢复；两条都应只重试一次并转为 notified。
+    expect(await notifyRestock(productId)).toBe(2);
+    const retried = await prisma.notifyMe.findMany({
+      where: { email: { in: [consoleEmail, errorEmail] } },
+    });
+    expect(retried.every((row) => row.status === "notified" && row.notifiedAt !== null)).toBe(true);
+  });
+
+  it("游标分批处理超过 200 条订阅，不把首批之外永久留在 draft", async () => {
+    const bulk = Array.from({ length: 201 }, (_, i) => ({
+      email: `${SUITE}-bulk-${i}@test.local`,
+      productId,
+      status: "draft",
+    }));
+    await prisma.notifyMe.createMany({ data: bulk });
+
+    expect(await notifyRestock(productId)).toBe(201);
+    expect(
+      await prisma.notifyMe.count({
+        where: { productId, email: { contains: `${SUITE}-bulk-` }, status: "notified" },
+      }),
+    ).toBe(201);
   });
 
   it("下架商品即使有库存也不通知", async () => {

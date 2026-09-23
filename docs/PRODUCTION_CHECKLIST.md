@@ -62,20 +62,21 @@
 
 ## 一、必须配置的环境变量（缺一项就不该上线）
 
-| 变量 | 示例 | 用途 |
-|---|---|---|
-| `DATABASE_URL` | `postgresql://user:pass@host:5432/ecommerce` | PostgreSQL 16 |
-| `REDIS_URL` | `redis://:pass@host:6379/0` | 限流/缓存（建议必须，关了会退回内存版） |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -base64 48` | JWT 双密钥，**生产必须独立随机（<32 位将拒绝启动）** |
-| `SITE_URL` | `https://shop.example.com` | 邮件/回跳绝对地址 |
-| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | `sk_live_...` / `whsec_...` | 不配则全站走 mock 支付 |
-| `S3_*` (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`) | Cloudflare R2 / MinIO | 不配则上传本地磁盘（不能横向扩容） |
-| `RESEND_API_KEY` 或 `SMTP_*` | - | 不配则邮件进 `.mail-out/` 本地文件；**找回密码临时密码依赖邮件通道，生产禁止留 console** |
-| `DISTRIBUTION_ENABLED` | `true` / `false` | 分销模块总开关；`false` = 钩子零开销、API 全 404、入口隐藏 |
-| `SENTRY_DSN` | `https://...@sentry.io/...` | 可选但强烈建议 |
-| `NEXT_PUBLIC_CDN_URL` | `https://cdn.example.com` | 图片静态加速 |
+| 变量                                                                                                      | 示例                                                       | 用途                                                 |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------- |
+| `DATABASE_URL`                                                                                            | `postgresql://user:<url-encoded-pass>@host:5432/ecommerce` | PostgreSQL 16；密码特殊字符必须 URL 编码             |
+| `REDIS_URL`                                                                                               | `redis://:<url-encoded-pass>@host:6379/0`                  | 生产必须启用且带密码；多实例限流/缓存一致性          |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`                                                                | `openssl rand -base64 48`                                  | JWT 双密钥，**生产必须独立随机（<32 位将拒绝启动）** |
+| `PAYMENT_CHANNEL_ENC_KEY`                                                                                 | `openssl rand -base64 48`                                  | 渠道密钥加密主密钥；生产必填                         |
+| `SITE_URL` / `SITE_NAME` / `MAIL_FROM`                                                                    | `https://shop.example.com` / 品牌 / 发件地址               | 绝对链接、发票/SEO 与真实邮件投递                    |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET`                                                             | `sk_live_...` / `whsec_...`                                | 真实收款；生产 mock 会在启动/preflight 被拒绝        |
+| `S3_ENDPOINT` / `S3_REGION` / `S3_BUCKET` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_URL` | Cloudflare R2 / OSS / AWS                                  | 六项必须齐全；缺任一项生产拒绝启动，不降级 local     |
+| `RESEND_API_KEY` 或 `SMTP_*`                                                                              | -                                                          | **找回密码依赖真实邮件；生产禁止 console**           |
+| `SENTRY_DSN` / `SENTRY_ENVIRONMENT` / `SENTRY_RELEASE`                                                    | Sentry 项目 DSN / `production` / git SHA                   | 5xx 告警与发布定位                                   |
+| `TZ` / `APP_TIMEZONE`                                                                                     | `UTC`                                                      | 容器时区与显式 IANA 时区；两者须一致                 |
+| `DISTRIBUTION_ENABLED`                                                                                    | `true` / `false`                                           | 分销模块总开关；`false` = API 全 404、入口隐藏       |
 
-任何一项缺省都有兜底，但兜底≠商用级。上表逐项打勾再上线。
+开发环境可以有降级兜底，**生产没有 local 存储/console 邮件/mock 支付兜底**。逐项打勾再上线。
 
 ## 二、域名 / HTTPS / Cookie
 
@@ -91,9 +92,11 @@ npm run db:deploy       # 生产迁移（不是 db:push）
 npm run admin:create -- admin@yourdomain.com 'StrongPass!2026'   # 生产首个管理员（勿用 seed 的演示账号）
 ```
 
-- 启用每日逻辑备份 + WAL 归档
-- `AuditLog` 写得比较频（每小时千行级），建议 90 天滚动归档
+- 启用每日逻辑备份 + 异地对象存储副本；备份文件必须有 SHA-256
+- 每季度在**空临时库**运行 `scripts/restore-db.sh` 恢复演练，记录 RPO/RTO；禁止以生产库做首次恢复
+- `AuditLog` 写得比较频（每小时千行级），建议 90 天滚动归档；归档与备份策略必须一并演练
 - 慢查询：开启 `log_min_duration_statement = 500ms` 观察一周
+- [ ] `/api/healthz`（livez）返回 200 且不依赖 DB；`/healthz`（readyz）真实查询 DB，故障时返回 503
 
 ### 三之二、优惠券上线检查项（2026-09-18 新增体系）
 
@@ -148,8 +151,9 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 
 ## 八、监控 / 日志 / 告警
 
-- Sentry：`SENTRY_DSN` + `SENTRY_ENVIRONMENT=production`，400/500 自动上报
-- pino 结构化日志，生产环境用 JSON 输出到 ELK / Loki
+- Sentry：配置合法 `SENTRY_DSN`、`SENTRY_ENVIRONMENT=production`、`SENTRY_RELEASE=<git SHA>`；上线前触发受控异常验收
+- 禁止采集请求体、Cookie 和默认 PII；日志/错误上下文先脱敏
+- pino 输出 JSON 到 ELK / Loki；`TZ` 与 `APP_TIMEZONE` 必须一致并在变更单记录
 - 必须告警：
   - HTTP 5xx 率 > 1%/5min
   - 队列：`/api/webhooks/stripe` 失败率
@@ -158,6 +162,7 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 ## 九、限流 / 安全
 
 已内置（不用动代码）。**以下数值以 `src/**/route.ts` 里的 `rateLimit({...})` 调用为准（2026-09-20 逐条核对）**：
+
 - **登录**：单 IP+单邮箱 5 次/分钟；同一邮箱跨 IP 连错 5 次锁 **15 分钟**（账号级 `login-lock`，成功登录即解锁）。后台登录带 `scope:"admin"`，非 ADMIN/SUPPORT 直接 403（不建会话）
 - **注册**：单 IP 3 次/分钟 + 全局 100 次/小时；另有蜜罐字段（`company` 非空静默拒绝）
 - **找回密码申请（B-2）**：单 IP 3 次/分钟 + 单邮箱 3 次/小时；同一账号同时只允许一份在途申请
@@ -213,9 +218,12 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 
 ## 十三、CI/CD（已有）
 
-`.github/workflows/ci.yml` 四个 job：`lint-typecheck`（ESLint + tsc）→ `test`（unit + integration，带 postgres/redis service）
-→ `build`（`npm run build`）→ `e2e`（`npx playwright install --with-deps chromium` + `npm run test:e2e`，失败上传 `playwright-report/` 保留 14 天）。
-> 当前 CI **不含 docker build/push** 步骤——镜像发布需在部署流水线另配。
+`.github/workflows/ci.yml` 门禁包括：`lint-typecheck`、`audit`（npm audit high/critical）、
+`migration-gate`（完全空库 `migrate deploy` + `migrate status` + 迁移/schema 漂移）、
+`test`、`build`、`e2e`，最后由 `docker-smoke` 构建**最终生产镜像**、在隔离服务上启动，
+自动执行 `migrate deploy` 并验证 `/api/healthz` 与 `/healthz`。任一门禁失败都不得发布。
+
+> CI build/start smoke 不是镜像发布流水线；生产发布仍须扫描镜像、生成不可变 digest、签名并推送到受控仓库。
 
 ---
 

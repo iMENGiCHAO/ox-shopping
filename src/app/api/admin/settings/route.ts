@@ -3,7 +3,8 @@ import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { siteSettingsSchema } from "@/lib/validations/admin";
-import { isLogoArtworkDark } from "@/lib/logo-contrast";
+import { isLogoArtworkDark, isSafeLogoUrl } from "@/lib/logo-contrast";
+import { badRequest } from "@/lib/errors";
 import { invalidateSettingsCache } from "@/server/services/settings.service";
 import { env, isS3Configured } from "@/lib/env";
 import { Prisma } from "@prisma/client";
@@ -31,6 +32,18 @@ export const GET = apiHandler(async () => {
 export const PUT = apiHandler(async (req) => {
   const actor = await requireAdmin();
   const input = await readJson(req, siteSettingsSchema);
+
+  // 在任何设置落库前拒绝危险 Logo URL，避免“先保存、后探测”留下 SSRF/跟踪载荷。
+  if ("siteLogoUrl" in input && typeof input.siteLogoUrl === "string" && input.siteLogoUrl) {
+    const value = input.siteLogoUrl;
+    const safeLocal =
+      value.startsWith("/api/uploads/") &&
+      !value.slice("/api/uploads/".length).includes("..") &&
+      !value.includes("?") &&
+      !value.includes("#");
+    const safeRemote = /^https?:\/\//i.test(value) && (await isSafeLogoUrl(value));
+    if (!safeLocal && !safeRemote) throw badRequest("Logo URL 不安全或不受支持");
+  }
 
   for (const [key, value] of Object.entries(input)) {
     const jsonValue = value as Prisma.InputJsonValue;

@@ -1,6 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { badRequest, notFound } from "@/lib/errors";
-import { requireAdmin, revokeAllUserTokens } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
+import { anonymizeAccountData } from "@/lib/auth/account-deletion";
 import { audit } from "@/lib/audit";
 import { sendMail } from "@/lib/mail";
 import { prisma } from "@/lib/prisma";
@@ -49,25 +50,14 @@ export const POST = apiHandler(async (req, ctx) => {
       data: { name: target.name },
     }).catch(() => undefined);
 
-    await prisma.user.update({
-      where: { id },
-      data: {
-        email: `deleted-${id}@invalid.local`,
-        name: "已注销用户",
-        status: "DISABLED",
-        emailVerified: false,
-        deletionRequestedAt: null,
-      },
-    });
-    // 全端会话即时失效
-    await revokeAllUserTokens(id);
+    await anonymizeAccountData(id, target.email);
 
     await audit({
       userId: actor.id,
       action: "ADMIN_USER_DELETION_APPROVE",
       entity: "User",
       entityId: id,
-      meta: { originalEmail: target.email, originalName: target.name },
+      meta: { anonymized: true },
       req,
     });
 

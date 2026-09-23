@@ -3,8 +3,9 @@
 > 面向网店交付使用的分步指南。目标读者：没有写码背景的运营者 + 维护工程师。
 > 配合 `npm run preflight`（部署前自检）一起使用：先跑检查，再按本文操作。
 >
-> 当前代码库状态：**功能开发完成、CI 四关（lint/typecheck + unit/integration + build + E2E）已过、可生产构建**；
-> 尚未接通的三个外部服务 = 邮件、真实收款、对象存储（都是配置项，不涉及改代码）。
+> 当前代码库状态：**已建立商用运维门禁**：CI 覆盖 lint/typecheck、依赖 audit、空库迁移与 schema 漂移、
+> unit/integration、production build、E2E，以及最终 Docker build/start smoke。
+> 邮件、真实收款、对象存储和错误监控仍须由部署方填写真实生产配置，preflight 全绿前禁止上线。
 >
 > **本文档已同步至 2026-09-20（含 Phase 12 注销闭环、Phase 13 shop.x.com 照搬、B-2 原站式找回密码）。**
 
@@ -20,16 +21,13 @@ npm run preflight          # 生产模式自检（若 NODE_ENV=production）
 
 它会逐项告诉你「✓ / ✗」：
 
-| 检查项 | 红灯表示 |
-|---|---|
-| 环境变量 | 缺必需变量 |
-| JWT 密钥强度 | 用了 dev 默认密钥（必须换） |
-| PostgreSQL 可达 | 数据库没起 / URL 错 |
-| migrations | 缺少 prisma/migrations（生产不能用 db push） |
-| 存储驱动 | 生产仍用 local（容器重启丢图） |
-| 邮件服务 | MAIL_PROVIDER=console（邮件发不出去） |
-| 支付模式 | 仍 mock / Stripe 密钥未配 |
-| Redis | 开了却连不上（可忽略，仅影响缓存） |
+| 检查项       | 红灯表示                                                       |
+| ------------ | -------------------------------------------------------------- |
+| 应用启动守卫 | `src/lib/env.ts` 真实解析失败，或生产弱密钥/错误支付/不完整 S3 |
+| 外部服务     | 邮件/支付/S3/Sentry 未填真实生产配置                           |
+| PostgreSQL   | 真实 `SELECT` 失败、URL 错或服务未就绪                         |
+| migrations   | 存在未应用/失败迁移，或迁移历史与 schema 有非预期漂移          |
+| Redis        | 未启用、URL 无密码或端口不可达                                 |
 
 **任何 ✗ 都要按下面对应小节处理完再上线。**
 
@@ -38,31 +36,38 @@ npm run preflight          # 生产模式自检（若 NODE_ENV=production）
 ## 1. 上线前必须做的事（按顺序）
 
 ### 1.1 域名 + HTTPS
+
 1. 域名（如 `shop.yourbrand.com`）解析到服务器 IP
 2. 用 Caddy / Nginx 自动申请 Let's Encrypt 证书
 3. 把 `.env` 的 `SITE_URL` 改为 `https://shop.yourbrand.com`
 4. 配置转发 `X-Forwarded-For`（TRUST_PROXY 生产默认 true）
 
 ### 1.2 换掉所有 dev 密钥（必做）
+
 ```bash
 openssl rand -base64 48   # 生成 JWT_ACCESS_SECRET
 openssl rand -base64 48   # 生成 JWT_REFRESH_SECRET
 ```
+
 写入 `.env`，且 `REQUIRE_STRONG_SECRETS=true`（生产默认开启，密钥不合格服务拒绝启动）。
 
 ### 1.3 邮件真实外发（二选一）
 
 **方案 A：Resend（推荐，10 分钟）**
+
 1. 到 [resend.com](https://resend.com) 注册 → 加域名 → 按提示配 DNS（SPF/DKIM）
 2. `.env`：
+
 ```env
 MAIL_PROVIDER=resend
 RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxx
 MAIL_FROM="Your Brand <no-reply@你的域名>"
 ```
+
 3. 验证：后台注册一个新用户，收验证邮件；或后台改订单状态触发「发货通知」邮件。
 
 **方案 B：SMTP（已有邮箱服务器时）**
+
 ```env
 MAIL_PROVIDER=smtp
 SMTP_HOST=smtp.example.com
@@ -71,6 +76,7 @@ SMTP_USER=no-reply@example.com
 SMTP_PASS=********
 SMTP_SECURE=true
 ```
+
 > 阿里云/腾讯企业邮建议 465；QQ邮箱需「授权码」而非登录密码。
 > 本地开发保留 console 即可（邮件落到 `.mail-out/`），不影响测试。
 >
@@ -80,13 +86,16 @@ SMTP_SECURE=true
 > 用户自己收不到 —— **必须先配好 Resend/SMTP 再对外开放找回密码**。
 
 ### 1.4 真实收款 Stripe
+
 1. [dashboard.stripe.com](https://dashboard.stripe.com) 注册（国外卡/支持 USD）
 2. `.env`：
+
 ```env
 PAYMENT_MODE=stripe
 STRIPE_SECRET_KEY=sk_live_...          # 上线前用 sk_test_… 先沙盒跑通
 STRIPE_WEBHOOK_SECRET=whsec_...
 ```
+
 3. Stripe 后台 → Developers → Webhooks 新增：
    - URL：`https://你的域名/api/webhooks/stripe`
    - 事件：`checkout.session.completed`、`payment_intent.succeeded`
@@ -104,7 +113,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 
 1. **迁移**：`npx prisma migrate deploy` 会应用 `20260920185628_distribution_module`
    （新增 7 张 `distribution_*` / `commission_*` / `distributor_*` / `withdraw_*` / `order_attributions` 表
-   + `users` 上 6 个分销字段）。**不需要**手工插规则：第一次计佣会自动补齐默认三级 10/5/2。
+   - `users` 上 6 个分销字段）。**不需要**手工插规则：第一次计佣会自动补齐默认三级 10/5/2。
 2. **总开关**：`DISTRIBUTION_ENABLED=false` 即可整体下线（代理层不写推广 cookie、钩子零开销、
    API 全 404、入口隐藏），商城行为与未装该模块一致。未设置=默认开启。
 3. **后台配置**：`/admin/distribution/rules` 调层级比例与策略（绑定触发点、是否允许抢绑、
@@ -121,9 +130,11 @@ STRIPE_WEBHOOK_SECRET=whsec_...
    若面向中国大陆客群，多级计酬的合规风险评估请先过法务 —— 系统限制了参数，不能替代法律意见。
 
 ### 1.5 图片/素材对象存储（必做，容器部署）
+
 本地磁盘在容器里会随容器销毁丢文件，必须 S3 兼容对象存储：
 
 **Cloudflare R2（推荐，免流量费）** 或 **阿里云 OSS** 或 **AWS S3**：
+
 ```env
 STORAGE_DRIVER=s3
 S3_ENDPOINT=https://<accountid>.r2.cloudflarestorage.com   # 或 OSS endpoint
@@ -134,21 +145,50 @@ S3_SECRET_ACCESS_KEY=...
 S3_PUBLIC_URL=https://cdn.yourbrand.com                     # 配 CDN/自定义域
 S3_FORCE_PATH_STYLE=true
 ```
+
 > 存量图片迁移：把 `storage/uploads/` 上传到 bucket 的 `uploads/` 目录即可
 > （DB 中存的是 `/api/uploads/...` 相对路径，前端会用 `SITE_URL` 拼站内访问；
->  若想走 CDN 需要一次 UPDATE 把字段前缀替换成 CDN 地址——建议上线前先干净数据）。
+> 若想走 CDN 需要一次 UPDATE 把字段前缀替换成 CDN 地址——建议上线前先干净数据）。
 
-### 1.6 部署形态（推荐 Docker Compose）
+### 1.6 错误监控与统一时区
+
+```env
+SENTRY_DSN=https://<key>@sentry.example.com/<project>
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+# 建议 CI 以镜像 digest 或 git SHA 注入，定位具体发布
+SENTRY_RELEASE=<git-sha-or-image-digest>
+TZ=UTC
+APP_TIMEZONE=UTC
+```
+
+DSN 非法会在应用启动时失败；Sentry 禁止采集请求体、Cookie 与默认 PII。服务器若按中国运营时间维护，
+可将 `TZ`/`APP_TIMEZONE` 同时设为 `Asia/Shanghai`，日志、迁移和维护记录必须使用同一约定。
+上线后应实际触发一个受控异常，确认 Sentry 告警到达值班人。
+
+### 1.7 部署形态（推荐 Docker Compose）
+
 项目自带 `Dockerfile` 与 `docker-compose.yml`（生产模板）+ `docker-compose.local.yml`（演示覆盖）。
 生产建议：
 
 ```bash
-# 服务器上
-git pull
+# 生成 URL 编码后的密码（推荐直接用十六进制随机串，天然 URL-safe）
+export POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+export REDIS_PASSWORD="$(openssl rand -hex 24)"
+export JWT_ACCESS_SECRET="$(openssl rand -base64 48)"
+export JWT_REFRESH_SECRET="$(openssl rand -base64 48)"
+export PAYMENT_CHANNEL_ENC_KEY="$(openssl rand -base64 48)"
+# 保存到仅运维可读的 .env；DATABASE_URL/REDIS_URL 可显式写成完整 URL 以避免任何特殊字符歧义
+export DATABASE_URL="postgresql://ecommerce:${POSTGRES_PASSWORD}@postgres:5432/ecommerce?schema=public"
+export REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379"
+
+docker compose -f docker-compose.yml config >/tmp/ecommerce-compose.resolved.yml
 docker compose -f docker-compose.yml up -d --build
-docker compose exec app npx prisma migrate deploy   # 应用数据库迁移（勿用 db push）
-docker compose exec app npm run db:seed             # 首次才需要（已有数据跳过）
 ```
+
+容器入口会等待数据库、执行 `prisma migrate deploy`，**迁移目录缺失会拒绝启动，不再回退 `db push`**。
+`SEED_ON_START` 生产必须保持 `false`；首个管理员用 `docker compose exec app npm run admin:create -- ...` 创建。
+密码含 `@`、`:`、`/`、`?`、`#`、`%` 时，应用连接 URL 必须使用 URL 编码后的密码；数据库/Redis 服务本身仍使用原值。
 
 > 多实例扩展：定时任务已用 PG 咨询锁做选主，库存扣减已用行锁，可直接横扩。
 
@@ -157,6 +197,7 @@ docker compose exec app npm run db:seed             # 首次才需要（已有�
 ## 2. 上线验收清单（部署完逐项打勾）
 
 ### 前台
+
 - [ ] 首页/集合索引/集合页/商品详情图正常；旧链接 `/products?category=x` 能 307 跳到 `/collections/x`
 - [ ] 注册新账号 → 收到**真实**验证邮件（验证 Resend/SMTP）
 - [ ] 登录 → 加购物车 → 结算（Stripe 沙盒卡走通）
@@ -168,6 +209,7 @@ docker compose exec app npm run db:seed             # 首次才需要（已有�
 - [ ] 账户注销申请：提交后看到在途状态卡、可自助撤回
 
 ### 后台
+
 - [ ] 登录后台，Dashboard 有数据（含「各币种销售汇总」卡）
 - [ ] 新订单会出现在后台（顶部未读角标 +1）
 - [ ] 商品上架/改库存/改价正常；**批量删除**可用
@@ -182,6 +224,7 @@ docker compose exec app npm run db:seed             # 首次才需要（已有�
 - [ ] 提现闭环：分销商申请 → 后台审核通过 → 线下打款 → 标记已打款（冻结核销）/ 驳回（解冻退回）
 
 ### 安全
+
 - [ ] 全站 HTTPS，访问 `http://` 自动跳 https
 - [ ] 部署前把 JWT 换成了随机 32+ 位（非 dev 默认）
 - [ ] `REQUIRE_STRONG_SECRETS=true`
@@ -190,42 +233,66 @@ docker compose exec app npm run db:seed             # 首次才需要（已有�
 - [ ] 临时密码登录后**手删 `pwd_change_required` cookie 也绕不过**（DB 侧 `requireUser()` 抛 403 `PASSWORD_CHANGE_REQUIRED`）
 
 ### 运维
-- [ ] `npm run preflight` 生产模式全绿
-- [ ] 数据库已做备份（见 §3）
-- [ ] 确认容器可重启后图片不丢（存储已切 S3）
+
+- [ ] `npm run preflight` 生产模式全绿（真实 env 守卫 + DB 查询 + migrate status）
+- [ ] `curl -fsS https://<域名>/api/healthz` 返回 200（livez，不访问 DB）
+- [ ] `curl -fsS https://<域名>/healthz` 返回 200（readyz，会真实查询 DB；故障应为 503）
+- [ ] 数据库已完成一次备份，且在隔离临时库用 `restore-db.sh` 恢复演练成功（见 §3）
+- [ ] 确认容器可重启后图片不丢（六项 S3 配置完整，服务不会降级到 local）
+- [ ] Sentry 受控异常已到达；`TZ` 与 `APP_TIMEZONE` 一致
 
 ---
 
 ## 3. 备份与恢复
 
-### 每日自动备份（可选 cron）
+### 每日自动备份（生产必须）
+
 ```bash
-0 3 * * * cd /path/to/app && bash scripts/backup-db.sh   # 详见脚本内配置
+0 3 * * * cd /path/to/app && /usr/bin/flock -n /var/lock/ecommerce-backup.lock bash scripts/backup-db.sh >> /var/log/ecommerce-backup.log 2>&1
 ```
 
-### 手动备份
+脚本以权限 `600` 原子生成 `backups/ecommerce-<UTC>.dump.gz` 与 `.sha256`，默认保留 14 天；
+备份完成后还应同步到与宿主机隔离的对象存储，并定期验证同步任务告警。
+
+### 恢复演练（每次发布前至少季度一次）
+
+先创建**空的临时数据库**，禁止直接拿生产库做首次演练：
+
 ```bash
-docker compose exec -T postgres pg_dump -U ecommerce -Fc ecommerce > backup-$(date +%F).dump
+export RESTORE_DATABASE_URL='postgresql://ecommerce:<encoded-password>@127.0.0.1:5432/ecommerce_restore_test?schema=public'
+RESTORE_CONFIRM=restore bash scripts/restore-db.sh backups/ecommerce-<UTC>.dump.gz
+curl -fsS "$SITE_URL/healthz"   # 应用验收；数据库验收可在临时库查询迁移表
+psql "$RESTORE_DATABASE_URL" -c 'SELECT COUNT(*) FROM users;'
 ```
 
-### 恢复
-```bash
-docker compose exec -T postgres pg_restore -U ecommerce -d ecommerce --clean < backup-2026-09-01.dump
-```
+恢复脚本会先校验 SHA-256 与 `pg_restore --list`，再用单事务 `--clean --if-exists --exit-on-error` 恢复，
+失败即回滚，避免留下半恢复数据库。`RESTORE_CONFIRM=restore` 是强制人工门禁。
+
+### 生产恢复
+
+1. 停止写入（进入维护模式），记录当前镜像 digest 与事故时间点；
+2. 选定事故前最近一份**已校验且异地留存**的备份；
+3. 在临时库先执行上面的恢复演练，再由 DBA/运维负责人批准生产切换；
+4. 生产恢复后运行 `npx prisma migrate status`、应用 smoke、订单/库存/支付对账；
+5. 记录 RPO/RTO 与恢复结果，关闭维护模式。
+
+不要直接对运行中的容器执行 seed；种子脚本是演示/测试入口，不是生产恢复工具。
 
 ---
 
 ## 4. 日常运维速查
 
-| 场景 | 命令 |
-|---|---|
-| 查看日志 | `docker compose logs -f app` |
-| 重启服务 | `docker compose restart app` |
-| 改配置后重载 | `docker compose up -d`（会重建变更容器） |
-| 看自检 | `npm run preflight` |
-| 应用新迁移 | `npx prisma migrate deploy` |
-| 备份数据库 | `bash scripts/backup-db.sh` |
-| 磁盘排查 | `df -h` / `docker system df` |
+| 场景          | 命令                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------- |
+| 查看日志      | `docker compose logs -f app`                                                           |
+| 重启服务      | `docker compose restart app`                                                           |
+| 改配置后重载  | `docker compose up -d`（会重建变更容器）                                               |
+| 看自检        | `npm run preflight`（只读，不迁移）                                                    |
+| 查看存活/就绪 | `curl -i /api/healthz` / `curl -i /healthz`                                            |
+| 应用新迁移    | 容器入口自动 `prisma migrate deploy`；也可只读检查 `npx prisma migrate status`         |
+| 备份数据库    | `bash scripts/backup-db.sh`（生成 checksum）                                           |
+| 恢复演练      | `RESTORE_CONFIRM=restore RESTORE_DATABASE_URL=... bash scripts/restore-db.sh <backup>` |
+| 磁盘排查      | `df -h` / `docker system df`                                                           |
 
 ---
 
@@ -271,17 +338,17 @@ docker compose exec -T postgres pg_restore -U ecommerce -d ecommerce --clean < b
 
 ## 附：本次交付新增内容一览
 
-| 内容 | 说明 |
-|---|---|
-| `scripts/preflight-check.ts` | 部署前自检（npm run preflight） |
-| `src/types/next-shims.d.ts` | Next 16 内部版缺类型声明的 typecheck 兜底 |
-| 后台消息中心删除 | 单条/清空已读/清空全部（2026-09） |
-| 前台账户「消息」菜单入口 | `/orders` 与 `/account` 左侧导航统一补 bell 入口 |
-| 顶栏 LOGO | 统一 44px 等比例 + object-contain 防变形 |
-| **B-2 原站式找回密码** | `PasswordResetRequest` + `/admin/password-resets` + 14 位强随机临时密码 + 首登强制改密（迁移 `20260919233506_password_reset_requests`） |
-| **Phase 12 注销闭环** | `User.deletionRequestedAt` + `/admin/users` 处理块（匿名化/驳回）；`DELETE /api/admin/users/[id]` 直接删除 |
-| **Phase 13 游客结账** | `src/lib/guest-cart.ts` + `GET /api/cart/preview` + `orderToken` 随 paymentUrl 传递 |
-| **上传按用途归档** | `uploads/{categories\|products\|brand\|misc}/年/月/`（本地/S3 同结构） |
-| **联系表单留言** | `ContactMessage` 落库 + `contactEmail` 通知（迁移 `20260919082929_add_contact_messages`） |
-| **商品批量删除** | `POST /api/admin/products/batch-delete` |
+| 内容                         | 说明                                                                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/preflight-check.ts` | 部署前自检（npm run preflight）                                                                                                                                         |
+| `src/types/next-shims.d.ts`  | Next 16 内部版缺类型声明的 typecheck 兜底                                                                                                                               |
+| 后台消息中心删除             | 单条/清空已读/清空全部（2026-09）                                                                                                                                       |
+| 前台账户「消息」菜单入口     | `/orders` 与 `/account` 左侧导航统一补 bell 入口                                                                                                                        |
+| 顶栏 LOGO                    | 统一 44px 等比例 + object-contain 防变形                                                                                                                                |
+| **B-2 原站式找回密码**       | `PasswordResetRequest` + `/admin/password-resets` + 14 位强随机临时密码 + 首登强制改密（迁移 `20260919233506_password_reset_requests`）                                 |
+| **Phase 12 注销闭环**        | `User.deletionRequestedAt` + `/admin/users` 处理块（匿名化/驳回）；`DELETE /api/admin/users/[id]` 直接删除                                                              |
+| **Phase 13 游客结账**        | `src/lib/guest-cart.ts` + `GET /api/cart/preview` + `orderToken` 随 paymentUrl 传递                                                                                     |
+| **上传按用途归档**           | `uploads/{categories\|products\|brand\|misc}/年/月/`（本地/S3 同结构）                                                                                                  |
+| **联系表单留言**             | `ContactMessage` 落库 + `contactEmail` 通知（迁移 `20260919082929_add_contact_messages`）                                                                               |
+| **商品批量删除**             | `POST /api/admin/products/batch-delete`                                                                                                                                 |
 | **Phase 14 分销 / 多级佣金** | 闭包表 + 归属绑定 + 逐级分佣 + 提现；商城侧仅 `distribution/bridge.ts` 一个接口面，`DISTRIBUTION_ENABLED=false` 可整体下线（迁移 `20260920185628_distribution_module`） |

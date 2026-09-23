@@ -30,6 +30,9 @@ export const mockProvider: PaymentProvider = {
   },
 
   async refund(input: RefundInput) {
-    return { gatewayRefundId: `mock_refund_${input.orderNumber}` };
+    return {
+      gatewayRefundId: `mock_refund_${input.idempotencyKey ?? input.orderNumber}`,
+      status: "succeeded",
+    };
   },
 };

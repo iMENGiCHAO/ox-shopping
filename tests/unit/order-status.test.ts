@@ -8,8 +8,10 @@ import {
 } from "@/lib/order-status";
 
 describe("订单状态机", () => {
-  it("正常主链路", () => {
-    expect(canTransition("PENDING_PAYMENT", "PAID")).toBe(true);
+  it("正常主链路从已验证收款开始", () => {
+    // PENDING_PAYMENT → PAID 只能由支付回调/对账的原子更新完成，
+    // 不属于管理员通用状态机，否则可凭空制造收入。
+    expect(canTransition("PENDING_PAYMENT", "PAID")).toBe(false);
     expect(canTransition("PAID", "PROCESSING")).toBe(true);
     expect(canTransition("PROCESSING", "SHIPPED")).toBe(true);
     expect(canTransition("SHIPPED", "DELIVERED")).toBe(true);

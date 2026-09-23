@@ -157,5 +157,7 @@ export const POST = apiHandler(async (req) => {
      * 避免出现在订单列表 / 后台列表等任何列表响应里。
      */
     orderToken: order.accessToken ?? null,
+    /** 订单已创建，但第三方支付初始化失败；前端应进入订单详情而不是重复下单。 */
+    paymentInitializationFailed: !order.isCashOnDelivery && paymentUrl === null,
   });
 });

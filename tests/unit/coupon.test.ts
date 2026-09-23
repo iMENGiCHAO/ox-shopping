@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { computeCouponDiscount, normalizeCouponCode, normalizeEmail } from "@/server/services/coupon.service";
+import { describe, expect, it, vi } from "vitest";
+import { Prisma } from "@prisma/client";
+import {
+  commitCouponRedemptionInTx,
+  computeCouponDiscount,
+  normalizeCouponCode,
+  normalizeEmail,
+} from "@/server/services/coupon.service";
+import { ALL_ADMIN_NAV_ITEMS } from "@/lib/admin-nav";
 import {
   COUPON_REASON_KEY,
   couponDescription,
@@ -22,42 +29,64 @@ import {
  */
 
 /** 只关心 type/value/maxDiscount 三个字段，其余字段与计算无关 */
-function coupon(type: "PERCENTAGE" | "FIXED" | "FREE_SHIPPING", value: number, maxDiscount: number | null = null) {
+function coupon(
+  type: "PERCENTAGE" | "FIXED" | "FREE_SHIPPING",
+  value: number,
+  maxDiscount: number | null = null,
+) {
   return { type, value, maxDiscount } as unknown as Parameters<typeof computeCouponDiscount>[0];
 }
 
 describe("折扣码 · 减免计算", () => {
   describe("PERCENTAGE 百分比券", () => {
     it("按折前小计打折，运费不参与打折", () => {
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), { subtotalUsd: 100, shippingFeeUsd: 8 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), {
+        subtotalUsd: 100,
+        shippingFeeUsd: 8,
+      });
       expect(r.discountUsd).toBe(20);
       expect(r.freeShipping).toBe(false);
     });
 
     it("maxDiscount 封顶生效：高客单不会被大额百分比券打穿毛利", () => {
       // 50% × 1000 = 500，封顶 100 → 只减 100
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 50, 100), { subtotalUsd: 1000, shippingFeeUsd: 0 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 50, 100), {
+        subtotalUsd: 1000,
+        shippingFeeUsd: 0,
+      });
       expect(r.discountUsd).toBe(100);
     });
 
     it("未达封顶时不受 maxDiscount 影响", () => {
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 10, 100), { subtotalUsd: 200, shippingFeeUsd: 0 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 10, 100), {
+        subtotalUsd: 200,
+        shippingFeeUsd: 0,
+      });
       expect(r.discountUsd).toBe(20);
     });
 
     it("减免额永不超过折前小计（不允许把订单打成负数）", () => {
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 100), { subtotalUsd: 50, shippingFeeUsd: 8 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 100), {
+        subtotalUsd: 50,
+        shippingFeeUsd: 8,
+      });
       expect(r.discountUsd).toBe(50);
     });
 
     it("小数金额按两位四舍五入（避免出现 4.9995000001 这类脏值）", () => {
       // 33.33 × 15% = 4.9995 → 5.00
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 15), { subtotalUsd: 33.33, shippingFeeUsd: 0 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 15), {
+        subtotalUsd: 33.33,
+        shippingFeeUsd: 0,
+      });
       expect(r.discountUsd).toBe(5);
     });
 
     it("小计为 0 时不产生减免", () => {
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), { subtotalUsd: 0, shippingFeeUsd: 8 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), {
+        subtotalUsd: 0,
+        shippingFeeUsd: 8,
+      });
       expect(r.discountUsd).toBe(0);
     });
   });
@@ -81,13 +110,19 @@ describe("折扣码 · 减免计算", () => {
 
   describe("FREE_SHIPPING 免邮券", () => {
     it("减免额 = 本单运费，并置 freeShipping 标记", () => {
-      const r = computeCouponDiscount(coupon("FREE_SHIPPING", 0), { subtotalUsd: 100, shippingFeeUsd: 8.5 });
+      const r = computeCouponDiscount(coupon("FREE_SHIPPING", 0), {
+        subtotalUsd: 100,
+        shippingFeeUsd: 8.5,
+      });
       expect(r.discountUsd).toBe(8.5);
       expect(r.freeShipping).toBe(true);
     });
 
     it("本就免邮时减免为 0（由 evaluateCoupon 判为 NOT_APPLICABLE，不假装已优惠）", () => {
-      const r = computeCouponDiscount(coupon("FREE_SHIPPING", 0), { subtotalUsd: 100, shippingFeeUsd: 0 });
+      const r = computeCouponDiscount(coupon("FREE_SHIPPING", 0), {
+        subtotalUsd: 100,
+        shippingFeeUsd: 0,
+      });
       expect(r.discountUsd).toBe(0);
       expect(r.freeShipping).toBe(true);
     });
@@ -95,13 +130,19 @@ describe("折扣码 · 减免计算", () => {
 
   describe("脏数据防御", () => {
     it("负数小计/运费按 0 处理，不产生负减免（负减免等于给用户加价）", () => {
-      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), { subtotalUsd: -100, shippingFeeUsd: -8 });
+      const r = computeCouponDiscount(coupon("PERCENTAGE", 20), {
+        subtotalUsd: -100,
+        shippingFeeUsd: -8,
+      });
       expect(r.discountUsd).toBe(0);
       expect(r.discountUsd).toBeGreaterThanOrEqual(0);
     });
 
     it("未知券类型返回 0 减免（不抛异常，避免把结账页打崩）", () => {
-      const r = computeCouponDiscount(coupon("BOGUS" as never, 10), { subtotalUsd: 100, shippingFeeUsd: 8 });
+      const r = computeCouponDiscount(coupon("BOGUS" as never, 10), {
+        subtotalUsd: 100,
+        shippingFeeUsd: 8,
+      });
       expect(r.discountUsd).toBe(0);
       expect(r.freeShipping).toBe(false);
     });
@@ -110,10 +151,36 @@ describe("折扣码 · 减免计算", () => {
   it("金额恒等式可成立：total = subtotal + shipping − discount ≥ 0", () => {
     const subtotal = 37.5;
     const shipping = 8;
-    const r = computeCouponDiscount(coupon("PERCENTAGE", 80, 20), { subtotalUsd: subtotal, shippingFeeUsd: shipping });
+    const r = computeCouponDiscount(coupon("PERCENTAGE", 80, 20), {
+      subtotalUsd: subtotal,
+      shippingFeeUsd: shipping,
+    });
     const total = subtotal + shipping - r.discountUsd;
     expect(r.discountUsd).toBeLessThanOrEqual(subtotal);
     expect(total).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("折扣码 · 核销金额币种", () => {
+  it("落库读取 Order.discount，而不是把 USD 参数写进非 USD 订单", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const tx = {
+      coupon: { update: vi.fn().mockResolvedValue({}) },
+      order: {
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ discount: new Prisma.Decimal("42.42") }),
+      },
+      couponRedemption: { create },
+    } as unknown as Prisma.TransactionClient;
+
+    await commitCouponRedemptionInTx(tx, {
+      couponId: "coupon-1",
+      orderId: "order-1",
+      discountUsd: 5,
+    });
+
+    expect(create).toHaveBeenCalledOnce();
+    const data = create.mock.calls[0]![0].data as { discountAmount: Prisma.Decimal };
+    expect(Number(data.discountAmount)).toBe(42.42);
   });
 });
 
@@ -132,6 +199,14 @@ describe("折扣码 · 码与邮箱规范化", () => {
     expect(normalizeEmail("  User@Example.COM ")).toBe("user@example.com");
     // 同一邮箱不同写法必须归一，否则可绕过每人限次
     expect(normalizeEmail("A@b.com")).toBe(normalizeEmail(" a@B.COM "));
+  });
+});
+
+describe("后台消息中心导航", () => {
+  it("消息中心对 SUPPORT 可见，与 requireStaff API 权限一致", () => {
+    const item = ALL_ADMIN_NAV_ITEMS.find((entry) => entry.href === "/admin/notifications");
+    expect(item).toBeDefined();
+    expect(item?.adminOnly).not.toBe(true);
   });
 });
 
@@ -157,15 +232,23 @@ describe("折扣码 · 文案映射", () => {
 
   it("couponHeadline 按券类型给出主卖点，且不拼货币符号（币种由 formatMoney 决定）", () => {
     const money = (n: number) => `MONEY(${n})`;
-    expect(couponHeadline({ type: "PERCENTAGE", value: 20 }, t, money)).toBe('{pct}% off|{"pct":"20"}');
-    expect(couponHeadline({ type: "FIXED", value: 10 }, t, money)).toBe('Save {amount}|{"amount":"MONEY(10)"}');
-    expect(couponHeadline({ type: "FREE_SHIPPING", value: 0 }, t, money)).toBe("Free shipping on your order");
+    expect(couponHeadline({ type: "PERCENTAGE", value: 20 }, t, money)).toBe(
+      '{pct}% off|{"pct":"20"}',
+    );
+    expect(couponHeadline({ type: "FIXED", value: 10 }, t, money)).toBe(
+      'Save {amount}|{"amount":"MONEY(10)"}',
+    );
+    expect(couponHeadline({ type: "FREE_SHIPPING", value: 0 }, t, money)).toBe(
+      "Free shipping on your order",
+    );
   });
 
   it("couponMinSpendLabel：无门槛返回 null，有门槛返回带金额的提示", () => {
     const money = (n: number) => `MONEY(${n})`;
     expect(couponMinSpendLabel({ minSpend: 0 }, t, money)).toBeNull();
-    expect(couponMinSpendLabel({ minSpend: 50 }, t, money)).toBe('Min. spend {amount}|{"amount":"MONEY(50)"}');
+    expect(couponMinSpendLabel({ minSpend: 50 }, t, money)).toBe(
+      'Min. spend {amount}|{"amount":"MONEY(50)"}',
+    );
   });
 
   it("标题/说明按语言取值，缺失时逐级回退（zh → en → 券码 / 空串）", () => {

@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 import { config as loadEnv } from "dotenv";
 import path from "node:path";
+import { assertSafeTestDatabaseUrl } from "./tests/helpers/global-setup";
 
 /**
  * E2E 测试（Playwright）
@@ -10,6 +11,10 @@ import path from "node:path";
  * 运行：npm run test:e2e
  */
 loadEnv({ path: path.resolve(process.cwd(), ".env"), override: false });
+
+// E2E exercises mutating business flows. Refuse to start its web server unless
+// the inherited/explicit database is unambiguously a *_test database.
+assertSafeTestDatabaseUrl(process.env.DATABASE_URL);
 
 const baseURL = process.env.SITE_URL || "http://localhost:3000";
 

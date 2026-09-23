@@ -16,12 +16,22 @@ function ensureInit() {
   try {
     Sentry.init({
       dsn: env.SENTRY_DSN,
-      environment: env.NODE_ENV,
-      tracesSampleRate: env.NODE_ENV === "production" ? 0.1 : 0,
-      release: process.env.npm_package_version ?? "1.0.0",
+      environment: env.SENTRY_ENVIRONMENT,
+      tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
+      release: env.SENTRY_RELEASE || process.env.npm_package_version || "1.0.0",
+      // 不采集请求体、Cookie 或用户 PII；业务上下文只放经显式脱敏的 extra。
+      sendDefaultPii: false,
+      maxBreadcrumbs: 50,
     });
     initialized = true;
-    logger.info("sentry enabled");
+    logger.info(
+      {
+        sentryEnvironment: env.SENTRY_ENVIRONMENT,
+        sentryRelease: env.SENTRY_RELEASE || process.env.npm_package_version || "1.0.0",
+        timezone: env.APP_TIMEZONE,
+      },
+      "sentry enabled",
+    );
   } catch (err) {
     logger.warn({ err }, "sentry init failed");
   }

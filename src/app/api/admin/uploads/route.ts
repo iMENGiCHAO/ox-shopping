@@ -8,6 +8,7 @@ import {
   validateUpload,
 } from "@/lib/storage";
 import { audit } from "@/lib/audit";
+import { UPLOAD_MAX_BYTES } from "@/lib/constants";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,11 @@ export const POST = apiHandler(async (req) => {
   const actor = await requireStaff();
   if (effectiveStorageDriver !== "local") throw badRequest("请使用预签名上传接口");
 
+  // multipart 解析本身会分配内存；先用 Content-Length 做廉价上限检查。
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(contentLength) && contentLength > UPLOAD_MAX_BYTES + 1024 * 1024) {
+    throw badRequest("文件超过大小限制");
+  }
   const form = await req.formData();
   const file = form.get("file");
   if (!file || typeof file === "string") throw badRequest("请选择文件");

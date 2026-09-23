@@ -22,8 +22,7 @@ export const PUT = apiHandler(async (req, ctx) => {
   /* 权限分级（P1-1）：REFUNDED 会真实出账（走网关退款），必须 ADMIN。
      此前一律 requireStaff —— SUPPORT 角色也能对单笔订单全额退款，与批量接口
      （batch-status 对 REFUNDED 用 requireAdmin）口径不一致，属漏改。 */
-  const actor =
-    input.status === "REFUNDED" ? await requireAdmin() : await requireStaff();
+  const actor = input.status === "REFUNDED" ? await requireAdmin() : await requireStaff();
 
   const order = await getOrderById(id);
 

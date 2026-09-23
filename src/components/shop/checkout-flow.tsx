@@ -198,7 +198,29 @@ export function CheckoutFlow({
     // 故此处分流，避免整页被判为「购物车为空或加载失败」。
     if (!hasLoggedInCookie()) {
       const guestLines = await fetchGuestCartLines();
-      setLines(guestLines);
+      if (guestLines.length === 0) {
+        setLines([]);
+        return;
+      }
+
+      // guest-cart 的共享读取器早于 isPresale 上线，先以 preview 再补一次商品谓词。
+      // 这样游客结账与购物车对「stock=0 的预售仍可购」保持同一口径；补全失败时保留基础行，
+      // 不让一次元数据刷新失败把整个结账页打成空态。
+      try {
+        const ids = [...new Set(guestLines.map((line) => line.productId))].join(",");
+        const data = await apiFetch<{ products: PreviewProduct[] }>(
+          `/api/cart/preview?ids=${encodeURIComponent(ids)}`,
+        );
+        const products = new Map((data.products ?? []).map((product) => [product.id, product]));
+        setLines(
+          guestLines.map((line) => ({
+            ...line,
+            isPresale: products.get(line.productId)?.isPresale ?? line.isPresale,
+          })),
+        );
+      } catch {
+        setLines(guestLines);
+      }
       return;
     }
     const res = await apiFetch<{ items: CartLineLite[] }>("/api/cart");
@@ -317,7 +339,6 @@ export function CheckoutFlow({
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencyCode]);
 
   // 游客：回填上次勾选「保存信息」时留在本机的地址（登录用户走地址簿，不读本地）
@@ -561,12 +582,15 @@ export function CheckoutFlow({
     setSubmitting(true);
     try {
       const res = await apiFetch<{
-        orderNumber: string;
         paymentUrl: string | null;
         /** 游客查单令牌：仅创建成功时下发一次，跳支付页必须带上 */
         orderToken: string | null;
-        /** 后端回传的订单序列化对象（COD 判断 + 订单号跳转用） */
-        order?: { orderNumber: string; isCashOnDelivery?: boolean | null } | null;
+        /** 后端回传的订单序列化对象（状态判断 + 订单详情跳转用） */
+        order?: {
+          orderNumber: string;
+          status?: string;
+          isCashOnDelivery?: boolean | null;
+        } | null;
       }>("/api/orders", {
         method: "POST",
         body: JSON.stringify({
@@ -604,6 +628,14 @@ export function CheckoutFlow({
         const url = new URL(`/orders/${res.order.orderNumber}`, window.location.origin);
         if (res.orderToken) url.searchParams.set("token", res.orderToken);
         // 同上：跳转前保持 disabled，防重复下单
+        window.location.href = url.toString();
+      } else if (res?.order?.status === "PENDING_PAYMENT") {
+        // 订单已创建但支付地址初始化失败时，后端仍返回 order + orderToken。
+        // 不再把顾客留在 Review 看到一个没有下一步的「成功」toast，而是进入订单详情；
+        // 详情页提供 Pay now 重试入口（游客凭 token，登录态凭账号权限），避免无提示死单。
+        const orderNumber = res.order.orderNumber;
+        const url = new URL(`/orders/${orderNumber}`, window.location.origin);
+        if (res.orderToken) url.searchParams.set("token", res.orderToken);
         window.location.href = url.toString();
       } else {
         toast.success(t("Order submitted"));

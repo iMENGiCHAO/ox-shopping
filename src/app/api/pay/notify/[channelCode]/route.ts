@@ -54,7 +54,10 @@ function replySuccess(provider: string): Response {
 
 function replyFail(provider: string): Response {
   if (provider === "alipay") {
-    return new Response("fail", { status: 400, headers: { "content-type": "text/plain; charset=utf-8" } });
+    return new Response("fail", {
+      status: 400,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+    });
   }
   if (provider === "wechat") {
     return NextResponse.json({ code: "FAIL", message: "验签失败" }, { status: 400 });
@@ -95,6 +98,19 @@ export const POST = apiHandler(async (req, ctx) => {
     return replyFail(channel.provider);
   }
 
+  if (result.currency && result.currency.toLowerCase() !== order.currency.toLowerCase()) {
+    logger.error(
+      {
+        channelCode,
+        orderNumber: order.orderNumber,
+        callbackCurrency: result.currency,
+        orderCurrency: order.currency,
+      },
+      "[pay.notify] 回调币种与订单币种不一致，已拒绝",
+    );
+    return replyFail(channel.provider);
+  }
+
   const paidCents = toCents(result.amount);
   const dueCents = toCents(Number(order.total));
   if (!Number.isFinite(paidCents) || paidCents !== dueCents) {
@@ -112,7 +128,16 @@ export const POST = apiHandler(async (req, ctx) => {
     return replyFail(channel.provider);
   }
 
-  // 幂等：重复回调 / 已支付订单由 markOrderPaid 内部原子认领保证安全
+  // 幂等：重复回调 / 已支付订单由 markOrderPaid 内部原子认领保证安全。
+  // transactionId 是支付交易号；Stripe Checkout 的 sessionId 仅用于会话对账。
+  if (result.sessionId) {
+    await prisma.order
+      .updateMany({
+        where: { id: order.id, paymentSessionId: null },
+        data: { paymentSessionId: result.sessionId },
+      })
+      .catch(() => undefined);
+  }
   await markOrderPaid(result.orderNumber, result.transactionId);
 
   return replySuccess(channel.provider);

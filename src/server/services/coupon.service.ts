@@ -231,6 +231,11 @@ export async function lockCouponInTx(
 /**
  * 事务内落核销记录：usedCount + 1 并写 coupon_redemptions。
  * 唯一键 (couponId, orderId) 保证同一订单重复调用只会成功一次（幂等）。
+ *
+ * `CouponRedemption.discountAmount` 的 schema 口径是**订单币种**。下单事务里
+ * `discountUsd` 仍是基础币种金额，直接写它会让 CNY/EUR 等订单的核销记录金额
+ * 错成 USD。这里以同一事务内刚落库的 `Order.discount` 为权威值；USD 参数仅作
+ * 异常数据兜底，避免调用方尚未写 order discount 的旧集成产生非法金额。
  */
 export async function commitCouponRedemptionInTx(
   tx: Prisma.TransactionClient,
@@ -247,13 +252,21 @@ export async function commitCouponRedemptionInTx(
     where: { id: params.couponId },
     data: { usedCount: { increment: 1 } },
   });
+  const order = await tx.order.findUniqueOrThrow({
+    where: { id: params.orderId },
+    select: { discount: true },
+  });
+  const orderDiscount = Number(order.discount);
+  const discountAmount = Number.isFinite(orderDiscount) ? orderDiscount : params.discountUsd;
+
   await tx.couponRedemption.create({
     data: {
       couponId: params.couponId,
       userId: params.userId ?? null,
       email: params.email ? normalizeEmail(params.email) : null,
       orderId: params.orderId,
-      discountAmount: dec(params.discountUsd),
+      // 与 Order.currency 配套：这里存订单币种金额，而不是传入的 USD 基础金额。
+      discountAmount: dec(discountAmount),
     },
   });
 }
@@ -379,26 +392,26 @@ export interface UserRedemptionRow {
 /**
  * 某用户的核销记录（「我的折扣码 · 已使用」列表）。
  *
- * 金额刻意带上 order.currency：discountAmount 是按订单币种落库的，
- * 若只返回数字而让调用方猜币种，就会出现「USD 单显示成 CNY」的错账。
+ * 展示金额以关联订单的 `discount` 为权威值并搭配 `order.currency`：这既符合
+ * CouponRedemption.discountAmount 的订单币种口径，也能兼容旧版本曾误存 USD
+ * 数字的历史核销行，避免给 CNY/EUR 订单显示相差数倍的「已省金额」。
  */
-export async function listUserRedemptions(
-  userId: string,
-  take = 50,
-): Promise<UserRedemptionRow[]> {
+export async function listUserRedemptions(userId: string, take = 50): Promise<UserRedemptionRow[]> {
   const rows = await prisma.couponRedemption.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     take,
     include: {
       coupon: true,
-      order: { select: { orderNumber: true, currency: true } },
+      order: { select: { orderNumber: true, currency: true, discount: true } },
     },
   });
 
   return rows.map((r) => ({
     id: r.id,
-    discountAmount: Number(r.discountAmount),
+    // 兼容旧数据：旧实现可能把 USD 数字写进本应存订单币种的字段。
+    // Order.discount 是下单时按汇率分配后的权威金额，始终与 order.currency 配套。
+    discountAmount: Number(r.order.discount),
     currency: r.order.currency,
     createdAt: r.createdAt,
     orderNumber: r.order.orderNumber,

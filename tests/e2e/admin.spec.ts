@@ -43,7 +43,9 @@ test.describe("管理后台", () => {
   test("未登录访问管理端被重定向", async ({ page }) => {
     await page.goto("/admin/products");
     await page.waitForURL(/\/admin\/login/);
-    // 品牌已更名为 Ox Shopping
-    await expect(page.getByRole("heading", { name: /Ox Shopping/ })).toBeVisible();
+    // 站名可由品牌/数据库设置覆盖，登录门禁本身只应验证管理登录壳与表单。
+    await expect(page.getByRole("heading", { name: /管理|Admin/i })).toBeVisible();
+    await expect(page.getByLabel("邮箱")).toBeVisible();
+    await expect(page.getByLabel("密码")).toBeVisible();
   });
 });

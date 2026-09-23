@@ -67,30 +67,35 @@ export function ImageUploader({
   };
 
   const uploadOne = async (file: File): Promise<string | null> => {
-    // 1) try presigned upload
+    const mime = file.type || "image/jpeg";
+    let presignSucceeded = false;
+    // 1) S3: presign → PUT → complete。complete 未通过前绝不把对象交给表单。
     try {
       const res = await apiFetch<AdminUploadPresignResult>("/api/admin/uploads/presign", {
         method: "POST",
-        body: JSON.stringify({
-          filename: file.name,
-          mime: file.type || "image/jpeg",
-          purpose,
-        }),
+        body: JSON.stringify({ filename: file.name, mime, size: file.size, purpose }),
       });
       if (!res.url) throw new Error("Presign 响应缺少 url");
-      // Presigned URLs are sensitive to extra headers — use raw fetch
+      presignSucceeded = true;
+      // Presigned URLs are sensitive to extra headers — use raw fetch.
       const putRes = await fetch(res.url, {
         method: "PUT",
-        headers: { "Content-Type": file.type || "application/octet-stream" },
+        headers: { "Content-Type": mime },
         body: file,
       });
       if (!putRes.ok) throw new Error("上传文件到存储失败");
-      return res.publicUrl?.startsWith("http") ? res.publicUrl : res.url;
+      const completed = await apiFetch<{ publicUrl: string }>("/api/admin/uploads/complete", {
+        method: "POST",
+        body: JSON.stringify({ key: res.key, mime, size: file.size }),
+      });
+      if (!completed.publicUrl?.startsWith("http")) throw new Error("上传验证未返回公开地址");
+      return completed.publicUrl;
     } catch (err) {
       const status =
         err instanceof Error && "status" in err ? (err as { status?: number }).status : undefined;
-      // 400/404 (local mode) → fall back to direct upload; other errors are thrown
-      if (status !== 400 && status !== 404) throw err;
+      // 仅 presign 的 400/404 表示本地模式；PUT/complete 失败必须直接暴露，
+      // 否则会把 S3 校验失败错误地降级成本地直传。
+      if (presignSucceeded || (status !== 400 && status !== 404)) throw err;
     }
     // 2) Local storage: direct FormData upload
     const form = new FormData();

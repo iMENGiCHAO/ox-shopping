@@ -107,39 +107,45 @@ const TERMS_ZH = `## 1. 服务说明
 ## 7. 条款更新
 我们可能修订本条款并在站内发布更新。继续使用即视为接受修订后的条款。`;
 
-const REFUND_EN = `## 1. 7-Day No-Reason Returns
-Within 7 days of receiving your item, you may request a no-reason return or exchange, provided the product is in resaleable condition.
+const REFUND_EN = `## 1. Refund Scope
+We currently support refund requests for eligible online-paid and cash-on-delivery orders. The system does not provide an automated no-reason return or exchange workflow.
 
 ## 2. Refund Conditions
-- The product must be intact, with all accessories, tags, and gifts included.
-- Custom, perishable, and intimate-wear items are not eligible for no-reason returns.
-- Shipping for quality-related returns is borne by us.
+- Submit the request from the order details while the order is active.
+- The requested amount cannot exceed the order amount remaining after earlier refunds.
+- Quality, damage, non-delivery, and other statutory rights are assessed by support.
 
 ## 3. Refund Process
-- Submit a refund request from your order details, including the reason and amount.
-- Once approved by support, the refund will be returned to your original payment method.
-- Refunds typically arrive within 1-7 business days, depending on the payment provider.
+- Submit a refund request with the reason and amount.
+- Support reviews the request and records the decision.
+- Approved online refunds are returned to the original payment method; cash-on-delivery refunds are handled offline.
+- Processing time depends on the payment provider and may take 1-7 business days after the gateway confirms success.
 
-## 4. Special Cases
-- Rejections, damage during return transit, etc. are handled per actual responsibility.
-- For questions, please contact customer support.`;
+## 4. Returns and Exchanges
+Return shipping, exchange, inspection, and restocking workflows are not yet automated in this release. Please contact customer support before sending any goods back. Do not ship merchandise until support provides the return instructions and address.
 
-const REFUND_ZH = `## 1. 7 天无理由退货
-收到商品 7 天内，在不影响二次销售的前提下，您可以申请无理由退换货。
+## 5. Special Cases
+The final responsibility and any return shipping cost are determined from the order evidence and applicable law. For questions, please contact customer support.`;
+
+const REFUND_ZH = `## 1. 退款范围
+当前版本支持符合条件且处于有效状态的在线支付与货到付款订单退款申请。系统暂未提供自动化的无理由退货或换货流程。
 
 ## 2. 退款条件
-- 商品需完好，配件、吊牌、赠品齐全。
-- 定制类、易腐类、贴身衣物不支持无理由退货。
-- 质量问题相关的退货运费由我们承担。
+- 请在订单详情中提交申请，订单需处于可退款状态。
+- 本次退款金额不得超过扣除历史退款后的剩余可退金额。
+- 质量问题、商品损坏、未送达及其他法定权益由客服结合订单证据审核。
 
 ## 3. 退款流程
-- 在订单详情页提交退款申请，填写原因与金额。
-- 经客服审核通过后，退款将原路返回。
-- 退款到账通常需要 1-7 个工作日，具体以支付渠道为准。
+- 提交退款原因和申请金额。
+- 客服审核并记录处理结论。
+- 在线支付退款原路退回；货到付款退款通过线下方式处理。
+- 退款到账时间取决于支付渠道，通常在支付机构确认成功后 1-7 个工作日内到账。
 
-## 4. 特殊情况
-- 拒收、退回运输损坏等情况按实际责任划分处理。
-- 如有疑问请联系客服。`;
+## 4. 退货与换货
+当前版本尚未自动化退货、换货、质检、入库和返仓运费流程。如需退回商品，请先联系客服；在客服提供退货地址和退货说明前，请不要寄回商品。
+
+## 5. 特殊情况
+退款责任与退货运费根据订单证据和适用法律判定。如有疑问请联系客服。`;
 
 const COOKIES_EN = `## What Are Cookies
 Cookies are small text files that websites store in your browser to identify your device and preferences.

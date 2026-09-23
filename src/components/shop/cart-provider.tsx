@@ -60,6 +60,7 @@ interface PreviewProduct {
   price: number | string;
   stock: number;
   status: string;
+  isPresale: boolean;
 }
 
 interface CartContextValue {
@@ -169,6 +170,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           price: Number.isNaN(price) ? 0 : price,
           stock: p.stock,
           status: p.status,
+          isPresale: p.isPresale,
           quantity: entry.quantity,
           subtotal: round2((Number.isNaN(price) ? 0 : price) * entry.quantity),
           attributes: entry.attributes,

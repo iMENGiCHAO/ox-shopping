@@ -41,21 +41,13 @@ export const refundReviewSchema = z.object({
 /** 管理端：订单状态修改 */
 
 export const orderStatusUpdateSchema = z.object({
-  status: z.enum([
-    "PENDING_PAYMENT",
-    "PAID",
-    "PROCESSING",
-    "SHIPPED",
-    "DELIVERED",
-    "CANCELLED",
-    "REFUNDED",
-  ]),
+  status: z.enum(["PROCESSING", "SHIPPED", "DELIVERED", "CANCELLED", "REFUNDED"]),
 });
 
 /** 管理端：批量修改订单状态（一次最多 50 单，防止超长事务/超时） */
 export const batchOrderStatusSchema = z.object({
   ids: z.array(z.string().trim().min(1)).min(1, "请选择至少一个订单").max(50, "单次最多 50 单"),
-  status: z.enum(["PAID", "PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"]),
+  status: z.enum(["PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"]),
 });
 
 /** 管理端：修改订单收货地址（addressSnapshot 的字段与下单时同形） */

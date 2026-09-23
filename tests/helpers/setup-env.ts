@@ -3,11 +3,30 @@ import path from "node:path";
 import { vi } from "vitest";
 
 /**
- * 集成测试环境加载：优先 .env.test，其次 .env。
- * 集成测试需要 PostgreSQL（+ 可选 Redis）；仅单元测试无此要求。
+ * 测试环境加载：优先 .env.test；只有 DB-backed 测试才允许回退 .env。
+ * 单元测试绝不能把本地/生产 .env（尤其空的可选 URL）注入测试进程。
  */
+const normalizedArgv = process.argv.map((arg) => arg.replaceAll("\\", "/"));
+const selectsUnit = normalizedArgv.some(
+  (arg) => !arg.startsWith("-") && /(?:^|\/)tests\/unit(?:\/|$)/.test(arg),
+);
+const selectsIntegration = normalizedArgv.some(
+  (arg) => !arg.startsWith("-") && /(?:^|\/)tests\/integration(?:\/|$)/.test(arg),
+);
+const unitOnlySelection =
+  process.env.VITEST_UNIT_ONLY === "true" || (selectsUnit && !selectsIntegration);
+
 config({ path: path.resolve(process.cwd(), ".env.test"), override: false });
-config({ path: path.resolve(process.cwd(), ".env"), override: false });
+if (!unitOnlySelection) {
+  config({ path: path.resolve(process.cwd(), ".env"), override: false });
+} else {
+  // Vite may eagerly populate optional keys from .env before setupFiles runs.
+  // Empty optional URLs are equivalent to absent config; remove them so unit
+  // tests cannot inherit local/production integration settings.
+  for (const key of ["S3_ENDPOINT", "S3_PUBLIC_URL", "SENTRY_DSN"]) {
+    if (process.env[key] === "") delete process.env[key];
+  }
+}
 
 /**
  * 测试进程**不得**启动进程内定时任务调度器。

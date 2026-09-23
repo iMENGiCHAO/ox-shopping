@@ -16,6 +16,25 @@ function requestLang(req: NextRequest): "zh" | "en" {
   return langForApiRequest(req);
 }
 
+const SENSITIVE_QUERY_KEY = /(token|secret|password|credential|signature|api[-_]?key)/i;
+
+/**
+ * 供日志与 Sentry 使用的安全 URL：保留路由和排障所需 query 名称，但把访问令牌、
+ * 签名、密钥等值替换为固定标记。禁止记录 fragment（可能承载 OAuth 回调凭据）。
+ */
+export function sanitizeUrlForObservability(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    for (const key of url.searchParams.keys()) {
+      if (SENSITIVE_QUERY_KEY.test(key)) url.searchParams.set(key, "[REDACTED]");
+    }
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
 /** 成功响应：{ data } */
 export function json<T>(data: T, init?: ResponseInit): NextResponse {
   return NextResponse.json({ data } satisfies ApiResponse<T>, init);
@@ -72,7 +91,7 @@ export function apiHandler(handler: Handler): RouteHandler {
       log.info(
         {
           method: req.method,
-          url: req.url,
+          url: sanitizeUrlForObservability(req.url),
           status: res.status,
           durationMs: Date.now() - started,
         },
@@ -88,7 +107,10 @@ export function apiHandler(handler: Handler): RouteHandler {
         durationMs: Date.now() - started,
       });
       if (apiError.status >= 500) {
-        captureException(err, { url: req.url, method: req.method });
+        captureException(err, {
+          url: sanitizeUrlForObservability(req.url),
+          method: req.method,
+        });
       }
       // 按请求语言本地化错误文案（服务端日志保留原始英文，仅响应体本地化）
       const lang = requestLang(req);

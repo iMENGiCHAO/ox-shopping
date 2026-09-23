@@ -28,96 +28,132 @@ function specValueAvailable(specStock: unknown, group: string, value: string): b
   return typeof count === "number" ? count > 0 : null;
 }
 
-/** 补货触发入口：返回本次成功发出的提醒数 */
+/** 单批读取上限；用稳定 (createdAt,id) 键集继续翻页，避免 200 条之后永远留在 draft。 */
+const RESTOCK_BATCH_SIZE = 200;
+
+/** 补货触发入口：返回本次**真实投递成功**的提醒数 */
 export async function notifyRestock(productId: string): Promise<number> {
   const product = await prisma.product.findUnique({ where: { id: productId } });
   // 下架或无库存：不通知任何人
   if (!product || product.status !== "ACTIVE" || product.stock <= 0) return 0;
 
-  const subs = await prisma.notifyMe.findMany({
-    where: { productId, status: "draft" },
-    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    take: 200,
-  });
-  if (subs.length === 0) return 0;
-
   let sent = 0;
-  for (const sub of subs) {
-    // 变体级匹配
-    const attrs = sub.attributes;
-    if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-      const entries = Object.entries(attrs as JsonRecord).filter(
-        ([, v]) => typeof v === "string" && v.length > 0,
-      ) as [string, string][];
-      const allAvailable = entries.every(([group, value]) => {
-        return specValueAvailable(product.specStock, group, value) !== false;
-      });
-      // 客户关注的那个规格仍未补上 → 继续等
-      if (!allAvailable) continue;
-    }
+  let failed = 0;
+  let cursor: { createdAt: Date; id: string } | undefined;
 
-    const variantText =
-      attrs && typeof attrs === "object" && !Array.isArray(attrs)
-        ? (Object.entries(attrs as JsonRecord) as [string, string][])
-            .filter(([, v]) => typeof v === "string" && v.length > 0)
-            .map(([g, v]) => `${g}: ${v}`)
-            .join(" / ")
-        : undefined;
-
-    // 商品卡数据：图 + 名 + 卖点节选 + 价格（提醒邮件即广告）
-    const images = Array.isArray(product.images) ? (product.images as unknown[]) : [];
-    const firstImage = typeof images[0] === "string" ? images[0] : undefined;
-    const imageUrl = firstImage
-      ? /^https?:\/\//.test(firstImage)
-        ? firstImage
-        : `${env.SITE_URL}${firstImage}`
-      : undefined;
-    const excerpt =
-      typeof product.description === "string"
-        ? product.description.replace(/\s+/g, " ").trim().slice(0, 140)
-        : undefined;
-    const priceNum = Number(product.price);
-    const compareNum = product.compareAtPrice ? Number(product.compareAtPrice) : null;
-
-    void sendMail({
-      to: sub.email,
-      template: "restock",
-      data: {
-        name: sub.email.split("@")[0] ?? sub.email,
-        productName: product.nameEn ?? product.name,
-        ...(variantText ? { variantText } : {}),
-        ...(imageUrl ? { image: imageUrl } : {}),
-        ...(excerpt ? { excerpt } : {}),
-        priceText: formatMoney(priceNum, env.CURRENCY),
-        ...(compareNum && compareNum > priceNum
-          ? { compareAtText: formatMoney(compareNum, env.CURRENCY) }
+  // 逐批扫完所有 draft，而不是把 take:200 当成全量。使用 (createdAt,id) keyset，
+  // 不依赖 cursor 行仍在 where 中：首批成功后会立刻变成 notified，普通 Prisma cursor
+  // 在这种「边读边改状态」场景下可能把第二批截断。失败行保持 draft，下次触发仍会重试。
+  while (true) {
+    const subs = await prisma.notifyMe.findMany({
+      where: {
+        productId,
+        status: "draft",
+        ...(cursor
+          ? {
+              OR: [
+                { createdAt: { gt: cursor.createdAt } },
+                { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+              ],
+            }
           : {}),
-        productUrl: `${env.SITE_URL}/products/${product.slug}`,
-        // 预售商品上库存 → 邮件切换「预购开售」口径（商品配置了预售提示文案即视为预售）
-        isPresale: !!(product.presaleNoteZh || product.presaleNoteEn),
-        // 按订阅时记录的用户语种发邮件（null/未记录 → 默认 en）
-        lang: sub.lang === "zh" ? "zh" : "en",
       },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: RESTOCK_BATCH_SIZE,
     });
+    if (subs.length === 0) break;
+    const last = subs[subs.length - 1]!;
+    cursor = { createdAt: last.createdAt, id: last.id };
 
-    await prisma.notifyMe.update({
-      where: { id: sub.id },
-      data: { status: "notified", notifiedAt: new Date() },
-    });
-    sent++;
+    for (const sub of subs) {
+      // 变体级匹配
+      const attrs = sub.attributes;
+      if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
+        const entries = Object.entries(attrs as JsonRecord).filter(
+          ([, v]) => typeof v === "string" && v.length > 0,
+        ) as [string, string][];
+        const allAvailable = entries.every(([group, value]) => {
+          return specValueAvailable(product.specStock, group, value) !== false;
+        });
+        // 客户关注的那个规格仍未补上 → 继续等
+        if (!allAvailable) continue;
+      }
+
+      const variantText =
+        attrs && typeof attrs === "object" && !Array.isArray(attrs)
+          ? (Object.entries(attrs as JsonRecord) as [string, string][])
+              .filter(([, v]) => typeof v === "string" && v.length > 0)
+              .map(([g, v]) => `${g}: ${v}`)
+              .join(" / ")
+          : undefined;
+
+      // 商品卡数据：图 + 名 + 卖点节选 + 价格（提醒邮件即广告）
+      const images = Array.isArray(product.images) ? (product.images as unknown[]) : [];
+      const firstImage = typeof images[0] === "string" ? images[0] : undefined;
+      const imageUrl = firstImage
+        ? /^https?:\/\//.test(firstImage)
+          ? firstImage
+          : `${env.SITE_URL}${firstImage}`
+        : undefined;
+      const excerpt =
+        typeof product.description === "string"
+          ? product.description.replace(/\s+/g, " ").trim().slice(0, 140)
+          : undefined;
+      const priceNum = Number(product.price);
+      const compareNum = product.compareAtPrice ? Number(product.compareAtPrice) : null;
+
+      let delivered = false;
+      try {
+        const result = await sendMail({
+          to: sub.email,
+          template: "restock",
+          data: {
+            name: sub.email.split("@")[0] ?? sub.email,
+            productName: product.nameEn ?? product.name,
+            ...(variantText ? { variantText } : {}),
+            ...(imageUrl ? { image: imageUrl } : {}),
+            ...(excerpt ? { excerpt } : {}),
+            priceText: formatMoney(priceNum, env.CURRENCY),
+            ...(compareNum && compareNum > priceNum
+              ? { compareAtText: formatMoney(compareNum, env.CURRENCY) }
+              : {}),
+            productUrl: `${env.SITE_URL}/products/${product.slug}`,
+            // 预售商品上库存 → 邮件切换「预购开售」口径（商品配置了预售提示文案即视为预售）
+            isPresale: !!(product.presaleNoteZh || product.presaleNoteEn),
+            // 按订阅时记录的用户语种发邮件（null/未记录 → 默认 en）
+            lang: sub.lang === "zh" ? "zh" : "en",
+          },
+        });
+        delivered = result.delivered;
+      } catch {
+        // sendMail 已承诺不抛；这里保留防御，第三方实现变化时也不误标 notified。
+        delivered = false;
+      }
+
+      if (!delivered) {
+        failed++;
+        continue;
+      }
+      await prisma.notifyMe.update({
+        where: { id: sub.id },
+        data: { status: "notified", notifiedAt: new Date() },
+      });
+      sent++;
+    }
   }
 
-  // 站内消息：通知管理员「补货已自动提醒 N 位客户」（不静默）
-  if (sent > 0) {
+  // 站内消息：成功与失败都显式汇报，避免 console/网关异常让运营误以为全部送达。
+  if (sent > 0 || failed > 0) {
     const name = product.nameEn ?? product.name;
+    const partial = failed > 0;
     void notifyAdmins({
       type: "system",
-      title: "到货提醒已发送",
-      titleEn: "Restock alerts sent",
-      body: `「${name}」补货成功，已自动向 ${sent} 位登记的客户发送到货提醒邮件（含商品卡）。`,
-      bodyEn: `"${name}" is back in stock. Restock emails with product cards were sent to ${sent} subscribers.`,
+      title: partial ? "到货提醒部分失败" : "到货提醒已发送",
+      titleEn: partial ? "Some restock alerts failed" : "Restock alerts sent",
+      body: `「${name}」补货处理完成：成功 ${sent} 条，失败待重试 ${failed} 条。`,
+      bodyEn: `"${name}" restock processing finished: ${sent} delivered, ${failed} failed and remain queued for retry.`,
       link: "/admin/notify-me",
-      meta: { productId, productName: name, sent },
+      meta: { productId, productName: name, sent, failed },
     });
   }
   return sent;

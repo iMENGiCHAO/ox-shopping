@@ -34,6 +34,9 @@ export const GET = apiHandler(async (req) => {
       price: true,
       stock: true,
       status: true,
+      // 游客车与游客结账页需要用同一谓词判断「售罄但仍可购」：
+      // 预售商品 stock=0 仍是可购状态，漏传会让购物车/结账摘要误判或丢失预售标识。
+      isPresale: true,
     },
   });
 

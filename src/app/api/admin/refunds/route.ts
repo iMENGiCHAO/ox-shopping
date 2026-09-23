@@ -8,7 +8,14 @@ import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
 
-const REFUND_STATUSES: RefundStatus[] = ["REQUESTED", "APPROVED", "REJECTED", "REFUNDED"];
+const REFUND_STATUSES: RefundStatus[] = [
+  "REQUESTED",
+  "APPROVED",
+  "PENDING",
+  "FAILED",
+  "REJECTED",
+  "REFUNDED",
+];
 
 /** GET /api/admin/refunds */
 export const GET = apiHandler(async (req) => {

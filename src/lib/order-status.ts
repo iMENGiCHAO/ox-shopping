@@ -19,7 +19,7 @@ import {
  */
 
 export const ORDER_STATUS_FLOW: Record<OrderStatus, OrderStatus[]> = {
-  PENDING_PAYMENT: ["PAID", "CANCELLED"],
+  PENDING_PAYMENT: ["CANCELLED"],
   PAID: ["PROCESSING", "SHIPPED", "REFUNDED"],
   PROCESSING: ["SHIPPED", "REFUNDED"],
   SHIPPED: ["DELIVERED", "REFUNDED"],

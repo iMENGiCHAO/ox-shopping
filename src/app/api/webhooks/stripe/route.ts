@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
+import { Prisma } from "@prisma/client";
 import { json } from "@/lib/api";
 import { constructWebhookEvent } from "@/lib/payment/stripe";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { str } from "@/lib/payment/provider";
 import { markOrderPaid, markOrderRefundedByGateway } from "@/server/services/order.service";
+import { distributionBridge } from "@/server/services/distribution/bridge";
 import { audit } from "@/lib/audit";
 import { logError } from "@/lib/logger";
 import { captureException } from "@/lib/monitoring";
@@ -119,25 +121,52 @@ export async function POST(req: Request) {
             include: { items: true },
           });
           if (order) {
-            // 部分退款不改整单状态：仅当累计已退金额覆盖订单总额时才置 REFUNDED
-            const agg = await prisma.refund.aggregate({
-              where: { orderId: order.id, status: "REFUNDED" },
-              _sum: { amount: true },
-            });
-            const refundedTotal = Number(agg._sum.amount ?? 0);
-            // 取本次退款的 gateway refund ID（charge.refunds 数组中最新的一条）
             const latestRefund =
               Array.isArray(charge.refunds?.data) && charge.refunds.data.length > 0
                 ? charge.refunds.data[charge.refunds.data.length - 1]
                 : null;
-            if (refundedTotal >= Number(order.total) - 1e-9 && order.status !== "REFUNDED") {
-              try {
-                // 用 markOrderRefundedByGateway 而非 updateOrderStatus→refundEntireOrder：
-                // 退款已在网关侧发生，不应再次发起 Stripe 退款（否则重复退款）
-                await markOrderRefundedByGateway(order, latestRefund?.id ?? null);
-              } catch (err) {
-                // 状态机不允许时忽略(订单已处终态等)
-                logError(err, req, { context: "charge.refunded markOrderRefundedByGateway" });
+            // charge.refunded 是网关事实：先把本次退款按 gatewayRefundId 幂等落账，
+            // 再按累计成功金额决定部分冲正还是整单终态。不能依赖此前本地审批状态。
+            if (latestRefund && latestRefund.status === "succeeded") {
+              await prisma.$transaction(async (tx) => {
+                const existing = await tx.refund.findFirst({
+                  where: {
+                    orderId: order.id,
+                    OR: [
+                      { gatewayRefundId: latestRefund.id },
+                      { idempotencyKey: `gateway_${latestRefund.id}` },
+                    ],
+                  },
+                });
+                if (existing) {
+                  await tx.refund.update({
+                    where: { id: existing.id },
+                    data: { status: "REFUNDED", gatewayRefundId: latestRefund.id },
+                  });
+                } else {
+                  await tx.refund.create({
+                    data: {
+                      orderId: order.id,
+                      userId: order.userId,
+                      reason: "Stripe webhook charge.refunded",
+                      amount: new Prisma.Decimal((latestRefund.amount / 100).toFixed(2)),
+                      status: "REFUNDED",
+                      idempotencyKey: `gateway_${latestRefund.id}`,
+                      gatewayRefundId: latestRefund.id,
+                      processedAt: new Date(),
+                    },
+                  });
+                }
+              });
+              const agg = await prisma.refund.aggregate({
+                where: { orderId: order.id, status: "REFUNDED" },
+                _sum: { amount: true },
+              });
+              const refundedTotal = Number(agg._sum.amount ?? 0);
+              if (refundedTotal >= Number(order.total) - 1e-9 && order.status !== "REFUNDED") {
+                await markOrderRefundedByGateway(order, latestRefund.id);
+              } else {
+                await distributionBridge.onOrderRefunded(order.id);
               }
             }
           }

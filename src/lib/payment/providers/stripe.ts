@@ -57,6 +57,7 @@ export const stripeProvider: PaymentProvider = {
         currency: input.currency,
         total: input.total,
         customerEmail: input.customerEmail ?? "",
+        accessToken: input.accessToken,
       },
       // 渠道化路径以订单总额单行结算（明细进 Stripe 商品名）
       [{ name: input.subject, quantity: 1, price: input.total }],
@@ -73,21 +74,31 @@ export const stripeProvider: PaymentProvider = {
       if (event.type === "checkout.session.completed") {
         const session = event.data.object as {
           id: string;
+          payment_intent?: string | { id: string } | null;
           amount_total?: number | null;
+          currency?: string | null;
           metadata?: Record<string, string> | null;
         };
         const orderNumber = session.metadata?.orderNumber ?? "";
-        if (!orderNumber) return null;
+        const paymentIntentId =
+          typeof session.payment_intent === "string"
+            ? session.payment_intent
+            : session.payment_intent?.id;
+        if (!orderNumber || !paymentIntentId) return null;
         return {
           orderNumber,
-          transactionId: session.id,
+          // Checkout Session 是会话，不是支付交易。paymentId 只能保存 PaymentIntent。
+          transactionId: paymentIntentId,
           amount: (session.amount_total ?? 0) / 100,
+          currency: session.currency ?? undefined,
+          sessionId: session.id,
         };
       }
       if (event.type === "payment_intent.succeeded") {
         const intent = event.data.object as {
           id: string;
           amount?: number | null;
+          currency?: string | null;
           metadata?: Record<string, string> | null;
         };
         const orderNumber = intent.metadata?.orderNumber ?? "";
@@ -96,6 +107,7 @@ export const stripeProvider: PaymentProvider = {
           orderNumber,
           transactionId: intent.id,
           amount: (intent.amount ?? 0) / 100,
+          currency: intent.currency ?? undefined,
         };
       }
       return null;
@@ -108,7 +120,20 @@ export const stripeProvider: PaymentProvider = {
     if (!input.gatewayId) {
       throw badRequest("Missing Stripe Payment Intent ID — cannot issue a gateway refund");
     }
-    const r = await createStripeRefund(input.gatewayId, input.amount, keysFrom(config));
-    return { gatewayRefundId: r.id };
+    const r = await createStripeRefund(
+      input.gatewayId,
+      input.amount,
+      keysFrom(config),
+      input.idempotencyKey,
+    );
+    return {
+      gatewayRefundId: r.id,
+      status:
+        r.status === "succeeded"
+          ? "succeeded"
+          : r.status === "failed" || r.status === "canceled"
+            ? "failed"
+            : "pending",
+    };
   },
 };

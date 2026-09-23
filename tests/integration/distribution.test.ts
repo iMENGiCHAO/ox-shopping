@@ -514,6 +514,34 @@ describe("对账补偿（漏记可被扫平）", () => {
     expect(await prisma.commissionLog.count({ where: { orderId: order.orderId } })).toBe(3);
   });
 
+  it("下单归属后修改规则，延迟计提仍使用订单规则快照", async () => {
+    const order = await placeOrder(buyer);
+    const attr = await prisma.orderAttribution.findUniqueOrThrow({
+      where: { orderId: order.orderId },
+    });
+    expect(attr.ruleSnapshot).toBeTruthy();
+    const before = attr.ruleSnapshot as { rules: { level: number; ratio: number }[] };
+    const original = await prisma.commissionRule.findFirstOrThrow({
+      where: { scopeType: "GLOBAL", scopeId: "", level: 1, tierLevel: 0 },
+    });
+    await prisma.commissionRule.update({ where: { id: original.id }, data: { ratio: 99 } });
+    try {
+      await payOrder(buyer, order.orderNumber);
+      const log = await prisma.commissionLog.findFirstOrThrow({
+        where: { orderId: order.orderId, level: 1 },
+      });
+      expect(Number(log.ratio)).toBe(Number(before.rules.find((r) => r.level === 1)?.ratio ?? 10));
+      expect(Number(log.ratio)).not.toBe(99);
+    } finally {
+      await prisma.commissionRule.update({
+        where: { id: original.id },
+        data: { ratio: original.ratio },
+      });
+      const { invalidateDistributionCache } = await import("@/server/services/distribution");
+      await invalidateDistributionCache();
+    }
+  });
+
   it("已退款订单若残留未冲正佣金，reconcile 会冲正", async () => {
     const order = await placeOrder(buyer);
     await payOrder(buyer, order.orderNumber);
@@ -609,8 +637,8 @@ describe("P0 加固：部分退款按比例冲正", () => {
   });
 });
 
-describe("P0 加固：注销不丢佣金流水", () => {
-  it("删除/匿名化分销商后，他的佣金流水保留且带快照", async () => {
+describe("P0 加固：注销不丢佣金流水且清除直接身份信息", () => {
+  it("匿名化分销商后，佣金流水保留财务链路但姓名/邮箱已脱敏", async () => {
     // 独立搭一条链，避免影响前面的用例：victim 邀请 customer
     const victim = await registerUser("victim");
     const victimCode = await codeOf(victim.userId);
@@ -634,11 +662,12 @@ describe("P0 加固：注销不丢佣金流水", () => {
     });
     expect([200, 204]).toContain(del.status);
 
-    // 后台删除是「匿名化软删」：用户行仍在（用于留痕），流水必须原样保留
+    // 后台删除是「匿名化软删」：财务流水仍可追溯，但直接身份字段必须清除。
     const survived = await prisma.commissionLog.findUniqueOrThrow({ where: { id: log.id } });
     expect(survived.toUserId).toBe(victim.userId);
-    expect(survived.toUserName).toBe(log.toUserName);
-    expect(survived.toUserEmail).toBe(log.toUserEmail);
+    expect(survived.toUserName).toBe("已注销用户");
+    expect(survived.toUserEmail).toBe(`deleted-${victim.userId}@invalid.local`);
+    expect(survived.toUserEmail).not.toBe(log.toUserEmail);
     expect(Number(survived.amountCny)).toBeGreaterThan(0);
 
     // 硬删除（GDPR 抹除 / 运维清库）：外键必须 SetNull —— 流水不能跟着被级联删掉

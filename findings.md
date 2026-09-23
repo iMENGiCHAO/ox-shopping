@@ -1,6 +1,7 @@
 # 审查发现（findings）
 
 ## Phase 1 基线摸底（完成）
+
 - design-assertions：15/15 通过（黑白/直角/65px 头栏/46px 按钮/22px 标题全对）
 - qa-a11y：9 页全绿（h1=1、img alt、按钮名、表单标签无缺失）
 - qa-mobile：375/768 全部 0 横向溢出
@@ -11,6 +12,7 @@
 - qa-sweep：20 路由状态码正常（404 页正常 404）
 
 ## Phase 4 功能审查（进行中）
+
 - qa-e2e 全流程通过：登录→加购→结算(地址/物流/支付渠道)→提交→mock 支付→result 页
   "Payment received"→订单列表 Paid $60.00。✅
   （首跑曾失败：place order 超时——残留购物车竞态 + dev 冷编译，复跑干净，记录在案）
@@ -21,6 +23,7 @@
 - checkout 页 phase=ready 渲染正常，Place order 按钮存在。✅
 
 ## Phase 2 视觉走查（进行中，模型无图能力 → 程序化 DOM/CSS 断言）
+
 - ✅修复1 **header 右侧顺序**：代码是 币种/登录/搜索/购物车，DESIGN.md §2 规范是 币种/搜索/登录/购物车。
   已重排 header.tsx（桌面组 CurrencySelect+SearchOverlay+UserMenu，移动组 SearchOverlay）。
   实测：桌面「USD $ Search Login」+Cart ✓，移动「Search」+Cart ✓。
@@ -42,6 +45,7 @@
   section-title / product-sort-select（均无动态导入，typecheck 验证中）。
 
 ## Phase 6 回归验证（完成）
+
 - ✅typecheck 0 错误（最终态）
 - ✅单测 84/84（含 currency 断言同步修正）
 - ✅design-assertions 15/15 + qa-layout 9/9（新增工具）
@@ -53,6 +57,7 @@
   剩余 sweep 报错均为 dev 字体 404 + 访客态 401 预期）
 
 ## 已排除（记录在案，非产品 bug）
+
 - PDP 间歇性 hydration 警告：10+ 次定向复现 + 仓库专用 qa-hydration.mjs + sweep 精确模式均 0 复现；
   仅在 sweep 快速连走时偶现（~1/10），怀疑 Turbopack HMR 竞态（编辑触发重编译时加载页面）。
   dev-only，React 标记 recoverable，无功能影响。生产 build 不存在 HMR。
@@ -60,10 +65,12 @@
 - sweep 偶发 0 字节响应：重启后并发冷编译打崩连接，预热后全部 200。
 
 ### 已排除（记录在案）
+
 - **/admin/users、/admin/audit-logs、/admin/faqs goto 超时**：dev 模式首次编译冷启动延迟，
   复测全部 1.4-3.9s 正常、curl <1.5s、200。生产 build 不存在此问题。非产品 bug。
 
 ### P1
+
 1. ~~PDP hydration mismatch~~（间歇性，4 次未复现；怀疑 sweep 脚本加载中滚动触发 pre-hydration
    交互相。降级观察项，非阻塞。）
 2. ~~**默认币种回归 EUR**~~ ✅已修复：工作区未提交改动把 DEFAULT_CURRENCY USD→EUR
@@ -72,6 +79,7 @@
    已改回 USD 并实测：首访 $50.00、header「USD $」。
 
 ### P3（记录在案，低优先级）
+
 2. `__nextjs_font/geist-latin.woff2` 404——Next.js 16 dev 浮层内部资源，src 无引用，
    生产构建不存在，dev-only 噪音，不影响交付。
 3. ✅lint 清理完成：53 warnings → 11（0 errors）。
@@ -83,12 +91,14 @@
      4 处 incompatible-library（React Compiler 对 RHF watch() 的提示）、1 处 no-img-element（头部 LOGO）
 
 ## 待查疑点
+
 - qa-lang 初始态 currency=(none) 首价 €43,11（EUR 格式）——默认币种是否应为 USD？
   需查 currency-provider 初始化逻辑（CHANGELOG 说 DEFAULT_CURRENCY=USD）。
 - /pages/accessibility-statement 未登录时 /api/cart 401 —— 访客态预期，但确认是否
   有不必要请求。
 
 ## Phase 7 七项收尾 + 环境抢救（完成）
+
 - **图库动效三处根因**（大爷反馈「没看到过渡/松手闪跳/末尾抖动」）：
   - 主图轨道过渡本身一直在跑（细粒度 10ms 采样 -1502→-2120 连续收敛）——
     大爷看到的是 Turbopack 未重编译完时的旧 bundle。
@@ -112,6 +122,7 @@
 - 待查疑点全部关闭：默认币种 USD（早前已修+复验）、__nextjs_font 404 为 dev-only 噪音。
 
 ## Phase 8 物流 + Phase 10 支付渠道（完成）
+
 - **启用开关与编辑按钮重叠（大爷 2026-09-16 反馈）**：1024px 视口下编辑按钮左溢绘制到
   开关上方（实测重叠 -35px，768px 时 -5px）。根因：操作列被 flex justify-end 挤压到
   内容宽度以下仍 nowrap，向左溢出绘制。修复：操作单元格/表头 min-w-[7rem] +
@@ -140,6 +151,7 @@
   （dev 冷编译在网络卷上可达数十秒）。
 
 ## Phase 9 整站商业交付复核（完成，零产品级缺陷）
+
 - **全套回归数字**：typecheck 0 · eslint 0 errors · 单测 135/135 · E2E 14/14
   （shop 2 + auth 3 + admin 2 + admin-shipping 2 + 视觉基线 5）· design 15/15 ·
   links 39/39 · a11y 全页 ✅ · mobile 768px 0 溢出 · lang/i18n/label/hydration/
@@ -183,6 +195,7 @@
   "Refund Policy"/"Sending…" 双双撞已有词条 → tsc TS1117 抓住；下次先查再加）。
 
 ## Phase 12 注销闭环 + E2E 基建（完成）
+
 - **pipe 吞 exit code**：`npx playwright test | tail` 的 $? 是 tail 的——E2E 判成败
   必须看输出里 passed/failed 行，本轮连续两轮被 exit 0 骗过。
 - **registerAndLogin 返回形状坑**：helper 类型断言为 {id,email} 但注册接口实际返回
@@ -207,6 +220,7 @@
   误报为失败——config 里显式放宽 30s。
 
 ## Phase 13 收口 + B-2 原站式找回密码（完成，2026-09-20）
+
 - **B-2 交付形态**：`PasswordResetRequest`（PENDING/APPROVED/REJECTED）+ `User.mustChangePassword`
   / `passwordChangedAt`；申请 → 后台 `/admin/password-resets` → 批准发放 14 位强随机临时密码
   → 邮件 `temp-password` → 首登强制改密。全链路 QA `scripts/qa/qa-password-reset.mjs` 24/24 ALL PASS。
@@ -232,10 +246,10 @@
 - **文档陈旧面比「缺章节」更广**（本轮一并修正）：`/admin/banners` 与 `pageBanners` 已在
   6d3eb48 删除（首页横幅改 `Category.homeSortOrder` + `bannerImage`）；`/admin/payments`
   被 Phase 10 渠道化取代；schema 里**没有** `ProductVariant`（多规格是 JSON `attributes`
-  + `specStock`）、`Banner`、`LegalPage`、`Category.isFeatured`；`embedded-postgres`
-  被 `scripts/start-dev-db.mjs` import 但**不在 package.json**；CHECKLIST 里的
-  「管理端 30/min、公开列表 120/min、重置密码 3/min」与代码不符（已按 `rateLimit({...})`
-  调用逐条改正）。
+  - `specStock`）、`Banner`、`LegalPage`、`Category.isFeatured`；`embedded-postgres`
+    被 `scripts/start-dev-db.mjs` import 但**不在 package.json**；CHECKLIST 里的
+    「管理端 30/min、公开列表 120/min、重置密码 3/min」与代码不符（已按 `rateLimit({...})`
+    调用逐条改正）。
 - **遗留（非本轮范围）**：token 自助重置链路（`/api/auth/reset-password` + `/auth/reset-password`）
   代码与测试都在，但前台已无入口触发（`/api/auth/forgot-password` 现在只建审批申请）；
   联系表单留言只有入库 + 邮件通知，**没有后台收件箱页**。两者都在文档里显式登记。
@@ -244,6 +258,7 @@
   （本项目「重活串行」原则），不是用例本身不稳定。
 
 ## Phase 14 分销 / 多级佣金系统（隔离模块，2026-09-20）
+
 - **闭包表「写了但没人调用」是最贵的一类 bug**：`linkInviter()` 里建上下级闭包，
   但真实流程（注册带推广码）走的是 `bindCustomer → promoteToDistributor`，从没调用它。
   结果 `getCommissionChain()` 恒为空 → **一笔佣金都算不出来，而且所有页面正常、所有接口 200**，
@@ -430,11 +445,12 @@ P1-4 的集成测试断言 `source === "rollup"`（30 天窗口只汇总 1 天�
 ### 密钥类配置的产品化三件套
 
 凡是后台要填密钥的地方（支付渠道、邮件通道），一律遵守同一套口径：
+
 1. **加密落库**（AES-256-GCM，复用 `PAYMENT_CHANNEL_ENC_KEY`，不新造密钥）；
 2. **读取脱敏**（接口只回「是否已配置」，永不回明文，也绝不进日志/审计 meta）；
 3. **留空或掩码 = 保留原值**（避免运营为了改一个端口把密码清空）。
-测试要**断言密文与视图都不含明文串**（`JSON.stringify(...).not.toContain(pass)`），
-否则"加密"很容易只是自我感觉。
+   测试要**断言密文与视图都不含明文串**（`JSON.stringify(...).not.toContain(pass)`），
+   否则"加密"很容易只是自我感觉。
 
 ### 连接池/客户端必须按「配置指纹」重建
 
@@ -458,11 +474,13 @@ Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）�
 ## 2026-09-23 · Phase 16 项目全栈深度分析
 
 ### 分析基线
+
 - 仓库 HEAD 为 `bab3e37 feat(admin): 邮件服务后台可配`，分支 main。
 - 启动时工作区仅有 `src/app/globals.css` 未提交修改；本阶段保持只读，不覆盖该改动。
 - 旧计划显示项目已完成多轮审查，但历史记录不能代替当前代码验证；后续结论会标注证据来源。
 
 ### 首轮仓库盘点
+
 - UI 页面约 60 个，覆盖 shop、checkout、distribution、admin 四组路由；admin 还包含分销二级后台。
 - API `route.ts` 至少 130 个，领域从商品/购物车/订单/支付/物流延伸到用户、审计、通知、邮件配置和分销。
 - 服务层约 27 个核心 service，另有独立 `src/lib/distribution` 契约层与 `src/server/services/distribution` 实现层。
@@ -471,6 +489,7 @@ Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）�
 - 文档较完整，含架构、开发、部署、检查清单、支付、设计规范、分销审计、商业差距与隐藏问题报告；下一步需核对文档与当前代码是否仍一致。
 
 ### 架构与文档初判
+
 - 技术主线清晰：Next 16 App Router → Route Handler → `src/server/services` → Prisma/PostgreSQL；认证、CSRF、CSP、支付、邮件、存储均有独立基础模块。
 - 数据模型已覆盖电商核心与运营：商品/多集合/规格库存、游客订单、退款、支付日志、优惠券、物流、通知、审计，以及独立分销/佣金/提现域；资金账本采用快照 + 幂等唯一键 + CAS/行锁思路。
 - 部署层有 Docker 多阶段、PostgreSQL/Redis 持久卷、loopback 绑定、生产密钥 fail-fast、Nginx、CI 等，不是只能演示的脚手架。
@@ -479,6 +498,7 @@ Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）�
 - 尝试读取 `next.config.ts` 失败：仓库无该文件；实际为 `next.config.js`；另两次路径猜测失败：调度器实际在 `src/server/jobs/scheduler.ts`，API 包装器实际在 `src/lib/api.ts`。
 
 ### 工程质量与交付初判
+
 - `npm run typecheck` 当前通过（exit 0）。
 - CI 分 lint/typecheck、unit+integration、build、E2E 四段，结构完整；但测试/E2E 使用 `prisma db push`，没有在 CI 验证版本化 migration 从空库完整部署，生产容器却依赖 `migrate deploy`，存在“测试绿、上线迁移失败”的空档。
 - ESLint 排除了 `scripts/**`、`tests/**`、`prisma/**` 和多个配置文件；业务 src 仍在严格 TS + Next core-web-vitals 下，测试与运维脚本的静态质量是明显盲区。
@@ -488,6 +508,7 @@ Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）�
 - 子审计初步指出 4 个高置信上线阻断项，主流程已复核其中测试与 healthz：测试 global setup 的 `_test` 库名校验发生在 destructive `db push` 之后，任意非空 DATABASE_URL 都可能先改 schema；healthz DB down 仍 HTTP 200，而 Docker/Compose 以 200 判健康。生产 S3 静默降级也已由 env/storage 代码确认。Stripe env 路径缺 webhook secret 仍有分钟级对账兜底，定级为 P1 而非 P0。
 
 ### 当前代码确认的 P0/P1 业务缺陷
+
 - **测试命令可破坏误配的非测试库（P0）**：`tests/helpers/global-setup.ts:15-19,35-38` 对任意非空 URL 执行 `prisma db push --accept-data-loss`；`_test` 库名检查到 `:61` 才发生。由于 `vitest.config.ts:11` 对 unit+integration 都启用 globalSetup，连 `npm run test:unit` 都可能触发。故本轮明确不运行 Vitest。
 - **渠道化 Stripe 游客支付回跳丢 token（P0）**：`CreatePaymentInput` 无 accessToken（`src/lib/payment/provider.ts:22-34`），渠道分支 `order.service.ts:770-779` 未传；`stripeProvider.createPayment` `providers/stripe.ts:53-65` 也未传；`stripe.ts:78-80,129-130` 因此生成无 token 的 success/cancel URL。legacy 分支 `order.service.ts:815-823` 正确传 token，是明确的双实现漂移。
 - **普通订单状态流转存在 TOCTOU（P0/P1）**：`updateOrderStatus` 在 `order.service.ts:1105-1111` 读取旧订单后校验，最终 `:1160-1164` 无条件 update。并发 DELIVERED/REFUNDED 等操作可互相覆盖，甚至把 REFUNDED 写回中间态；退款路径本身有锁，但普通状态路径没有。
@@ -502,4 +523,5 @@ Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）�
 - **Webhook 缺 event.id 去重、退款缺可靠 outbox（P1）**：支付状态更新有订单级幂等，但 Stripe 事件本身无 provider+eventId 唯一记录；退款先本地置 REFUNDED 再调用网关，失败仅告警，崩溃/超时可造成本地与资金状态长期不一致。
 
 ### 合规与隐私
+
 - “账户删除”当前是 User 记录匿名化，不是个人数据删除：Order.contactEmail/addressSnapshot、NotifyMe.email、审计 meta 等仍可能保留原 PII；需明确财务/法律保留期、访问权限、清理计划，并修正文案中“历史订单不再识别用户”的绝对承诺。

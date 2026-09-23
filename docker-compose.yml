@@ -66,10 +66,12 @@ services:
     environment:
       NODE_ENV: production
       SITE_URL: ${SITE_URL:?请在 .env 配置 SITE_URL}
-      # 注意：密码含特殊字符时需 URL 编码
-      DATABASE_URL: postgresql://ecommerce:${POSTGRES_PASSWORD}@postgres:5432/ecommerce?schema=public
-      # 密码来自 REDIS_PASSWORD（与 redis 服务的 --requirepass 同源），含特殊字符需 URL 编码
-      REDIS_URL: redis://:${REDIS_PASSWORD:?请在 .env 配置 REDIS_PASSWORD（openssl rand -hex 24）}@redis:6379
+      # 密码含 @ : / ? # % 等字符时，完整 URL 必须使用 URL 编码后的凭据：
+      # DATABASE_URL=postgresql://ecommerce:<encodeURIComponent(password)>@postgres:5432/ecommerce?schema=public
+      # 默认值仅适用于无特殊字符密码；推荐生产直接显式提供完整 URL。
+      DATABASE_URL: ${DATABASE_URL:-postgresql://ecommerce:${POSTGRES_PASSWORD}@postgres:5432/ecommerce?schema=public}
+      # 同源密码在 Redis 服务侧使用原值，应用侧完整 URL 必须使用 URL 编码后的值。
+      REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?请在 .env 配置 REDIS_PASSWORD（openssl rand -hex 24）}@redis:6379}
       REDIS_ENABLED: "true"
       CACHE_TTL: ${CACHE_TTL:-60}
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?请配置 ≥32 位随机密钥（openssl rand -base64 48）}
@@ -96,19 +98,29 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_SECURE: ${SMTP_SECURE:-false}
-      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      # 生产默认强制 S3；env.ts 会在六项 S3 配置缺失时拒绝启动，不再静默退回 local。
+      # 本地 compose.local.yml 会显式覆盖为内置 MinIO。
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-s3}
       S3_ENDPOINT: ${S3_ENDPOINT:-}
       S3_REGION: ${S3_REGION:-us-east-1}
       S3_BUCKET: ${S3_BUCKET:-ecommerce}
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_PUBLIC_URL: ${S3_PUBLIC_URL:-}
-      S3_FORCE_PATH_STYLE: "true"
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
       UPLOAD_MAX_BYTES: "10485760"
       SHIPPING_FEE: ${SHIPPING_FEE:-10}
       FREE_SHIPPING_THRESHOLD: ${FREE_SHIPPING_THRESHOLD:-99}
       TAX_RATE: ${TAX_RATE:-0}
       ORDER_EXPIRE_SECONDS: ${ORDER_EXPIRE_SECONDS:-1800}
+      # Sentry 可选；配置错误 DSN 会由 env.ts 启动时拒绝。
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
+      # TZ 必须在 Node 进程启动前设置；APP_TIMEZONE 供应用配置显式记录/校验。
+      TZ: ${TZ:-UTC}
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # 生产默认在可信反代（nginx/CDN）之后：取 X-Forwarded-For 最后一跳
       TRUST_PROXY: "true"
