@@ -364,7 +364,8 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 - [x] 17.3 安全隐私：refresh 重放、token 日志脱敏、上传约束、SSRF、注销/导出、生产依赖
 - [x] 17.4 业务闭环：游客预售、优惠券币种、支付死单、SUPPORT 消息、通知可靠投递
 - [x] 17.5 生产工程：env/S3/readiness/preflight、CI 空库迁移+Docker smoke、audit、备份恢复、监控
-- [ ] 17.6 集成验收：typecheck/lint/unit/integration/E2E/build/audit 全绿；test preflight 12/12；本机无 Docker，待 CI Docker smoke
+- [x] 17.6 代码与恢复验收：typecheck/lint/unit 264/integration 154/E2E 15/build/audit 0 全绿；test preflight 12/12；隔离库备份→SHA-256 校验→恢复→用户数核对 1005 通过
 - [x] 17.7 商业文档：修正 README/部署/检查清单/能力矩阵，交付一键启动与恢复手册
+- [ ] 17.8 外部上线验收（依赖外部环境）：GitHub Docker build/start smoke、真实 Stripe/SMTP/S3、正式域名、LICENSE 与素材授权
 
 **团队协作约束**：共享工作区，不允许两个 agent 同时写同一文件；每个任务先 team_task_get/claim，按 write_scopes 修改，完成时回报文件与验证结果。Lead 负责共享文件、跨域集成、最终 diff 与全量回归。

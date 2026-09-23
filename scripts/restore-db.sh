@@ -23,6 +23,18 @@ PG_RESTORE="${PG_RESTORE:-$(command -v pg_restore || true)}"
   exit 1
 }
 
+# Prisma adds `?schema=public`; native pg_restore rejects that query parameter.
+normalize_pg_url() {
+  DATABASE_URL="$1" python3 - <<'PY'
+import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+u = urlsplit(os.environ["DATABASE_URL"])
+query = [(k, v) for k, v in parse_qsl(u.query, keep_blank_values=True) if k != "schema"]
+print(urlunsplit((u.scheme, u.netloc, u.path, urlencode(query), u.fragment)))
+PY
+}
+PG_RESTORE_URL="$(normalize_pg_url "$RESTORE_URL")"
+
 CHECKSUM_FILE="$BACKUP_FILE.sha256"
 if [[ -f "$CHECKSUM_FILE" ]]; then
   if command -v sha256sum >/dev/null 2>&1; then
@@ -49,6 +61,6 @@ echo "→ 恢复到 RESTORE_DATABASE_URL（不会在输出中显示密码）"
 "$PG_RESTORE" \
   --clean --if-exists --no-owner --no-privileges \
   --single-transaction --exit-on-error \
-  --dbname "$RESTORE_URL" "$TMP_ARCHIVE"
+  --dbname "$PG_RESTORE_URL" "$TMP_ARCHIVE"
 
 echo "✓ 恢复完成。请立即运行应用 smoke，并在确认数据后安排生产切换。"

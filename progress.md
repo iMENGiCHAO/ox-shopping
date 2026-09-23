@@ -20,5 +20,6 @@
   - `npm run build`：通过；修复后 build 不再启动 cron。
   - `npm audit --audit-level=high`：0 vulnerabilities。
   - `preflight` 对开发库按预期 fail-closed（只缺新迁移）；对已迁移 `ecommerce_test` 12/12 通过。
-- 本机没有 Docker CLI，最终 Docker build/start smoke 已加入 CI，需 GitHub runner/部署机执行；真实 Stripe、SMTP/Resend、S3/R2、备份恢复、素材授权、隐私/税务/KYC 属外部上线验收，不得由本地代码绿灯替代。
+- 备份/恢复演练已在隔离库实测通过：`ecommerce_test` 备份 → 校验 SHA-256 → 恢复到临时库 `ecommerce_restore_test` → `SELECT count(*) FROM users` = 1005 → 清理临时库与产物；期间修复了 Prisma `?schema=` URL、pg_dump/gzip 归档命中和客户端大版本不匹配三类脚本缺陷。
+- 本机没有 Docker CLI，最终 Docker build/start smoke 已加入 CI，需 GitHub runner/部署机执行；真实 Stripe、SMTP/Resend、S3/R2、素材授权、隐私/税务/KYC 属外部上线验收，不得由本地代码绿灯替代。
 - 代码整改已提交前最终 review；未覆盖用户原有 UI 基线改动。
