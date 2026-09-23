@@ -30,7 +30,10 @@ interface AdminReport {
   days: number;
   paidOrders: number;
   paidRevenueCny: number;
+  /** 佣金总支出（净额口径）= 已结算 + 待结算，不含已全额冲正的流水 */
   commissionTotalCny: number;
+  /** 其中已结算（净额：已扣除冲正部分，与分销商账上余额口径一致） */
+  commissionSettledCny: number;
   commissionPendingCny: number;
   commissionReversedCny: number;
   estimatedGrossProfitCny: number;
@@ -194,14 +197,15 @@ export default function AdminReportsPage() {
             />
           </div>
 
-          {/* 佣金构成明细：总支出是三个状态之和，拆开看才知道钱有没有真的出去 */}
+          {/* 佣金构成明细：总支出 = 已结算 + 待结算（均为净额），已冲正单列核对 */}
           <Card>
             <CardHeader>
               <CardTitle>佣金支出构成</CardTitle>
               <CardDescription>
-                已结算 = 已进入分销商可提现余额；待结算 = 还在持有期或未确认收货； 已冲正 =
-                订单退款/取消后原佣金被撤销（已入账的从余额扣回）。 口径：总支出 = 已结算 + 待结算 +
-                已冲正（含已撤销部分）， 判断真实已付出的钱请看「已结算」
+                已结算 = 已进入分销商可提现余额；待结算 = 还在持有期或未确认收货。
+                口径：三项均为**净额**（订单部分退款后，已冲正的部分已从支出中扣除）， 总支出 =
+                已结算 + 待结算。已冲正单列 —— 它代表被撤销的佣金，
+                既不算支出、也不该从支出里倒推（判断真实已付出的钱看「已结算」）。
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
@@ -216,18 +220,12 @@ export default function AdminReportsPage() {
                 <span className="tabular-nums">{formatCny(report?.commissionPendingCny)}</span>
               </div>
               <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
-                <span className="text-muted-foreground">其中已冲正</span>
-                <span className="tabular-nums">{formatCny(report?.commissionReversedCny)}</span>
+                <span className="text-muted-foreground">其中已结算</span>
+                <span className="tabular-nums">{formatCny(report?.commissionSettledCny)}</span>
               </div>
               <div className="flex items-center justify-between rounded-md border bg-muted/30 px-4 py-2">
-                <span className="text-muted-foreground">其中已结算</span>
-                <span className="tabular-nums">
-                  {formatCny(
-                    (report?.commissionTotalCny ?? 0) -
-                      (report?.commissionPendingCny ?? 0) -
-                      (report?.commissionReversedCny ?? 0),
-                  )}
-                </span>
+                <span className="text-muted-foreground">已冲正（不计入支出）</span>
+                <span className="tabular-nums">{formatCny(report?.commissionReversedCny)}</span>
               </div>
             </CardContent>
           </Card>

@@ -141,8 +141,12 @@ export async function getMyCustomers(
   );
 
   const liveBinds = binds.filter(
-    (b): b is typeof b & { customerId: string; customer: { id: string; name: string; email: string } } =>
-      !!b.customerId && !!b.customer,
+    (
+      b,
+    ): b is typeof b & {
+      customerId: string;
+      customer: { id: string; name: string; email: string };
+    } => !!b.customerId && !!b.customer,
   );
 
   return {
@@ -307,7 +311,16 @@ export async function getTeamStats(
      大团队/长窗口下把"每次打开页面全表扫描"变成"读 N 行小表"。
      明细页（客户/订单/佣金）仍读实时表 —— 汇总只是加速视图，不是真相来源。 */
   const rolled = await getDailyStatSeries(distributorId, days);
-  if (rolled.length > 0) {
+  /* 覆盖度判断（P1 修复）：日汇总由调度器写入（bridge 钩子只补最近 2 天），
+     模块刚启用或调度器停跑数日时，窗口内可能只有零散几行。此前只要
+     `rolled.length > 0` 就返回预聚合 —— 30 天窗口静默只统计 2 天，
+     团队业绩比真实值小一个数量级，且页面上没有任何提示。
+     现在只在「窗口首日已被汇总覆盖」时用预聚合，否则回落实时口径。 */
+  const windowStartDay = startOfUtcDay(new Date(Date.now() - (days - 1) * 86_400_000))
+    .toISOString()
+    .slice(0, 10);
+  const covered = rolled.length > 0 && rolled[0]!.date <= windowStartDay;
+  if (covered) {
     return {
       totalOrders: rolled.reduce((s, r) => s + r.orders, 0),
       totalSalesCny: round2(rolled.reduce((s, r) => s + r.salesCny, 0)),
@@ -624,8 +637,13 @@ export async function getAdminReport(days = 30): Promise<{
   days: number;
   paidOrders: number;
   paidRevenueCny: number;
+  /** 佣金总支出（净额口径）= 已结算 + 待结算，不含已全额冲正的流水 */
   commissionTotalCny: number;
+  /** 其中已结算（净额：已扣除冲正部分） */
+  commissionSettledCny: number;
+  /** 其中待结算 / 在途（净额） */
   commissionPendingCny: number;
+  /** 已冲正金额合计（含部分冲正，与「支出」互斥，单列供运营核对） */
   commissionReversedCny: number;
   estimatedGrossProfitCny: number;
   costCoverage: number;
@@ -650,10 +668,12 @@ export async function getAdminReport(days = 30): Promise<{
         },
       },
     }),
+    // 带 reversedCny：部分退款后流水仍是 PENDING/SETTLED，
+    // 只看 amountCny 会把已冲正的部分也算成佣金支出（payoutRatio 虚高）。
     prisma.commissionLog.groupBy({
       by: ["status"],
       where: { createdAt: { gte: from } },
-      _sum: { amountCny: true },
+      _sum: { amountCny: true, reversedCny: true },
     }),
   ]);
 
@@ -671,20 +691,36 @@ export async function getAdminReport(days = 30): Promise<{
     }
   }
 
-  const byStatus = new Map(grouped.map((g) => [g.status, Number(g._sum.amountCny ?? 0)]));
-  const settled = byStatus.get("SETTLED") ?? 0;
-  const pending = byStatus.get("PENDING") ?? 0;
-  const reversed = byStatus.get("REVERSED") ?? 0;
-  const commissionTotal = settled + pending + reversed;
+  /* 净额口径（P1 修复）：每笔流水可贡献的收入 = amountCny − reversedCny；
+     REVERSED 桶是「已全额冲正」的行，不再计入支出，只并入「已冲正」合计
+     供运营核对。此前 `settled + pending + reversed` 会把已冲正金额算进
+     总支出，使 payoutRatio 虚高、返佣成本误判。 */
+  let settled = 0;
+  let pending = 0;
+  let reversedTotal = 0;
+  for (const g of grouped) {
+    const gross = Number(g._sum.amountCny ?? 0);
+    const offset = Number(g._sum.reversedCny ?? 0);
+    reversedTotal = round2(reversedTotal + offset);
+    const net = Math.max(0, round2(gross - offset));
+    if (g.status === "SETTLED") settled = round2(settled + net);
+    else if (g.status === "PENDING") pending = round2(pending + net);
+    else if (g.status === "REVERSED" && offset <= 0) {
+      // 历史数据兜底：REVERSED 行若没有 reversedCny，用原始额视为已冲正
+      reversedTotal = round2(reversedTotal + Math.abs(gross));
+    }
+  }
+  const commissionTotal = round2(settled + pending);
   const grossProfit = round2(revenueCny - costCny);
 
   return {
     days,
     paidOrders: orders.length,
     paidRevenueCny: round2(revenueCny),
-    commissionTotalCny: round2(commissionTotal),
-    commissionPendingCny: round2(pending),
-    commissionReversedCny: round2(reversed),
+    commissionTotalCny: commissionTotal,
+    commissionSettledCny: settled,
+    commissionPendingCny: pending,
+    commissionReversedCny: reversedTotal,
     estimatedGrossProfitCny: grossProfit,
     costCoverage: itemsTotal > 0 ? round2((itemsWithCost / itemsTotal) * 100) : 0,
     payoutRatio: revenueCny > 0 ? round2((commissionTotal / revenueCny) * 100) : 0,
@@ -767,6 +803,9 @@ export async function reconcileDistribution(limit = 100): Promise<{
         commissions: { some: { status: { not: "REVERSED" } } },
       },
       select: { id: true },
+      // 新单优先（P1 修复）：无排序时 take 会反复返回同一批旧单，
+      // 新的「已退款未冲正」订单可能永远扫不到（退款钩子失败即永久漏冲正）。
+      orderBy: { createdAt: "desc" },
       take: limit,
     }),
     prisma.refund.findMany({
@@ -776,6 +815,9 @@ export async function reconcileDistribution(limit = 100): Promise<{
       },
       select: { orderId: true },
       distinct: ["orderId"],
+      // 同上：部分冲正不会把流水置 REVERSED，候选集会长期保留这类单，
+      // 必须让最新的退款单优先进入本次扫描。
+      orderBy: { createdAt: "desc" },
       take: limit,
     }),
   ]);
@@ -859,7 +901,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
       orderBy: { createdAt: "desc" },
       take: 200,
     }),
-     prisma.distributorAccount.findMany({
+    prisma.distributorAccount.findMany({
       where: { balance: { lt: 0 } },
       select: { userId: true, balance: true, user: { select: { email: true, name: true } } },
       orderBy: { balance: "asc" },
@@ -921,9 +963,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
     });
   }
 
-  const refundUsers = refundHeavy
-    .map((r) => r.userId)
-    .filter((v): v is string => !!v);
+  const refundUsers = refundHeavy.map((r) => r.userId).filter((v): v is string => !!v);
   if (refundUsers.length > 0) {
     const users = await prisma.user.findMany({
       where: { id: { in: refundUsers } },
@@ -1065,9 +1105,9 @@ export async function exportCommissionRows(filter: {
 }
 
 /** 提现导出（P1-8） */
-export async function exportWithdrawRows(filter: { status?: WithdrawStatus }): Promise<
-  Record<string, unknown>[]
-> {
+export async function exportWithdrawRows(filter: {
+  status?: WithdrawStatus;
+}): Promise<Record<string, unknown>[]> {
   const rows = await prisma.withdrawRecord.findMany({
     where: filter.status ? { status: filter.status } : {},
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -1111,7 +1151,9 @@ function startOfUtcDay(d: Date): Date {
  *
  * @param opts.days 回溯天数（默认 3：昨天到今天，容错调度器偶尔没跑）
  */
-export async function rollupDistributionDailyStats(opts: { days?: number; at?: Date } = {}): Promise<{
+export async function rollupDistributionDailyStats(
+  opts: { days?: number; at?: Date } = {},
+): Promise<{
   days: number;
   rows: number;
 }> {

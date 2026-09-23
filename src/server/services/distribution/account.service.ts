@@ -62,6 +62,40 @@ export interface AccountDrift {
   drift: number;
 }
 
+/**
+ * 单个用户的「期望账户值」（由流水与提现推导），供快照与修复时重算共用 ——
+ * 两处口径必须完全一致，否则修复本身就会制造新的错账。
+ */
+async function expectedAccountFor(
+  client: Pick<typeof prisma, "commissionLog" | "withdrawRecord">,
+  userId: string,
+): Promise<{ balance: number; frozen: number; totalCommission: number }> {
+  const [settled, withdrawals] = await Promise.all([
+    client.commissionLog.aggregate({
+      where: { toUserId: userId, settledAt: { not: null } },
+      _sum: { amountCny: true, reversedCny: true },
+    }),
+    client.withdrawRecord.groupBy({
+      by: ["status"],
+      where: { userId },
+      _sum: { amount: true },
+    }),
+  ]);
+
+  // 净额口径：已冲正的部分不算收入（与结算入账口径一致）
+  const totalCommission = round2(
+    Number(settled._sum.amountCny ?? 0) - Number(settled._sum.reversedCny ?? 0),
+  );
+  let paid = 0;
+  let pending = 0;
+  for (const w of withdrawals) {
+    const amount = Number(w._sum.amount ?? 0);
+    if (w.status === "PAID") paid = round2(paid + amount);
+    if (w.status === "PENDING" || w.status === "APPROVED") pending = round2(pending + amount);
+  }
+  return { balance: round2(totalCommission - paid - pending), frozen: pending, totalCommission };
+}
+
 export async function verifyAccountConsistency(options: { apply?: boolean } = {}): Promise<{
   accounts: number;
   drifted: AccountDrift[];
@@ -133,15 +167,36 @@ export async function verifyAccountConsistency(options: { apply?: boolean } = {}
     });
 
     if (options.apply) {
-      await prisma.distributorAccount.update({
-        where: { userId: acc.userId },
-        data: {
-          balance: expectedBalance,
-          frozen: expectedFrozen,
-          totalCommission: expectedTotal,
-        },
+      /* 事务内行锁 + **重算期望值**（P1 修复）。
+         此前直接把上面快照算出的绝对值写回：快照读取与写入之间若有并发
+         结算/提现，期间的余额变动会被整体抹掉 —— 典型如用户刚申请提现
+         （balance 已扣、frozen 已加），修复按旧快照写回后，用户同时持有
+         「冻结额」与「被还原的余额」= 凭空多钱；反向则抹掉刚结算的佣金。
+         现在：锁住账户行 → 用同一口径重算最新期望值 → 写回（写值已是最新，
+         且锁保证不会有第三方在写入瞬间插入变动）。 */
+      const applied = await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT "userId" FROM "distributor_accounts" WHERE "userId" = ${acc.userId} FOR UPDATE`;
+        const fresh = await tx.distributorAccount.findUnique({ where: { userId: acc.userId } });
+        if (!fresh) return false;
+        const latest = await expectedAccountFor(tx, acc.userId);
+        if (
+          Number(fresh.balance) === latest.balance &&
+          Number(fresh.frozen) === latest.frozen &&
+          Number(fresh.totalCommission) === latest.totalCommission
+        ) {
+          return false; // 重算后已一致（并发已把账抹平），无需再写
+        }
+        await tx.distributorAccount.update({
+          where: { userId: acc.userId },
+          data: {
+            balance: latest.balance,
+            frozen: latest.frozen,
+            totalCommission: latest.totalCommission,
+          },
+        });
+        return true;
       });
-      repaired += 1;
+      if (applied) repaired += 1;
     }
   }
 

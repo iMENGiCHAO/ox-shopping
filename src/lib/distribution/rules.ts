@@ -211,9 +211,21 @@ export function planCommissions(input: {
 
 /**
  * 账户可结算金额：只把 `SETTLED` 计入余额，`PENDING` 单独展示为「在途」。
- * 冲正（REVERSED）金额为 0，不参与任何口径。
+ *
+ * **净额口径（P1 修复）**：`amountCny` 是计提时的原始金额，部分退款后由
+ * `reversedCny` 记录已冲正部分。因此参与 pending/settled 的必须是
+ * `amountCny − reversedCny` —— 此前直接用原始额，导致「已结算佣金」大于
+ * 实际入账的 `balance`，同一份接口响应里两个数字自相矛盾（运营据此对不上账）。
+ * `reversed` 桶保持调用方传入的原值口径（展示「已冲正」时由调用方决定符号）。
  */
-export function summariseCommission(rows: { status: string; amountCny: number | string }[]): {
+export function summariseCommission(
+  rows: {
+    status: string;
+    amountCny: number | string;
+    /** 该行已冲正金额（净额口径必需；缺省视为 0） */
+    reversedCny?: number | string;
+  }[],
+): {
   pending: number;
   settled: number;
   reversed: number;
@@ -222,10 +234,12 @@ export function summariseCommission(rows: { status: string; amountCny: number | 
   let settled = 0;
   let reversed = 0;
   for (const r of rows) {
-    const v = Number(r.amountCny) || 0;
-    if (r.status === "PENDING") pending += v;
-    else if (r.status === "SETTLED") settled += v;
-    else if (r.status === "REVERSED") reversed += v;
+    const gross = Number(r.amountCny) || 0;
+    const offset = Math.abs(Number(r.reversedCny ?? 0) || 0);
+    const net = Math.max(0, round2(gross - offset));
+    if (r.status === "PENDING") pending += net;
+    else if (r.status === "SETTLED") settled += net;
+    else if (r.status === "REVERSED") reversed += gross;
   }
   return { pending: round2(pending), settled: round2(settled), reversed: round2(reversed) };
 }

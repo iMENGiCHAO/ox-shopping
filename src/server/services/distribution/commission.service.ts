@@ -1,6 +1,6 @@
 import "server-only";
 import type { NextRequest } from "next/server";
-import type { OrderStatus } from "@prisma/client";
+import type { CommissionStatus, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { audit } from "@/lib/audit";
@@ -23,10 +23,7 @@ import {
   getDistributionConfig,
 } from "./config.service";
 import { getCommissionChain } from "./relation.service";
-import {
-  notifyCommissionReversed,
-  notifyCommissionSettled,
-} from "./notify.service";
+import { notifyCommissionReversed, notifyCommissionSettled } from "./notify.service";
 
 /**
  * 佣金计提 / 结算 / 冲正。
@@ -170,7 +167,10 @@ export async function accrueForOrder(
     toUserEmail: payeeMap.get(r.toUserId)?.email ?? null,
   }));
 
-  const res = await prisma.commissionLog.createMany({ data: rowsWithSnapshot, skipDuplicates: true });
+  const res = await prisma.commissionLog.createMany({
+    data: rowsWithSnapshot,
+    skipDuplicates: true,
+  });
   if (res.count > 0) {
     await audit({
       action: "DISTRIBUTION_COMMISSION_ACCRUE",
@@ -194,18 +194,44 @@ export async function accrueForOrder(
 }
 
 /**
+ * `FOR UPDATE` 锁定后的流水行 —— 字段值取自**事务内**的库内最新值。
+ *
+ * 为什么需要：结算与冲正是同一行流水的两条并发写入路径。若像此前那样在
+ * 事务外读快照、再在事务内按快照算钱/回写 status，会出现
+ * ①按旧净额入账（多给钱）②把已结算流水回写成 PENDING 后再次入账（双重入账）
+ * ③用旧 settledAt 判断「未结算」而漏扣余额。三条路径统一改为锁内读数。
+ */
+interface LockedCommissionRow {
+  id: string;
+  orderId?: string;
+  toUserId: string | null;
+  amount: unknown;
+  amountCny: unknown;
+  reversedAmount: unknown;
+  reversedCny: unknown;
+  settledAt: Date | null;
+  status: CommissionStatus;
+  reversedAt: Date | null;
+}
+
+/**
  * 结算某订单的佣金（PENDING → SETTLED），并累加可提现余额。
- * 逐条条件更新"认领"，保证并发下同一笔只入账一次。
+ *
+ * 并发口径（P0 修复）：净额与认领都在**同一事务内**、对流水行加 `FOR UPDATE`
+ * 行锁后读取，与冲正路径串行化 —— 此前净额取自事务外快照，并发冲正时
+ * 会出现少扣余额与双重入账。
  */
 export async function settleOrder(orderId: string, req?: NextRequest): Promise<number> {
-  const logs = await prisma.commissionLog.findMany({
-    where: { orderId, status: "PENDING" },
-    select: { id: true, toUserId: true, amountCny: true, reversedCny: true },
-  });
-  if (logs.length === 0) return 0;
-
   let settled = 0;
   await prisma.$transaction(async (tx) => {
+    // 锁行后读库内当前值：净额必须以「此刻的已冲正额」为准
+    const logs = await tx.$queryRaw<LockedCommissionRow[]>`
+      SELECT id, "toUserId", "amountCny", "reversedCny"
+      FROM "commission_logs"
+      WHERE "orderId" = ${orderId} AND status = 'PENDING'
+      FOR UPDATE
+    `;
+
     for (const log of logs) {
       // 入账「净额」：已经按比例冲正掉的部分不进余额（部分退款的正确口径）
       const net = round2(Number(log.amountCny) - Number(log.reversedCny));
@@ -333,71 +359,65 @@ export async function applyOrderReversal(
 ): Promise<number> {
   if (!(ratio > 0)) return 0;
 
-  const logs = await prisma.commissionLog.findMany({
-    where: { orderId, status: { not: "REVERSED" } },
-    select: {
-      id: true,
-      toUserId: true,
-      amount: true,
-      amountCny: true,
-      reversedAmount: true,
-      reversedCny: true,
-      settledAt: true,
-      status: true,
-      reversedAt: true,
-    },
-  });
-  if (logs.length === 0) return 0;
-
   let touched = 0;
-  for (const log of logs) {
-    const amount = Number(log.amount);
-    const amountCny = Number(log.amountCny);
-    const targetAmount = round2(amount * ratio);
-    const targetCny = round2(amountCny * ratio);
-    const deltaAmount = round2(targetAmount - Number(log.reversedAmount));
-    const deltaCny = round2(targetCny - Number(log.reversedCny));
-    if (deltaAmount <= 0 && deltaCny <= 0) continue; // 已冲正到位（幂等）
+  /** 事务内累积「谁被扣了多少」——通知在事务外发送，避免邮件拖长持锁时间 */
+  const reversedByUser = new Map<string, number>();
 
-    const full = targetAmount >= round2(amount) - 0.005;
-    const claimed = await prisma.commissionLog.updateMany({
-      // CAS：只有「我读到的已冲正额」仍是当前值时才推进，防并发双扣
-      where: { id: log.id, reversedAmount: log.reversedAmount, reversedCny: log.reversedCny },
-      data: {
-        reversedAmount: targetAmount,
-        reversedCny: targetCny,
-        status: full ? "REVERSED" : log.status,
-        reversedAt: full ? new Date() : log.reversedAt,
-        note,
-      },
-    });
-    if (claimed.count === 0) continue;
+  await prisma.$transaction(async (tx) => {
+    // 行锁 + 库内当前值（P0 修复）：增量、「是否已结算」、回写 status 全部取
+    // 锁内值。此前读事务外快照后回写 `log.status`，会把并发结算过的流水重新
+    // 写成 PENDING（下一轮再次入账 = 双重入账），并用旧 settledAt 漏扣余额。
+    const logs = await tx.$queryRaw<LockedCommissionRow[]>`
+      SELECT id, "toUserId", amount, "amountCny", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
+      FROM "commission_logs"
+      WHERE "orderId" = ${orderId} AND status <> 'REVERSED'
+      FOR UPDATE
+    `;
 
-    // 已入账的部分要按增量扣回（余额可为负 → 挂账，由后续佣金抵扣）
-    if (log.settledAt && deltaCny > 0 && log.toUserId) {
-      await prisma.distributorAccount.upsert({
-        where: { userId: log.toUserId },
-        create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
-        update: {
-          balance: { decrement: deltaCny },
-          totalCommission: { decrement: deltaCny },
+    for (const log of logs) {
+      const amount = Number(log.amount);
+      const amountCny = Number(log.amountCny);
+      const targetAmount = round2(amount * ratio);
+      const targetCny = round2(amountCny * ratio);
+      const deltaAmount = round2(targetAmount - Number(log.reversedAmount));
+      const deltaCny = round2(targetCny - Number(log.reversedCny));
+      if (deltaAmount <= 0 && deltaCny <= 0) continue; // 已冲正到位（幂等）
+
+      const full = targetAmount >= round2(amount) - 0.005;
+      // 行已被 FOR UPDATE 锁到本事务提交：无需再比对 CAS 条件，也不会丢更新
+      await tx.commissionLog.update({
+        where: { id: log.id },
+        data: {
+          reversedAmount: targetAmount,
+          reversedCny: targetCny,
+          status: full ? "REVERSED" : log.status,
+          reversedAt: full ? new Date() : log.reversedAt,
+          note,
         },
       });
+
+      // 已入账的部分要按增量扣回（余额可为负 → 挂账，由后续佣金抵扣）
+      if (log.settledAt && deltaCny > 0 && log.toUserId) {
+        await tx.distributorAccount.upsert({
+          where: { userId: log.toUserId },
+          create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
+          update: {
+            balance: { decrement: deltaCny },
+            totalCommission: { decrement: deltaCny },
+          },
+        });
+        reversedByUser.set(
+          log.toUserId,
+          round2((reversedByUser.get(log.toUserId) ?? 0) + deltaCny),
+        );
+      }
+      touched += 1;
     }
-    touched += 1;
-  }
+  });
 
   if (touched > 0) {
     /* 旁路通知：谁被冲正了多少。刻意不 await —— 退款审批接口不能因为发邮件变慢。 */
     try {
-      const reversedByUser = new Map<string, number>();
-      for (const log of logs) {
-        if (!log.toUserId) continue;
-        const delta = round2(Number(log.amountCny) * ratio - Number(log.reversedCny));
-        if (delta > 0) {
-          reversedByUser.set(log.toUserId, round2((reversedByUser.get(log.toUserId) ?? 0) + delta));
-        }
-      }
       if (reversedByUser.size > 0) {
         const orderRow = await prisma.order.findUnique({
           where: { id: orderId },
@@ -519,19 +539,25 @@ export async function getAccountSummary(userId: string): Promise<{
 }> {
   const [account, grouped, pendingAgg] = await Promise.all([
     prisma.distributorAccount.findUnique({ where: { userId } }),
+    // 聚合必须带 reversedCny：部分退款后流水仍是 PENDING/SETTLED，
+    // 只看 amountCny 会把已冲正的部分也算成收入（与 balance 口径矛盾）。
     prisma.commissionLog.groupBy({
       by: ["status"],
       where: { toUserId: userId },
-      _sum: { amountCny: true },
+      _sum: { amountCny: true, reversedCny: true },
     }),
     prisma.commissionLog.aggregate({
       where: { toUserId: userId, status: "PENDING" },
-      _sum: { amountCny: true },
+      _sum: { amountCny: true, reversedCny: true },
     }),
   ]);
 
   const sums = summariseCommission(
-    grouped.map((g) => ({ status: g.status, amountCny: Number(g._sum.amountCny ?? 0) })),
+    grouped.map((g) => ({
+      status: g.status,
+      amountCny: Number(g._sum.amountCny ?? 0),
+      reversedCny: Number(g._sum.reversedCny ?? 0),
+    })),
   );
 
   return {
@@ -540,7 +566,13 @@ export async function getAccountSummary(userId: string): Promise<{
     balance: Number(account?.balance ?? 0),
     frozen: Number(account?.frozen ?? 0),
     totalCommission: Number(account?.totalCommission ?? sums.settled),
-    pendingCommission: round2(Number(pendingAgg._sum.amountCny ?? 0)),
+    // 在途同样是净额：扣除该 PENDING 行已按比例冲正掉的部分
+    pendingCommission: round2(
+      Math.max(
+        0,
+        Number(pendingAgg._sum.amountCny ?? 0) - Number(pendingAgg._sum.reversedCny ?? 0),
+      ),
+    ),
     settledCommission: sums.settled,
   };
 }
@@ -567,68 +599,88 @@ export async function reverseCommissionManually(input: {
   actorId: string;
   req?: NextRequest;
 }): Promise<{ orderId: string; reversedAmount: number; fullReversed: boolean }> {
-  const log = await prisma.commissionLog.findUnique({
-    where: { id: input.logId },
-    select: {
-      id: true,
-      orderId: true,
-      toUserId: true,
-      amount: true,
-      amountCny: true,
-      reversedAmount: true,
-      reversedCny: true,
-      settledAt: true,
-      status: true,
-      reversedAt: true,
-    },
-  });
-  if (!log) throw notFound("佣金流水不存在");
-  if (log.status === "REVERSED") throw conflict("该笔佣金已全额冲正，无需重复操作");
+  // 用容器对象收集事务结果：TS 不把闭包内对 let 变量的赋值纳入控制流分析，
+  // 直接读 let 会被收窄成 never；属性读写没有这个问题。
+  const box: {
+    value: {
+      orderId: string;
+      reversedAmount: number;
+      fullReversed: boolean;
+      toUserId: string | null;
+      deltaCny: number;
+    } | null;
+  } = { value: null };
 
-  const amount = Number(log.amount);
-  const amountCny = Number(log.amountCny);
-  const alreadyAmount = Number(log.reversedAmount);
-  const alreadyCny = Number(log.reversedCny);
-  if (amount <= 0) throw badRequest("该笔佣金金额异常，无法冲正");
+  await prisma.$transaction(async (tx) => {
+    // 行锁 + 库内当前值（P0 修复）：与 settleOrder / applyOrderReversal 串行化。
+    // 此前读事务外快照后回写 `log.status`，会把并发结算过的流水写成 PENDING
+    // （下一轮结算再次入账 = 双重入账），并用旧 settledAt 漏扣余额。
+    const rows = await tx.$queryRaw<LockedCommissionRow[]>`
+      SELECT id, "orderId", "toUserId", amount, "amountCny", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
+      FROM "commission_logs"
+      WHERE id = ${input.logId}
+      FOR UPDATE
+    `;
+    const log = rows[0];
+    if (!log) throw notFound("佣金流水不存在");
+    if (log.status === "REVERSED") throw conflict("该笔佣金已全额冲正，无需重复操作");
 
-  const targetAmount =
-    input.amount == null ? amount : round2(Math.min(Number(input.amount), amount));
-  if (!(targetAmount > 0)) throw badRequest("冲正金额必须大于 0");
-  if (targetAmount <= alreadyAmount) {
-    throw conflict(`冲正金额不得超过未冲正余额（当前可冲正 ${round2(amount - alreadyAmount)}）`);
-  }
+    const amount = Number(log.amount);
+    const amountCny = Number(log.amountCny);
+    const alreadyAmount = Number(log.reversedAmount);
+    const alreadyCny = Number(log.reversedCny);
+    if (amount <= 0) throw badRequest("该笔佣金金额异常，无法冲正");
 
-  // 金额与人民币按同一比例推进，保证折算口径一致
-  const ratio = targetAmount / amount;
-  const targetCny = round2(amountCny * ratio);
-  const deltaCny = round2(targetCny - alreadyCny);
-  const fullReversed = targetAmount >= round2(amount) - 0.005;
+    const targetAmount =
+      input.amount == null ? amount : round2(Math.min(Number(input.amount), amount));
+    if (!(targetAmount > 0)) throw badRequest("冲正金额必须大于 0");
+    if (targetAmount <= alreadyAmount) {
+      throw conflict(`冲正金额不得超过未冲正余额（当前可冲正 ${round2(amount - alreadyAmount)}）`);
+    }
 
-  const claimed = await prisma.commissionLog.updateMany({
-    where: { id: log.id, reversedAmount: log.reversedAmount, reversedCny: log.reversedCny },
-    data: {
-      reversedAmount: targetAmount,
-      reversedCny: targetCny,
-      status: fullReversed ? "REVERSED" : log.status,
-      reversedAt: fullReversed ? new Date() : log.reversedAt,
-      note: `人工冲正：${input.note}`,
-    },
-  });
-  if (claimed.count === 0) throw conflict("该笔佣金刚被其他操作更新，请刷新后重试");
+    // 金额与人民币按同一比例推进，保证折算口径一致
+    const ratio = targetAmount / amount;
+    const targetCny = round2(amountCny * ratio);
+    const deltaCny = round2(targetCny - alreadyCny);
+    const fullReversed = targetAmount >= round2(amount) - 0.005;
 
-  if (log.settledAt && deltaCny > 0 && log.toUserId) {
-    await prisma.distributorAccount.upsert({
-      where: { userId: log.toUserId },
-      create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
-      update: { balance: { decrement: deltaCny }, totalCommission: { decrement: deltaCny } },
+    // 行已被 FOR UPDATE 锁定，无需 CAS 比对（也不会丢更新）
+    await tx.commissionLog.update({
+      where: { id: log.id },
+      data: {
+        reversedAmount: targetAmount,
+        reversedCny: targetCny,
+        status: fullReversed ? "REVERSED" : log.status,
+        reversedAt: fullReversed ? new Date() : log.reversedAt,
+        note: `人工冲正：${input.note}`,
+      },
     });
-  }
 
-  if (log.toUserId) {
+    if (log.settledAt && deltaCny > 0 && log.toUserId) {
+      await tx.distributorAccount.upsert({
+        where: { userId: log.toUserId },
+        create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
+        update: { balance: { decrement: deltaCny }, totalCommission: { decrement: deltaCny } },
+      });
+    }
+
+    box.value = {
+      orderId: log.orderId ?? "",
+      reversedAmount: targetAmount,
+      fullReversed,
+      toUserId: log.toUserId,
+      deltaCny,
+    };
+  });
+
+  if (!box.value) throw new Error("人工冲正未产生结果（事务应在失败时抛出）");
+  const result = box.value;
+
+  if (result.toUserId) {
     void notifyCommissionReversed({
-      userId: log.toUserId,
-      amountCny: deltaCny,
-      full: fullReversed,
+      userId: result.toUserId,
+      amountCny: result.deltaCny,
+      full: result.fullReversed,
     }).catch((err) => logger.error({ err }, "分销：人工冲正通知失败（已忽略）"));
   }
 
@@ -636,14 +688,28 @@ export async function reverseCommissionManually(input: {
     userId: input.actorId,
     action: "DISTRIBUTION_COMMISSION_MANUAL_REVERSE",
     entity: "CommissionLog",
-    entityId: log.id,
-    meta: { orderId: log.orderId, amount: targetAmount, fullReversed, note: input.note },
+    entityId: input.logId,
+    meta: {
+      orderId: result.orderId,
+      amount: result.reversedAmount,
+      fullReversed: result.fullReversed,
+      note: input.note,
+    },
     req: input.req,
   });
   logger.warn(
-    { logId: log.id, orderId: log.orderId, targetAmount, actorId: input.actorId },
+    {
+      logId: input.logId,
+      orderId: result.orderId,
+      targetAmount: result.reversedAmount,
+      actorId: input.actorId,
+    },
     "分销：管理端人工冲正佣金",
   );
 
-  return { orderId: log.orderId, reversedAmount: targetAmount, fullReversed };
+  return {
+    orderId: result.orderId,
+    reversedAmount: result.reversedAmount,
+    fullReversed: result.fullReversed,
+  };
 }

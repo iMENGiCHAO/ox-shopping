@@ -229,6 +229,26 @@ describe("佣金汇总口径", () => {
       ]),
     ).toEqual({ pending: 15.5, settled: 20, reversed: -20 });
   });
+
+  it("部分冲正按净额统计：摘要不得大于实际入账（P1 回归）", () => {
+    // 部分退款后流水仍是 SETTLED/PENDING，只有 reversedCny 记录已冲正额。
+    // 修复前摘要按原始 amountCny 累加，会出现「已结算佣金 > 余额」的矛盾。
+    expect(
+      summariseCommission([
+        { status: "SETTLED", amountCny: 100, reversedCny: 40 },
+        { status: "PENDING", amountCny: 50, reversedCny: 10 },
+        { status: "REVERSED", amountCny: 30, reversedCny: 30 },
+      ]),
+    ).toEqual({ pending: 40, settled: 60, reversed: 30 });
+  });
+
+  it("冲正额超过原始额时不产生负收入（数据异常兜底）", () => {
+    expect(summariseCommission([{ status: "SETTLED", amountCny: 10, reversedCny: 25 }])).toEqual({
+      pending: 0,
+      settled: 0,
+      reversed: 0,
+    });
+  });
 });
 
 describe("敏感信息脱敏", () => {
@@ -479,7 +499,14 @@ describe("佣金规则：生效期", () => {
   });
 
   it("未填生效期 = 立即生效且长期有效", () => {
-    const open = { scopeType: "GLOBAL", scopeId: "", level: 2, mode: "RATIO", ratio: 5, enabled: true };
+    const open = {
+      scopeType: "GLOBAL",
+      scopeId: "",
+      level: 2,
+      mode: "RATIO",
+      ratio: 5,
+      enabled: true,
+    };
     expect(resolveRule([open], 2, {}, new Date("2099-01-01T00:00:00.000Z"))).toEqual({
       mode: "RATIO",
       ratio: 5,

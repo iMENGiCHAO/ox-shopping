@@ -40,7 +40,8 @@ function cookiesOf(jar: CookieJar): Record<string, string> {
 /** 走真实注册路由建号（可携带推广 cookie），这样注册钩子也在被测范围内 */
 async function registerUser(tag: string, refCode?: string): Promise<Actor> {
   // 注册限流是进程内单 IP 3 次/分钟，本文件要建多个账号 → 逐个清零
-  for (const ip of ["unknown", "127.0.0.1", testClientKey()]) await resetRateLimit(`register:${ip}`);
+  for (const ip of ["unknown", "127.0.0.1", testClientKey()])
+    await resetRateLimit(`register:${ip}`);
 
   const { POST } = await import("@/app/api/auth/register/route");
   const mail = email(tag);
@@ -208,6 +209,21 @@ describe("绑定与自动升级", () => {
       where: { customerId: buyer.userId },
     });
     expect(bind.distributorId).toBe(l2.userId);
+  });
+
+  it("循环绑定防护：上级不能作为客户绑回自己的下级（防互刷返佣）", async () => {
+    const { bindCustomer } = await import("@/server/services/distribution");
+    // 场景：root 是 l1 的上级（l1 用 rootCode 注册而来）。
+    // 若允许 root 作为**客户**再绑 l1 的码，闭包成环 → 双方互相返佣（互刷）。
+    // 买家本人的自购佣金规则挡不住这种链路，必须由绑定期拦截。
+    const l1Code = await codeOf(l1.userId);
+    const result = await bindCustomer({ customerId: root.userId, code: l1Code });
+    expect(result.outcome).toBe("CYCLE");
+    // 不得留下任何绑定记录
+    const bind = await prisma.distributorCustomerBind.findUnique({
+      where: { customerId: root.userId },
+    });
+    expect(bind).toBeNull();
   });
 
   it("双重身份并存：他作为客户的上级 = 他作为分销商的上线", async () => {
@@ -574,10 +590,7 @@ describe("P0 加固：部分退款按比例冲正", () => {
     const { applyOrderReversal } = await import("@/server/services/distribution");
     await applyOrderReversal(order.orderId, expectedRatio, "幂等复验");
     const afterReplay = await prisma.commissionLog.findUniqueOrThrow({ where: { id: mine.id } });
-    expect(Number(afterReplay.reversedAmount)).toBeCloseTo(
-      Number(afterPartial.reversedAmount),
-      2,
-    );
+    expect(Number(afterReplay.reversedAmount)).toBeCloseTo(Number(afterPartial.reversedAmount), 2);
 
     // 整单退款 → 全额冲正
     const { PUT: orderPut } = await import("@/app/api/admin/orders/[id]/status/route");
@@ -640,7 +653,9 @@ describe("P0 加固：注销不丢佣金流水", () => {
 
     await prisma.user.delete({ where: { id: victim2.userId } });
 
-    const afterHardDelete = await prisma.commissionLog.findUniqueOrThrow({ where: { id: log2.id } });
+    const afterHardDelete = await prisma.commissionLog.findUniqueOrThrow({
+      where: { id: log2.id },
+    });
     expect(afterHardDelete.toUserId).toBeNull(); // 外键置空
     expect(afterHardDelete.toUserName).toBe(log2.toUserName); // 快照仍在 → 账目可追溯
     expect(afterHardDelete.toUserEmail).toBe(log2.toUserEmail);
@@ -739,9 +754,8 @@ describe("P0 加固：换绑重建子树闭包", () => {
 
 describe("P0 加固：历史订单不回溯归属", () => {
   it("早于模块启用时间的订单被标记为自然单，不按当前绑定补归属", async () => {
-    const { reconcileDistribution, getDistributionEnabledAt } = await import(
-      "@/server/services/distribution"
-    );
+    const { reconcileDistribution, getDistributionEnabledAt } =
+      await import("@/server/services/distribution");
     const order = await placeOrder(buyer);
     await payOrder(buyer, order.orderNumber);
     await prisma.orderAttribution.deleteMany({ where: { orderId: order.orderId } });
@@ -750,7 +764,10 @@ describe("P0 加固：历史订单不回溯归属", () => {
     const enabledAt = await getDistributionEnabledAt();
     await prisma.siteSetting.upsert({
       where: { key: "distributionEnabledAt" },
-      create: { key: "distributionEnabledAt", value: new Date(Date.now() + 86_400_000).toISOString() },
+      create: {
+        key: "distributionEnabledAt",
+        value: new Date(Date.now() + 86_400_000).toISOString(),
+      },
       update: { value: new Date(Date.now() + 86_400_000).toISOString() },
     });
     try {
@@ -923,7 +940,8 @@ describe("P1-8 人工冲正与风控", () => {
     const order = await placeOrder(buyer2);
     await payOrder(buyer2, order.orderNumber);
 
-    const { settleOrder, reverseCommissionManually } = await import("@/server/services/distribution");
+    const { settleOrder, reverseCommissionManually } =
+      await import("@/server/services/distribution");
     await settleOrder(order.orderId);
 
     const log = await prisma.commissionLog.findFirstOrThrow({
@@ -998,7 +1016,8 @@ describe("P2-14 并发：结算与冲正都不会重复记账", () => {
     });
     for (const log of logs) {
       if (!log.toUserId) continue;
-      const delta = Number(afterRows.find((a) => a.userId === log.toUserId)?.balance ?? 0) -
+      const delta =
+        Number(afterRows.find((a) => a.userId === log.toUserId)?.balance ?? 0) -
         (before.get(log.toUserId) ?? 0);
       // 每个受益人只应收到「该流水净额」一次，而不是 5 倍
       expect(delta).toBeCloseTo(Number(log.amountCny) - Number(log.reversedCny), 2);
@@ -1030,8 +1049,9 @@ describe("P2-14 并发：结算与冲正都不会重复记账", () => {
 
     const acc = await prisma.distributorAccount.findUniqueOrThrow({ where: { userId: l2.userId } });
     // 只扣一次一半，而不是被扣成负数（按「分」容差，避免四舍五入刚好卡在边界）
-    expect(Math.abs(Number(before.balance) - Number(acc.balance) - Number(log.amountCny) * 0.5))
-      .toBeLessThanOrEqual(0.01);
+    expect(
+      Math.abs(Number(before.balance) - Number(acc.balance) - Number(log.amountCny) * 0.5),
+    ).toBeLessThanOrEqual(0.01);
   });
 });
 
@@ -1082,9 +1102,8 @@ describe("P2-14 大团队：闭包链与团队统计在规模下仍可用", () =
       skipDuplicates: true,
     });
 
-    const { getDescendantIds, getTeamStats, getCommissionChain } = await import(
-      "@/server/services/distribution"
-    );
+    const { getDescendantIds, getTeamStats, getCommissionChain } =
+      await import("@/server/services/distribution");
 
     const t0 = Date.now();
     const descendants = await getDescendantIds(perfRoot.userId);
@@ -1189,9 +1208,8 @@ describe("P2-12 团队业绩预聚合", () => {
     const order = await placeOrder(rollupBuyer);
     await payOrder(rollupBuyer, order.orderNumber);
 
-    const { rollupDistributionDailyStats, getTeamStats } = await import(
-      "@/server/services/distribution"
-    );
+    const { rollupDistributionDailyStats, getTeamStats } =
+      await import("@/server/services/distribution");
 
     // 尚未汇总 → 回落实时口径，页面永远有数
     const live = await getTeamStats(rollupRoot.userId, 30);
@@ -1208,8 +1226,16 @@ describe("P2-12 团队业绩预聚合", () => {
     // 该订单产生了归属人（一级）佣金
     expect(Number(row.commissionCny)).toBeGreaterThan(0);
 
+    // 覆盖度守卫（P1 回归）：仅汇总 1 天时查 30 天窗口 —— 覆盖不足必须回落
+    // 实时口径。原断言期望 "rollup"，等于把「30 天只统计 1 天」的静默错误
+    // 固化成了测试期望。
     const stats = await getTeamStats(rollupRoot.userId, 30);
-    expect(stats.source).toBe("rollup");
+    expect(stats.source).toBe("live");
+
+    // 覆盖完整（窗口首日已被汇总覆盖）时才走预聚合
+    const covered = await getTeamStats(rollupRoot.userId, 1);
+    expect(covered.source).toBe("rollup");
+    expect(covered.totalOrders).toBeGreaterThanOrEqual(1);
     expect(stats.totalOrders).toBeGreaterThanOrEqual(1);
     expect(stats.totalSalesCny).toBeGreaterThan(0);
     expect(stats.series.some((s) => s.orders > 0)).toBe(true);
