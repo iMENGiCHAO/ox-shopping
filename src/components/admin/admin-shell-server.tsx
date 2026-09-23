@@ -1,29 +1,15 @@
 import * as React from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
-import {
-  FolderTree,
-  KeyRound,
-  LayoutDashboard,
-  Menu,
-  MessagesSquare,
-  Package,
-  RotateCcw,
-  Rss,
-  ScrollText,
-  Settings,
-  Share2,
-  ShoppingCart,
-  Ticket,
-  Truck,
-  Users,
-  HelpCircle,
-  Wallet,
-  Scale,
-  type LucideIcon,
-} from "lucide-react";
+import { Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { brandFallback } from "@/lib/env";
+import {
+  ADMIN_NAV_GROUPS,
+  ALL_ADMIN_NAV_ITEMS,
+  isAdminNavActive,
+  type AdminNavItem,
+} from "@/lib/admin-nav";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { getLang } from "@/lib/shop-i18n-server";
 import type { SessionUser } from "@/types/api";
@@ -44,67 +30,18 @@ import { MobileDrawerContent } from "@/components/admin/admin-mobile-drawer";
  * - 侧栏折叠通过 body.admin-sidebar-collapsed class + CSS 控制
  * ──────────────────────────────────────────────────────────────────────────── */
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  adminOnly?: boolean;
-  /** 待办角标（0/undefined 不显示）。目前用于「客服留言」未处理数 */
-  badge?: number;
-}
-
-/** 主导航（运营日常高频） */
-const NAV_ITEMS: NavItem[] = [
-  { href: "/admin", label: "仪表盘", icon: LayoutDashboard },
-  { href: "/admin/products", label: "商品", icon: Package },
-  { href: "/admin/categories", label: "分类", icon: FolderTree },
-  { href: "/admin/orders", label: "订单", icon: ShoppingCart },
-  { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
-];
-
-/** 运营管理（ADMIN 专属） */
-const ADMIN_NAV_ITEMS: NavItem[] = [
-  { href: "/admin/notifications", label: "消息中心", icon: MessagesSquare },
-  // 分销是平台级资金模块（返佣/提现都要 ADMIN），子页面导航由模块内 layout 的二级 Tab 承担
-  { href: "/admin/distribution", label: "分销", icon: Share2, adminOnly: true },
-  // 找回密码申请是**有客户在等的待办**，与消息中心并排放最前
-  // （批准/驳回需要 ADMIN 权限，故 adminOnly）
-  { href: "/admin/password-resets", label: "找回密码", icon: KeyRound, adminOnly: true },
-  { href: "/admin/refunds", label: "退款", icon: RotateCcw, adminOnly: true },
-  { href: "/admin/coupons", label: "折扣码", icon: Ticket, adminOnly: true },
-  { href: "/admin/payment-channels", label: "支付渠道", icon: Wallet, adminOnly: true },
-  { href: "/admin/shipping", label: "物流方式", icon: Truck, adminOnly: true },
-  { href: "/admin/legal", label: "法务页面", icon: Scale, adminOnly: true },
-  { href: "/admin/settings", label: "设置", icon: Settings, adminOnly: true },
-];
-
-/** ADMIN 二级入口（侧栏底部） */
-const ADMIN_TOOLS: NavItem[] = [
-  { href: "/admin/users", label: "用户", icon: Users },
-  { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText },
-  { href: "/admin/faqs", label: "FAQ 管理", icon: HelpCircle },
-];
-
 /**
  * 品牌名兜底 —— 后台真实品牌取自站点设置（与前台一致），此处仅作最后兜底。
  * 不要在组件里写死品牌字面量：改一处 `SITE_NAME` / 后台设置即可全站生效。
  */
 const BRAND_NAME = brandFallback;
 
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/admin") return pathname === "/admin";
-  return pathname === href || pathname.startsWith(href + "/");
-}
-
-/** 全部后台导航项（含二级入口），供面包屑按路径取中文标题 */
-const ALL_NAV_ITEMS: NavItem[] = [...NAV_ITEMS, ...ADMIN_NAV_ITEMS, ...ADMIN_TOOLS];
-
 /** 面包屑标题：按导航标签取中文；子路由取父级标签，未登记的回退通用文案 */
 function adminPageLabel(pathname: string): string {
   if (pathname === "/admin") return "仪表盘";
-  const exact = ALL_NAV_ITEMS.find((i) => i.href === pathname);
+  const exact = ALL_ADMIN_NAV_ITEMS.find((i) => i.href === pathname);
   if (exact) return exact.label;
-  const parent = ALL_NAV_ITEMS.find((i) => pathname.startsWith(i.href + "/"));
+  const parent = ALL_ADMIN_NAV_ITEMS.find((i) => pathname.startsWith(i.href + "/"));
   if (parent) return parent.label;
   return "管理后台";
 }
@@ -116,7 +53,7 @@ function SidebarLink({
   active,
   collapsed = false,
 }: {
-  item: NavItem;
+  item: AdminNavItem;
   active: boolean;
   collapsed?: boolean;
 }) {
@@ -208,62 +145,30 @@ function SidebarContent({
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-3 py-4">
-        {!collapsed ? (
-          <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            概览
-          </div>
-        ) : null}
-
-        <div className="space-y-0.5">
-          {NAV_ITEMS.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              active={isActive(pathname, item.href)}
-              collapsed={collapsed}
-            />
-          ))}
-        </div>
-
-        {isAdmin ? (
-          <>
-            {!collapsed ? (
-              <div className="mb-1.5 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                运营管理
+        {ADMIN_NAV_GROUPS.map((group, gi) => {
+          // 权限过滤后为空的组不渲染（STAFF 不会看到空标题的「系统」组）
+          const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+          if (items.length === 0) return null;
+          return (
+            <div key={group.key} className={gi === 0 ? undefined : "mt-5"}>
+              {!collapsed ? (
+                <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  {group.label}
+                </div>
+              ) : null}
+              <div className="space-y-0.5">
+                {items.map((item) => (
+                  <SidebarLink
+                    key={item.href}
+                    item={item}
+                    active={isAdminNavActive(pathname, item.href)}
+                    collapsed={collapsed}
+                  />
+                ))}
               </div>
-            ) : null}
-            <div className="space-y-0.5">
-              {ADMIN_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-                <SidebarLink
-                  key={item.href}
-                  item={item}
-                  active={isActive(pathname, item.href)}
-                  collapsed={collapsed}
-                />
-              ))}
             </div>
-          </>
-        ) : null}
-
-        {isAdmin ? (
-          <>
-            {!collapsed ? (
-              <div className="mb-1.5 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                系统
-              </div>
-            ) : null}
-            <div className="space-y-0.5">
-              {ADMIN_TOOLS.map((item) => (
-                <SidebarLink
-                  key={item.href}
-                  item={item}
-                  active={isActive(pathname, item.href)}
-                  collapsed={collapsed}
-                />
-              ))}
-            </div>
-          </>
-        ) : null}
+          );
+        })}
       </nav>
     </div>
   );

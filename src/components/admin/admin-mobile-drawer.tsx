@@ -3,74 +3,16 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  FolderTree,
-  KeyRound,
-  LayoutDashboard,
-  MessagesSquare,
-  Package,
-  RotateCcw,
-  Rss,
-  ScrollText,
-  Settings,
-  Share2,
-  ShoppingCart,
-  Ticket,
-  Truck,
-  Users,
-  HelpCircle,
-  Wallet,
-  Scale,
-  X,
-  type LucideIcon,
-} from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  adminOnly?: boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: "/admin", label: "仪表盘", icon: LayoutDashboard },
-  { href: "/admin/products", label: "商品", icon: Package },
-  { href: "/admin/categories", label: "分类", icon: FolderTree },
-  { href: "/admin/orders", label: "订单", icon: ShoppingCart },
-  { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
-];
-
-const ADMIN_NAV_ITEMS: NavItem[] = [
-  { href: "/admin/notifications", label: "消息中心", icon: MessagesSquare },
-  // 与桌面侧栏同一份顺序：分销紧跟消息中心，找回密码在后
-  { href: "/admin/distribution", label: "分销", icon: Share2, adminOnly: true },
-  { href: "/admin/password-resets", label: "找回密码", icon: KeyRound, adminOnly: true },
-  { href: "/admin/refunds", label: "退款", icon: RotateCcw, adminOnly: true },
-  { href: "/admin/coupons", label: "折扣码", icon: Ticket, adminOnly: true },
-  { href: "/admin/payment-channels", label: "支付渠道", icon: Wallet, adminOnly: true },
-  { href: "/admin/shipping", label: "物流方式", icon: Truck, adminOnly: true },
-  { href: "/admin/legal", label: "法务页面", icon: Scale, adminOnly: true },
-  { href: "/admin/settings", label: "设置", icon: Settings, adminOnly: true },
-];
-
-const ADMIN_TOOLS: NavItem[] = [
-  { href: "/admin/users", label: "用户", icon: Users },
-  { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText },
-  { href: "/admin/faqs", label: "FAQ 管理", icon: HelpCircle },
-];
-
-function isActive(pathname: string, href: string): boolean {
-  if (href === "/admin") return pathname === "/admin";
-  return pathname === href || pathname.startsWith(href + "/");
-}
+import { ADMIN_NAV_GROUPS, isAdminNavActive, type AdminNavItem } from "@/lib/admin-nav";
 
 function SidebarLink({
   item,
   active,
   onNavigate,
 }: {
-  item: NavItem;
+  item: AdminNavItem;
   active: boolean;
   onNavigate?: () => void;
 }) {
@@ -188,51 +130,27 @@ export function MobileDrawerContent({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-3 py-4">
-          <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-            概览
-          </div>
-          <div className="space-y-0.5">
-            {NAV_ITEMS.map((item) => (
-              <SidebarLink
-                key={item.href}
-                item={item}
-                active={isActive(pathname, item.href)}
-                onNavigate={closeDrawer}
-              />
-            ))}
-          </div>
-
-          {isAdmin ? (
-            <>
-              <div className="mb-1.5 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                运营管理
+          {ADMIN_NAV_GROUPS.map((group, gi) => {
+            const items = group.items.filter((item) => !item.adminOnly || isAdmin);
+            if (items.length === 0) return null;
+            return (
+              <div key={group.key} className={gi === 0 ? undefined : "mt-5"}>
+                <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  {group.label}
+                </div>
+                <div className="space-y-0.5">
+                  {items.map((item) => (
+                    <SidebarLink
+                      key={item.href}
+                      item={item}
+                      active={isAdminNavActive(pathname, item.href)}
+                      onNavigate={closeDrawer}
+                    />
+                  ))}
+                </div>
               </div>
-              <div className="space-y-0.5">
-                {ADMIN_NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin).map((item) => (
-                  <SidebarLink
-                    key={item.href}
-                    item={item}
-                    active={isActive(pathname, item.href)}
-                    onNavigate={closeDrawer}
-                  />
-                ))}
-              </div>
-
-              <div className="mb-1.5 mt-5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
-                系统
-              </div>
-              <div className="space-y-0.5">
-                {ADMIN_TOOLS.map((item) => (
-                  <SidebarLink
-                    key={item.href}
-                    item={item}
-                    active={isActive(pathname, item.href)}
-                    onNavigate={closeDrawer}
-                  />
-                ))}
-              </div>
-            </>
-          ) : null}
+            );
+          })}
         </div>
       </div>
     </div>
