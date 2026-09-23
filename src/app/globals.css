@@ -846,85 +846,101 @@ body.search-open [data-testid="header-shell"] > header {
   /* ─────────────────────────────────────────────────────────────────────────
    * Admin 专属设计令牌（作用域化：仅作用于后台，店铺前台完全不受影响）
    *
-   * 设计方向（2024-2026 一线后台）：Vercel × Linear × Notion 融合
-   *   - 页面背景：接近白的冷调浅灰（#F5F6F8）——与纯白卡片形成层次
-   *   - 卡片/侧栏/顶栏：纯白，8px 圆角，柔和多层阴影 + 1px 极浅边框
-   *   - 顶栏：毛玻璃 backdrop-blur，半透明白
-   *   - 保持黑白主调（与品牌一致），靠圆角/阴影/留白/间距做出现代感
+   * 设计方向（Apple 风格）：apple.com / App Store Connect 同源语言
+   *   - 页面背景：Apple 标志性 #F5F5F7 浅灰 canvas，与纯白卡片形成柔和层次
+   *   - 卡片/侧栏/顶栏：纯白，12px 大圆角，弥散式低透明阴影 + 发丝边框
+   *   - 文字：#1D1D1F（Apple 正文色），次级 #6E6E73
+   *   - 主色：Apple 蓝 #0071E3（按钮 / 焦点环 / 链接），语义色取 iOS 系统色
+   *   - 顶栏：毛玻璃 backdrop-blur-xl + saturate，70% 透明白
    * ───────────────────────────────────────────────────────────────────────── */
   .admin-theme {
-    /* Surfaces —— 冷调浅灰 canvas + 纯白浮层 */
-    --background: 216 20% 96.5%; /* #F5F6F8 */
-    --foreground: 220 12% 12%; /* #1B1C1E */
+    /* Surfaces —— Apple #F5F5F7 canvas + 纯白浮层 */
+    --background: 240 5% 96%; /* #F5F5F7 */
+    --foreground: 240 3% 12%; /* #1D1D1F */
 
     --card: 0 0% 100%; /* #FFFFFF */
-    --card-foreground: 220 12% 12%;
+    --card-foreground: 240 3% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 12% 12%;
+    --popover-foreground: 240 3% 12%;
 
-    --muted: 216 20% 94%; /* #EDEFF2 */
-    --muted-foreground: 220 6% 45%; /* #6C7077 */
+    --muted: 240 5% 94%; /* #F0F0F2 */
+    --muted-foreground: 240 2% 45%; /* #6E6E73 */
 
-    --border: 216 16% 89%; /* #E0E3E7 */
-    --input: 216 16% 87%;
-    --ring: 220 12% 20%; /* 柔和黑 focus ring */
+    --border: 240 4% 91%; /* ≈ rgba(0,0,0,0.08) 发丝级 */
+    --input: 240 4% 88%;
+    --ring: 211 100% 45%; /* Apple 蓝 focus ring */
 
-    --primary: 220 14% 10%; /* #16181B 近黑主色 */
+    --primary: 211 100% 45%; /* #0071E3 —— Apple 品牌蓝 */
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 216 20% 95%;
-    --secondary-foreground: 220 12% 12%;
+    --secondary: 240 5% 94%;
+    --secondary-foreground: 240 3% 12%;
 
-    --accent: 216 16% 92%;
-    --accent-foreground: 220 12% 12%;
+    --accent: 240 4% 92%;
+    --accent-foreground: 240 3% 12%;
 
-    /* 语义色微调——更柔、更现代 */
-    --destructive: 0 72% 47%;
+    /* 语义色 —— iOS 系统色系（浅色适配，白底可读） */
+    --destructive: 3 90% 52%; /* ≈ iOS systemRed */
     --destructive-foreground: 0 0% 100%;
-    --success: 152 50% 35%;
+    --success: 145 60% 36%; /* iOS systemGreen 深化 */
     --success-foreground: 0 0% 100%;
-    --warning: 35 91% 46%;
+    --warning: 35 100% 42%; /* iOS systemOrange 深化 */
     --warning-foreground: 0 0% 9%;
-    --info: 210 88% 48%;
+    --info: 211 100% 45%; /* #0071E3 */
     --info-foreground: 0 0% 100%;
 
-    /* 圆角：8px 系统（rounded-full 保持胶囊） */
-    --radius: 0.5rem;
+    /* 圆角：12px 系统（Apple 卡片圆角；rounded-full 保持胶囊） */
+    --radius: 0.75rem;
 
-    /* 柔和多层阴影 */
-    --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.05);
-    --shadow-soft-lg: 0 2px 8px hsl(0 0% 0% / 0.06), 0 12px 32px hsl(0 0% 0% / 0.08);
-    --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.04), 0 2px 6px hsl(0 0% 0% / 0.04);
-    --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.06), 0 8px 20px hsl(0 0% 0% / 0.06);
-    --shadow-popover: 0 2px 8px hsl(0 0% 0% / 0.08), 0 8px 24px hsl(0 0% 0% / 0.1);
-    --shadow-overlay: 0 12px 40px hsl(0 0% 0% / 0.16);
+    /* 弥散式阴影 —— 低透明、大模糊半径（Apple 浮层质感） */
+    --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.04);
+    --shadow-soft-lg: 0 2px 8px hsl(0 0% 0% / 0.05), 0 12px 32px hsl(0 0% 0% / 0.07);
+    --shadow-card: 0 0.5px 1px hsl(0 0% 0% / 0.02), 0 4px 16px hsl(0 0% 0% / 0.04);
+    --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.05), 0 16px 40px hsl(0 0% 0% / 0.08);
+    --shadow-popover: 0 4px 12px hsl(0 0% 0% / 0.07), 0 16px 40px hsl(0 0% 0% / 0.1);
+    --shadow-overlay: 0 12px 48px hsl(0 0% 0% / 0.18);
   }
 
   .admin-theme.dark {
-    --background: 220 14% 6%; /* #0D0E10 */
-    --foreground: 220 10% 92%;
-    --card: 220 12% 9%;
-    --card-foreground: 220 10% 92%;
-    --popover: 220 12% 9%;
-    --popover-foreground: 220 10% 92%;
-    --muted: 220 12% 14%;
-    --muted-foreground: 220 6% 60%;
-    --border: 220 10% 18%;
-    --input: 220 10% 18%;
-    --ring: 220 10% 70%;
-    --primary: 220 10% 92%;
-    --primary-foreground: 220 14% 8%;
-    --secondary: 220 12% 14%;
-    --secondary-foreground: 220 10% 92%;
-    --accent: 220 10% 20%;
-    --accent-foreground: 220 10% 92%;
-    --destructive: 0 72% 55%;
-    --success: 152 50% 45%;
-    --warning: 35 91% 52%;
-    --info: 210 88% 58%;
+    /* iOS 深色语言：近黑 canvas + 深灰分组浮层 + iOS 深色蓝 #0A84FF */
+    --background: 240 5% 5%;
+    --foreground: 240 6% 93%;
+    --card: 240 4% 11%;
+    --card-foreground: 240 6% 93%;
+    --popover: 240 4% 11%;
+    --popover-foreground: 240 6% 93%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 3% 62%;
+    --border: 240 4% 20%;
+    --input: 240 4% 20%;
+    --ring: 210 100% 52%;
+    --primary: 210 100% 52%; /* #0A84FF —— iOS 深色系统蓝 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 240 6% 93%;
+    --accent: 240 4% 22%;
+    --accent-foreground: 240 6% 93%;
+    --destructive: 3 100% 61%; /* iOS dark systemRed */
+    --success: 135 59% 49%; /* iOS systemGreen */
+    --warning: 35 100% 52%; /* iOS systemOrange */
+    --info: 210 100% 52%;
     --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.3), 0 2px 6px hsl(0 0% 0% / 0.3);
     --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.4), 0 8px 20px hsl(0 0% 0% / 0.4);
+  }
+
+  /* Apple 字体栈 —— 仅后台：macOS/iOS 上渲染 SF Pro，其它平台平滑回退 */
+  .admin-theme body {
+    font-family:
+      -apple-system,
+      BlinkMacSystemFont,
+      "SF Pro Text",
+      "SF Pro Display",
+      "PingFang SC",
+      "Helvetica Neue",
+      "Segoe UI",
+      "Microsoft YaHei",
+      sans-serif;
   }
 
   /* Dark mode — 启用方式: <html class="dark"> 或 .dark 父元素
@@ -1208,4 +1224,39 @@ body.search-open [data-testid="header-shell"] > header {
 [data-dist-center] .panel table {
   border-radius: inherit;
   overflow: hidden;
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Admin Apple 质感补丁（仅 .admin-theme 作用域，前台零影响）
+ *
+ * 1) 蓝色主按钮 hover：[[Button]] default 变体 hover 走 bg-accent（前台黑色系
+ *    深化 step 是对的），但 admin 主色换成 Apple 蓝后 hover 成灰就走样了 ——
+ *    这里把 admin 下的蓝按钮 hover 收敛为同色系加深一档（#0060C9 方向）。
+ * 2) 后台按钮字重提升到 500（Apple 系统按钮为 medium 字重），前台保持
+ *    shop.x.com 的 regular 字重不变。
+ * 3) 后台滚动条更细更隐（8px 半透明），贴近 macOS 观感。
+ * ──────────────────────────────────────────────────────────────────────────── */
+.admin-theme button.bg-primary:hover:not(:disabled),
+.admin-theme a.bg-primary:hover {
+  background-color: hsl(211 100% 40%);
+}
+
+.admin-theme button,
+.admin-theme [role="menuitem"],
+.admin-theme [role="tab"] {
+  font-weight: 500;
+}
+
+.admin-theme ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.admin-theme ::-webkit-scrollbar-thumb {
+  background: hsl(240 3% 12% / 0.18);
+  border-radius: 999px;
+}
+
+.admin-theme ::-webkit-scrollbar-thumb:hover {
+  background: hsl(240 3% 12% / 0.3);
 }

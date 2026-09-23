@@ -551,7 +551,8 @@ export default function AdminProductsPage() {
                       {hasSpecStock(row) ? (
                         /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
                         specEditId === row.id ? (
-                          <div className="min-w-44 space-y-2 rounded border bg-muted/40 p-2">
+                          /* 编辑面板：实心背景 + 阴影浮层（避免与相邻「已售」列文字重叠透视） */
+                          <div className="relative z-10 min-w-56 space-y-2 rounded-md border bg-card p-2 shadow-popover">
                             {specGroupsOf(row).map((g) => (
                               <div key={g.name} className="space-y-1">
                                 <div className="text-[11px] font-medium text-muted-foreground">

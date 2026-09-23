@@ -452,3 +452,54 @@ P1-4 的集成测试断言 `source === "rollup"`（30 天窗口只汇总 1 天�
 
 Playwright 真实验证会往业务库写配置（本次写了 `mail_config`）。验证完必须删除/恢复，
 否则会污染开发库状态、误导后续排查（本次已在验证后清理并二次确认）。
+
+---
+
+## 2026-09-23 · Phase 16 项目全栈深度分析
+
+### 分析基线
+- 仓库 HEAD 为 `bab3e37 feat(admin): 邮件服务后台可配`，分支 main。
+- 启动时工作区仅有 `src/app/globals.css` 未提交修改；本阶段保持只读，不覆盖该改动。
+- 旧计划显示项目已完成多轮审查，但历史记录不能代替当前代码验证；后续结论会标注证据来源。
+
+### 首轮仓库盘点
+- UI 页面约 60 个，覆盖 shop、checkout、distribution、admin 四组路由；admin 还包含分销二级后台。
+- API `route.ts` 至少 130 个，领域从商品/购物车/订单/支付/物流延伸到用户、审计、通知、邮件配置和分销。
+- 服务层约 27 个核心 service，另有独立 `src/lib/distribution` 契约层与 `src/server/services/distribution` 实现层。
+- 测试目录含 20+ 单元测试、约 16 集成测试、5 个 E2E spec，覆盖认证、订单/资金、优惠券、库存、邮件和分销并发。
+- Prisma 有 1 份 schema 和 20+ 迁移，包含支付渠道、游客结账、密码重置审批、分销/提现/风控等演进。
+- 文档较完整，含架构、开发、部署、检查清单、支付、设计规范、分销审计、商业差距与隐藏问题报告；下一步需核对文档与当前代码是否仍一致。
+
+### 架构与文档初判
+- 技术主线清晰：Next 16 App Router → Route Handler → `src/server/services` → Prisma/PostgreSQL；认证、CSRF、CSP、支付、邮件、存储均有独立基础模块。
+- 数据模型已覆盖电商核心与运营：商品/多集合/规格库存、游客订单、退款、支付日志、优惠券、物流、通知、审计，以及独立分销/佣金/提现域；资金账本采用快照 + 幂等唯一键 + CAS/行锁思路。
+- 部署层有 Docker 多阶段、PostgreSQL/Redis 持久卷、loopback 绑定、生产密钥 fail-fast、Nginx、CI 等，不是只能演示的脚手架。
+- 文档已有陈旧/互相矛盾迹象：README 环境表仍写 `CURRENCY` 默认 CNY，而 `.env.example` 与代码基线是 USD；PROJECT_DEVELOPMENT 标注 2026-09-20，但当前 schema/代码已继续演进到邮件可配和分销加固。
+- `.env.example` 写“分销未设置默认开启”，而历史 Phase 14 前提写 `DISTRIBUTION_ENABLED=false`；需以 `contract.ts` 当前实现核实，这关系到默认暴露面与商城行为。
+- 尝试读取 `next.config.ts` 失败：仓库无该文件；实际为 `next.config.js`；另两次路径猜测失败：调度器实际在 `src/server/jobs/scheduler.ts`，API 包装器实际在 `src/lib/api.ts`。
+
+### 工程质量与交付初判
+- `npm run typecheck` 当前通过（exit 0）。
+- CI 分 lint/typecheck、unit+integration、build、E2E 四段，结构完整；但测试/E2E 使用 `prisma db push`，没有在 CI 验证版本化 migration 从空库完整部署，生产容器却依赖 `migrate deploy`，存在“测试绿、上线迁移失败”的空档。
+- ESLint 排除了 `scripts/**`、`tests/**`、`prisma/**` 和多个配置文件；业务 src 仍在严格 TS + Next core-web-vitals 下，测试与运维脚本的静态质量是明显盲区。
+- 调度器已用 PG advisory lock 做多实例选主，且任务动作幂等；但把最长 5 分钟的任务和 Stripe 网络 I/O 放在一个事务级咨询锁事务里，源码也明确承认应由 lease 表重构。这是扩展性/连接池风险，不是当前单实例 correctness 阻断。
+- S3 预签名上传只校验客户端声明的 MIME，未签 `content-length`，因此无法执行 10MB 上限；可被 staff 账号用于超大对象，增加存储成本/可用性风险。staff 权限使严重性低于公开上传。
+- `preflight-check.ts` 只做 TCP 可达而非 DB 登录/查询/迁移状态验证，且必填清单漏了运行时新增的 `PAYMENT_CHANNEL_ENC_KEY`、`SITE_NAME`、Redis 凭据等；其“全部通过可以部署”口径偏乐观。
+- 子审计初步指出 4 个高置信上线阻断项，主流程已复核其中测试与 healthz：测试 global setup 的 `_test` 库名校验发生在 destructive `db push` 之后，任意非空 DATABASE_URL 都可能先改 schema；healthz DB down 仍 HTTP 200，而 Docker/Compose 以 200 判健康。生产 S3 静默降级也已由 env/storage 代码确认。Stripe env 路径缺 webhook secret 仍有分钟级对账兜底，定级为 P1 而非 P0。
+
+### 当前代码确认的 P0/P1 业务缺陷
+- **测试命令可破坏误配的非测试库（P0）**：`tests/helpers/global-setup.ts:15-19,35-38` 对任意非空 URL 执行 `prisma db push --accept-data-loss`；`_test` 库名检查到 `:61` 才发生。由于 `vitest.config.ts:11` 对 unit+integration 都启用 globalSetup，连 `npm run test:unit` 都可能触发。故本轮明确不运行 Vitest。
+- **渠道化 Stripe 游客支付回跳丢 token（P0）**：`CreatePaymentInput` 无 accessToken（`src/lib/payment/provider.ts:22-34`），渠道分支 `order.service.ts:770-779` 未传；`stripeProvider.createPayment` `providers/stripe.ts:53-65` 也未传；`stripe.ts:78-80,129-130` 因此生成无 token 的 success/cancel URL。legacy 分支 `order.service.ts:815-823` 正确传 token，是明确的双实现漂移。
+- **普通订单状态流转存在 TOCTOU（P0/P1）**：`updateOrderStatus` 在 `order.service.ts:1105-1111` 读取旧订单后校验，最终 `:1160-1164` 无条件 update。并发 DELIVERED/REFUNDED 等操作可互相覆盖，甚至把 REFUNDED 写回中间态；退款路径本身有锁，但普通状态路径没有。
+- **渠道 Stripe 通用回调的 paymentId 语义错误（P0/P1）**：`providers/stripe.ts:73-85` 对 checkout.session.completed 返回 session.id，通用 notify `pay/notify/[channelCode]/route.ts:115-116` 存入 Order.paymentId；退款 `order.service.ts:1409-1425` 却要求 PaymentIntent id。文档明确允许通用回调，因此这是受支持配置下的真实退款阻断。
+- **COD 金额与分销口径错误（P1）**：`codFee` 在 `order.service.ts:548-550` 直接存基础 USD 费率，却在确认信 `:646-658` 与已换算的 order.total 相加并标成订单币种；非 USD 订单向配送员显示/收取错误金额。COD 创建直接 PROCESSING、不写 paidAt、不触发 `onOrderPaid`；对账 `report.service.ts:759-793` 又要求 paidAt 非空，导致 COD 永远不归属、不计佣、不结算。
+- **支付 URL 创建失败被吞（P1）**：`POST /api/orders` 下单事务已扣库存/核销券后，支付 URL 异常路径需继续复核；子审计指出 orders route 会返回成功空 paymentUrl，前端只提示已提交，形成无法支付的死单。
+- **后台可绕过标准支付副作用直推 PAID（P1）**：admin 状态 schema 允许 PENDING_PAYMENT→PAID，最终走 `updateOrderStatus` 普通 update，只写 paidAt，不执行 markOrderPaid 的支付流水、邮件、通知、分销计佣。
+- **优惠券核销展示币种错账（P1）**：`coupon.service.ts:235-257` 将 `discountUsd` 存到 `CouponRedemption.discountAmount`，但 `:368-405` 明确把该值标成 order.currency 展示；非 USD 订单的“已用优惠”金额会错。
+- **库存后台绝对写覆盖并发扣减（P1）**：`api/admin/products/[id]/stock/route.ts:19-24` 与 product PUT `:45-60` 直接写 stock；下单事务的原子 decrement 可在管理员绝对写前后被覆盖，导致丢更新/超卖。
+- **邮件/站内信无可靠投递（架构 P1）**：`sendMail` 在 `src/lib/mail/index.ts:292-320` 吞掉发送异常并仍记录“邮件已发送”；调用方 try/catch 实际抓不到。大量 `void sendMail/notify` 无 outbox/retry/dead-letter，进程退出会永久丢通知。后台上线自检只能证明“现在能发”，不能保证订单事件送达。
+- **刷新 token 60 秒宽限削弱重放检测（P1）**：`session.ts:201,227-270` 对已使用 token 在 60 秒内直接签发新会话且无设备/客户端绑定；被盗者与正常并发客户端在窗口内不可区分，真实重放可绕过全设备吊销。需更短/单飞/客户端实例绑定方案。
+- **Webhook 缺 event.id 去重、退款缺可靠 outbox（P1）**：支付状态更新有订单级幂等，但 Stripe 事件本身无 provider+eventId 唯一记录；退款先本地置 REFUNDED 再调用网关，失败仅告警，崩溃/超时可造成本地与资金状态长期不一致。
+
+### 合规与隐私
+- “账户删除”当前是 User 记录匿名化，不是个人数据删除：Order.contactEmail/addressSnapshot、NotifyMe.email、审计 meta 等仍可能保留原 PII；需明确财务/法律保留期、访问权限、清理计划，并修正文案中“历史订单不再识别用户”的绝对承诺。

@@ -209,7 +209,7 @@ export async function AdminShellServer({
       {/* ── 主区域 ─────────────────────────────────────────── */}
       <div className="admin-main flex min-h-screen flex-col lg:pl-[264px]">
         {/* 毛玻璃顶栏 */}
-        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-card/80 px-4 backdrop-blur-md lg:px-7">
+        <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-card/70 px-4 backdrop-blur-xl backdrop-saturate-150 lg:px-7">
           <div className="flex min-w-0 flex-1 items-center gap-3">
             {/* 移动端汉堡按钮 */}
             <button

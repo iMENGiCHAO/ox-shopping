@@ -328,3 +328,16 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
   scripts/restart-dev.sh 重启即恢复（该函数逻辑本身无错） |
 | qa-payment-channels 首跑 11 FAIL | 2 | ① isVisible() 不自动等待：重启后客户端渠道 fetch 未返回即断言 →
   goto 后显式等列表文本；② 动作 toast 等 15s < 路由冷编译（网络卷数十秒）→ 放宽 60s + 开头幂等还原 |
+| session-catchup 首次调用误传 sandbox_permissions | 1 | 当前策略已是 danger-full-access；撤销多余参数后原命令成功 |
+
+### Phase 16: 项目全栈深度分析（2026-09-23）— Status: complete
+
+大爷要求深入分析整个项目。本阶段只做审计、验证与报告，不擅自改业务代码。
+
+- [x] 16.1 仓库基线：目录、依赖、文档、Git 历史、未提交改动
+- [x] 16.2 架构：App Router 页面/路由、组件边界、服务层、数据模型、任务系统
+- [x] 16.3 业务：商城、账户、订单支付、物流、后台运营、邮件、分销等闭环
+- [x] 16.4 工程质量：类型、lint、测试、构建、错误处理、日志、可观测性
+- [x] 16.5 风险：安全、并发、资金正确性、性能、部署、数据与第三方依赖
+- [x] 16.6 验证：typecheck/lint/build + 安全只读 unit 248 例；因 destructive global setup 未跑 integration/E2E
+- [x] 16.7 输出：`docs/PROJECT_AUDIT_2026-09-23.md`（综合 56/100、P0/P1/P2、0–4 周路线图）
