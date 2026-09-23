@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   Package,
   RotateCcw,
+  Rocket,
   Rss,
   Scale,
   ScrollText,
@@ -110,6 +111,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     key: "system",
     label: "系统",
     items: [
+      // 上线自检：把「能否开门做生意」的阻塞项集中暴露（收款/邮件/域名/默认密码…）
+      { href: "/admin/launch-readiness", label: "上线自检", icon: Rocket, adminOnly: true },
       { href: "/admin/payment-channels", label: "支付渠道", icon: Wallet, adminOnly: true },
       { href: "/admin/settings", label: "设置", icon: Settings, adminOnly: true },
       { href: "/admin/audit-logs", label: "审计日志", icon: ScrollText },
