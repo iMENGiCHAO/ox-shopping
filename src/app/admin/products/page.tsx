@@ -636,9 +636,6 @@ export default function AdminProductsPage() {
                             >
                               {row.stock}
                             </span>
-                            <span className="rounded bg-muted px-1 text-[10px] leading-4 text-muted-foreground">
-                              规格
-                            </span>
                             <Pencil className="h-3 w-3 text-muted-foreground" />
                           </button>
                         )
