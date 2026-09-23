@@ -1,6 +1,6 @@
 import "server-only";
 import type { NextRequest } from "next/server";
-import type { CommissionStatus, OrderStatus } from "@prisma/client";
+import type { CommissionStatus, OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { audit } from "@/lib/audit";
@@ -15,6 +15,7 @@ import {
   planCommissions,
   round2,
   summariseCommission,
+  type AncestorNode,
   type CommissionRuleLike,
 } from "@/lib/distribution/rules";
 import {
@@ -68,6 +69,25 @@ export function commissionBase(order: { subtotal: unknown; discount: unknown }):
 }
 
 /**
+ * 解析「归属关系链快照」为分佣链。
+ *
+ * 结构：`[{ userId, depth, tier }]`，depth 从 1 开始（1 = 归属分销商本人）——
+ * 与 `getCommissionChain()` 的返回同构，因为快照正是它在下单归属时写下的。
+ * 任一项结构不合法即返回 null（宁可兜底实时链，也不拿半截数据算钱）。
+ */
+function parseRelationPathSnapshot(raw: unknown): AncestorNode[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: AncestorNode[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return null;
+    const { userId, depth, tier } = item as { userId?: unknown; depth?: unknown; tier?: unknown };
+    if (typeof userId !== "string" || typeof depth !== "number") return null;
+    out.push({ userId, depth, tier: typeof tier === "number" ? tier : 0 });
+  }
+  return out;
+}
+
+/**
  * 为订单计提佣金（幂等，可反复调用）。
  * 订单未支付 / 自然流量订单 / 基数≤0 / 已计提过 → 静默跳过并返回原因。
  */
@@ -95,7 +115,7 @@ export async function accrueForOrder(
 
   const attribution = await prisma.orderAttribution.findUnique({
     where: { orderId },
-    select: { distributorId: true, natural: true },
+    select: { distributorId: true, natural: true, relationPathSnapshot: true },
   });
   if (!attribution?.distributorId) return { count: 0, skipped: "NATURAL" };
 
@@ -114,8 +134,31 @@ export async function accrueForOrder(
   // 集成测试正是这样抓到它的。宁可每次计佣多一次 count 查询（有索引，代价极小）。
   await ensureDefaultCommissionRules();
 
+  /* 分佣链走「归属快照优先」（快照口径）：
+     · 分销通行口径是「订单归属在谁的链上，就按那一时刻的链分佣」＝首次绑定定终身；
+     · 等级同样取快照里的 tier（归属时刻的等级），与「等级只影响之后的订单」一致。
+     此前这里直接用 `getCommissionChain()` 取**当时活链 + 当时等级** —— 于是订单支付
+     与计提之间若发生换绑/闭包重建（对账补算可延迟数天），该订单会按新链分佣，
+     与 `relationPathSnapshot` 的语义承诺相矛盾。快照缺失（历史订单/异常数据）时
+     兜底实时链，并在下方立即补写快照以保证后续口径稳定。 */
+  const rawSnapshot = parseRelationPathSnapshot(attribution.relationPathSnapshot);
+  /* 快照是**历史数据**：链上的人可能已注销/被删除（User onDelete 级联清理关系表，
+     但快照是 JSON 快照，不会跟着变）。若把幽灵 userId 直接拿去建佣金流水，
+     会因外键约束让**整笔计佣失败**（一个失效节点拖垮整单佣金）。
+     因此先做一次存在性过滤；过滤后为空则视为无快照，回落实时链。 */
+  let snapshotChain = rawSnapshot;
+  if (rawSnapshot) {
+    const alive = await prisma.user.findMany({
+      where: { id: { in: rawSnapshot.map((c) => c.userId) } },
+      select: { id: true },
+    });
+    const aliveIds = new Set(alive.map((u) => u.id));
+    const pruned = rawSnapshot.filter((c) => aliveIds.has(c.userId));
+    snapshotChain = pruned.length > 0 ? pruned : null;
+  }
+
   const [chain, rules, items] = await Promise.all([
-    getCommissionChain(attribution.distributorId),
+    snapshotChain ?? getCommissionChain(attribution.distributorId),
     // P2-13：走缓存版（每笔支付订单都要读规则；后台改规则时精准失效）
     getActiveCommissionRules(),
     prisma.orderItem.findMany({
@@ -128,6 +171,18 @@ export async function accrueForOrder(
   const categoryIds = [
     ...new Set(items.map((i) => i.product?.categoryId).filter((v): v is string => !!v)),
   ];
+
+  // 历史订单无快照：本次采用实时链后立刻固化，避免同一订单下次口径漂移
+  if (!snapshotChain) {
+    await prisma.orderAttribution
+      .update({
+        where: { orderId },
+        data: { relationPathSnapshot: chain as unknown as Prisma.InputJsonValue },
+      })
+      .catch((err) => {
+        logger.warn({ err, orderId }, "分销：补写归属快照失败（不影响本次计佣）");
+      });
+  }
 
   const planned = planCommissions({
     baseAmount,

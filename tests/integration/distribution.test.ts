@@ -1273,3 +1273,46 @@ describe("P2-12 团队业绩预聚合", () => {
     expect(Number(again.salesCny)).toBeCloseTo(Number(row.salesCny), 2);
   });
 });
+
+describe("快照口径：计佣读归属时刻的关系链", () => {
+  it("下单后上级链路变化，订单仍按归属快照分佣（首次绑定定终身）", async () => {
+    const seller = await registerUser("snap-seller");
+    const newRoot = await registerUser("snap-root");
+    const sellerCode = await codeOf(seller.userId);
+    const buyer = await registerUser("snap-buyer", sellerCode);
+
+    // 下单：归属 seller。此刻 seller 还没有上级 → 快照链只有 [seller(depth 1)]
+    const order = await placeOrder(buyer, sellerCode);
+    const attribution = await prisma.orderAttribution.findUniqueOrThrow({
+      where: { orderId: order.orderId },
+    });
+    expect(Array.isArray(attribution.relationPathSnapshot)).toBe(true);
+
+    // 模拟「下单之后」发生的关系链变化：给 seller 挂一个新上级
+    await prisma.distributionRelation.createMany({
+      data: [
+        { ancestorId: seller.userId, descendantId: seller.userId, depth: 0 },
+        { ancestorId: newRoot.userId, descendantId: newRoot.userId, depth: 0 },
+        { ancestorId: newRoot.userId, descendantId: seller.userId, depth: 1 },
+      ],
+      skipDuplicates: true,
+    });
+
+    // 实时链此时已多出 newRoot —— 这正是旧实现会据以分佣的链
+    const { getCommissionChain } = await import("@/server/services/distribution");
+    const liveChain = await getCommissionChain(seller.userId);
+    expect(liveChain.some((c) => c.userId === newRoot.userId)).toBe(true);
+
+    await payOrder(buyer, order.orderNumber);
+
+    const logs = await prisma.commissionLog.findMany({
+      where: { orderId: order.orderId },
+      select: { toUserId: true, level: true, ratio: true },
+    });
+    expect(logs.length).toBeGreaterThan(0);
+    // 归属人 seller 拿一级佣金
+    expect(logs.some((l) => l.toUserId === seller.userId)).toBe(true);
+    // 快照里没有 newRoot → 他不得因这笔订单拿任何佣金（旧实现会给他二级佣金）
+    expect(logs.every((l) => l.toUserId !== newRoot.userId)).toBe(true);
+  });
+});
