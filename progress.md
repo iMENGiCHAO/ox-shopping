@@ -21,5 +21,6 @@
   - `npm audit --audit-level=high`：0 vulnerabilities。
   - `preflight` 对开发库按预期 fail-closed（只缺新迁移）；对已迁移 `ecommerce_test` 12/12 通过。
 - 备份/恢复演练已在隔离库实测通过：`ecommerce_test` 备份 → 校验 SHA-256 → 恢复到临时库 `ecommerce_restore_test` → `SELECT count(*) FROM users` = 1005 → 清理临时库与产物；期间修复了 Prisma `?schema=` URL、pg_dump/gzip 归档命中和客户端大版本不匹配三类脚本缺陷。
-- 本机没有 Docker CLI，最终 Docker build/start smoke 已加入 CI，需 GitHub runner/部署机执行；真实 Stripe、SMTP/Resend、S3/R2、素材授权、隐私/税务/KYC 属外部上线验收，不得由本地代码绿灯替代。
-- 代码整改已提交前最终 review；未覆盖用户原有 UI 基线改动。
+- 生产运行路径已实测：`next start` 生产模式 + 强密钥/S3/Stripe 守卫下 `/healthz`(readiness)、`/api/healthz`(liveness)、`/admin/login` 全部 200；`output: standalone` 产物按 Docker runner 布局组装后 `server.js` 启动，`/healthz`、`/api/healthz`、`/` 全部 200。
+- 本机没有 Docker CLI，因此 Docker 镜像 build/start smoke 仍需在 GitHub runner 或部署机执行；真实 Stripe、SMTP/Resend、S3/R2、素材授权、隐私/税务/KYC 属外部上线验收，不得由本地代码绿灯替代。
+- 代码整改已提交；另有其他模型产生的 `src/app/globals.css` 未提交改动留在工作区，未纳入本次提交也未覆盖。
