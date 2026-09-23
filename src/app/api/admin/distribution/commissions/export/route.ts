@@ -21,17 +21,22 @@ export async function GET(req: Request) {
   const status = statusRaw && STATES.has(statusRaw) ? (statusRaw as CommissionState) : undefined;
   const orderNumber = url.searchParams.get("orderNumber")?.trim() || undefined;
 
-  const rows = await exportCommissionRows({
+  const { rows, total, truncated } = await exportCommissionRows({
     ...(status ? { status } : {}),
     ...(orderNumber ? { orderNumber } : {}),
   });
 
+  const stamp = new Date().toISOString().slice(0, 10);
   return new Response(toCsv(normalizeRows(rows)), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="distribution-commissions-${new Date()
-        .toISOString()
-        .slice(0, 10)}.csv"`,
+      // 截断可见（P1 修复）：超上限时文件名带 -partial，并回传总数 ——
+      // 此前静默丢行，财务据缺行 CSV 对账会得出错误结论。
+      "Content-Disposition": `attachment; filename="distribution-commissions-${stamp}${
+        truncated ? "-partial" : ""
+      }.csv"`,
+      "X-Export-Total": String(total),
+      "X-Export-Truncated": truncated ? "true" : "false",
       "Cache-Control": "no-store",
     },
   });

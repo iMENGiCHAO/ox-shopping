@@ -885,22 +885,34 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
   const config = await getDistributionConfig();
 
   const [selfBuys, negatives, refundHeavy, bigWithdraws, overRules] = await Promise.all([
-    prisma.commissionLog.findMany({
-      where: { fromUserId: { not: null }, status: { in: ["PENDING", "SETTLED"] } },
-      select: {
-        id: true,
-        orderId: true,
-        fromUserId: true,
-        toUserId: true,
-        amountCny: true,
-        createdAt: true,
-        toUserName: true,
-        toUserEmail: true,
-        order: { select: { orderNumber: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    }),
+    /* 自购判定下推到数据库（P1 修复）：此前「取最近 200 条流水 → 内存过滤
+       fromUserId === toUserId」，流水一旦超过 200 条，较早的自购记录就永远
+       进不了视图 —— 而自购返佣（自买自返/刷单）正是风控最核心的信号，
+       漏报等于风控形同虚设。这里用原生 SQL 在库内完成字段对字段比较。 */
+    (async () => {
+      const selfBuyIds = await prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM commission_logs
+        WHERE "fromUserId" = "toUserId" AND status IN ('PENDING', 'SETTLED')
+        ORDER BY "createdAt" DESC
+        LIMIT 200
+      `;
+      if (selfBuyIds.length === 0) return [];
+      return prisma.commissionLog.findMany({
+        where: { id: { in: selfBuyIds.map((r) => r.id) } },
+        select: {
+          id: true,
+          orderId: true,
+          fromUserId: true,
+          toUserId: true,
+          amountCny: true,
+          createdAt: true,
+          toUserName: true,
+          toUserEmail: true,
+          order: { select: { orderNumber: true } },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+    })(),
     prisma.distributorAccount.findMany({
       where: { balance: { lt: 0 } },
       select: { userId: true, balance: true, user: { select: { email: true, name: true } } },
@@ -1061,28 +1073,46 @@ export async function getPromotionLog(opts: { skip: number; take: number }): Pro
   };
 }
 
+/**
+ * 导出上限。超过时**必须让运营看得见** —— 财务据缺行的 CSV 对账会得出
+ * 错误结论（此前静默 `take: 10_000`，超出部分无声丢弃）。
+ */
+const EXPORT_LIMIT = 10_000;
+
+export interface ExportResult {
+  rows: Record<string, unknown>[];
+  /** 满足筛选条件的总行数（未截断时等于 rows.length） */
+  total: number;
+  truncated: boolean;
+}
+
 /** 佣金流水导出（P1-8）：管理员全量导出 CSV 用 */
 export async function exportCommissionRows(filter: {
   status?: CommissionState;
   orderNumber?: string;
-}): Promise<Record<string, unknown>[]> {
-  const logs = await prisma.commissionLog.findMany({
-    where: {
-      ...(filter.status ? { status: filter.status } : {}),
-      ...(filter.orderNumber
-        ? { order: { orderNumber: { contains: filter.orderNumber, mode: "insensitive" } } }
-        : {}),
-    },
-    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-    take: 10_000,
-    include: {
-      order: { select: { orderNumber: true } },
-      toUser: { select: { name: true, email: true } },
-      fromUser: { select: { name: true, email: true } },
-    },
-  });
+}): Promise<ExportResult> {
+  const where = {
+    ...(filter.status ? { status: filter.status } : {}),
+    ...(filter.orderNumber
+      ? { order: { orderNumber: { contains: filter.orderNumber, mode: "insensitive" as const } } }
+      : {}),
+  };
 
-  return logs.map((l) => ({
+  const [logs, total] = await Promise.all([
+    prisma.commissionLog.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: EXPORT_LIMIT,
+      include: {
+        order: { select: { orderNumber: true } },
+        toUser: { select: { name: true, email: true } },
+        fromUser: { select: { name: true, email: true } },
+      },
+    }),
+    prisma.commissionLog.count({ where }),
+  ]);
+
+  const rows = logs.map((l) => ({
     订单号: l.order?.orderNumber ?? "",
     层级: l.level,
     比例: l.ratio == null ? "" : Number(l.ratio),
@@ -1102,20 +1132,26 @@ export async function exportCommissionRows(filter: {
     冲正时间: l.reversedAt?.toISOString() ?? "",
     备注: l.note ?? "",
   }));
+
+  return { rows, total, truncated: total > logs.length };
 }
 
 /** 提现导出（P1-8） */
 export async function exportWithdrawRows(filter: {
   status?: WithdrawStatus;
-}): Promise<Record<string, unknown>[]> {
-  const rows = await prisma.withdrawRecord.findMany({
-    where: filter.status ? { status: filter.status } : {},
-    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-    take: 10_000,
-    include: { user: { select: { name: true, email: true } } },
-  });
+}): Promise<ExportResult> {
+  const where = filter.status ? { status: filter.status } : {};
+  const [records, total] = await Promise.all([
+    prisma.withdrawRecord.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      take: EXPORT_LIMIT,
+      include: { user: { select: { name: true, email: true } } },
+    }),
+    prisma.withdrawRecord.count({ where }),
+  ]);
 
-  return rows.map((r) => ({
+  const rows = records.map((r) => ({
     申请时间: r.createdAt.toISOString(),
     申请人: r.user?.name ?? "（已注销）",
     邮箱: r.user?.email ?? r.userEmail ?? "",
@@ -1130,6 +1166,8 @@ export async function exportWithdrawRows(filter: {
     审核时间: r.auditedAt?.toISOString() ?? "",
     打款时间: r.paidAt?.toISOString() ?? "",
   }));
+
+  return { rows, total, truncated: total > records.length };
 }
 
 /* ─────────────────────────── P2-12 团队业绩预聚合 ─────────────────────────── */

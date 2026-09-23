@@ -17,16 +17,19 @@ export async function GET(req: Request) {
   await requireAdmin();
 
   const statusRaw = new URL(req.url).searchParams.get("status");
-  const status =
-    statusRaw && STATES.has(statusRaw) ? (statusRaw as WithdrawStatus) : undefined;
+  const status = statusRaw && STATES.has(statusRaw) ? (statusRaw as WithdrawStatus) : undefined;
 
-  const rows = await exportWithdrawRows(status ? { status } : {});
+  const { rows, total, truncated } = await exportWithdrawRows(status ? { status } : {});
+  const stamp = new Date().toISOString().slice(0, 10);
   return new Response(toCsv(normalizeRows(rows)), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="distribution-withdrawals-${new Date()
-        .toISOString()
-        .slice(0, 10)}.csv"`,
+      // 截断可见（P1 修复）：文件名带 -partial + 回传总数（见佣金导出同款说明）
+      "Content-Disposition": `attachment; filename="distribution-withdrawals-${stamp}${
+        truncated ? "-partial" : ""
+      }.csv"`,
+      "X-Export-Total": String(total),
+      "X-Export-Truncated": truncated ? "true" : "false",
       "Cache-Control": "no-store",
     },
   });
