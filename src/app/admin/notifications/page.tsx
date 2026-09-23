@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmDialog } from "@/components/admin/confirm-dialog";
@@ -146,11 +147,7 @@ export default function AdminNotificationsPage() {
               </Button>
             ) : null}
             {rows.some((r) => !r.isUnread) ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setConfirm({ mode: "readOnly" })}
-              >
+              <Button size="sm" variant="outline" onClick={() => setConfirm({ mode: "readOnly" })}>
                 <Trash2 className="h-3.5 w-3.5" />
                 清空已读
               </Button>
@@ -179,12 +176,11 @@ export default function AdminNotificationsPage() {
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-14 text-center">
-            <Inbox className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">暂无消息</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<Inbox className="h-6 w-6" />}
+          title="暂无消息"
+          description="安全提醒、找回密码申请等系统事件会出现在这里"
+        />
       ) : (
         <Card>
           <CardContent className="p-0">
@@ -200,7 +196,10 @@ export default function AdminNotificationsPage() {
                   {/* 未读圆点 + 类型徽标 */}
                   <div className="mt-0.5 flex w-14 shrink-0 items-center gap-1.5">
                     {n.isUnread ? (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="未读" />
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full bg-primary"
+                        aria-label="未读"
+                      />
                     ) : (
                       <span className="h-2 w-2 shrink-0 rounded-full bg-border" aria-hidden />
                     )}
@@ -212,7 +211,9 @@ export default function AdminNotificationsPage() {
                   {/* 内容 */}
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-                      <p className={cn("text-[13px]", n.isUnread ? "font-semibold" : "font-medium")}>
+                      <p
+                        className={cn("text-[13px]", n.isUnread ? "font-semibold" : "font-medium")}
+                      >
                         {n.title}
                       </p>
                       <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">

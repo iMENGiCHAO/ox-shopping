@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Truck } from "lucide-react";
+import { Truck, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch } from "@/lib/fetch-client";
@@ -74,6 +74,33 @@ export function OrderDetailDrawer({
     }
   };
 
+  /* ---------------- 订单认领（数据孤岛修复）---------------- */
+  const [assignLoading, setAssignLoading] = React.useState(false);
+
+  const toggleAssign = async () => {
+    if (!current) return;
+    setAssignLoading(true);
+    try {
+      const res = await apiFetch<{
+        order: { assignee?: { id: string; name: string; email: string } | null };
+      }>(`/api/admin/orders/${current.id}/assign`, {
+        method: current.assignee ? "DELETE" : "POST",
+      });
+      // 认领响应 include assignee；取消认领则直接置空。本地同步 current
+      // （API 返回的是 Prisma 原始行而非序列化 AdminOrder，不能整体替换）。
+      setCurrent({
+        ...current,
+        assignee: current.assignee ? null : (res.order?.assignee ?? null),
+      });
+      toast.success(current.assignee ? "已取消认领" : "认领成功，请跟进此订单");
+      onChanged?.();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "认领操作失败");
+    } finally {
+      setAssignLoading(false);
+    }
+  };
+
   const address = current?.addressSnapshot;
   const currency = current?.currency || "USD";
 
@@ -121,20 +148,17 @@ export function OrderDetailDrawer({
     }
     setAddrSaving(true);
     try {
-      const res = await apiFetch<{ order: AdminOrder }>(
-        `/api/admin/orders/${current.id}/address`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            recipientName,
-            detail,
-            phone: addrDraft.phone?.trim() || null,
-            province: addrDraft.province?.trim() || null,
-            city: addrDraft.city?.trim() || null,
-            district: addrDraft.district?.trim() || null,
-          }),
-        },
-      );
+      const res = await apiFetch<{ order: AdminOrder }>(`/api/admin/orders/${current.id}/address`, {
+        method: "PUT",
+        body: JSON.stringify({
+          recipientName,
+          detail,
+          phone: addrDraft.phone?.trim() || null,
+          province: addrDraft.province?.trim() || null,
+          city: addrDraft.city?.trim() || null,
+          district: addrDraft.district?.trim() || null,
+        }),
+      });
       if (res?.order) setCurrent(res.order);
       setAddrEditing(false);
       toast.success("收货地址已更新（已记录审计日志）");
@@ -150,10 +174,10 @@ export function OrderDetailDrawer({
     if (!current) return;
     setNoteSaving(true);
     try {
-      const res = await apiFetch<{ order: AdminOrder }>(
-        `/api/admin/orders/${current.id}/note`,
-        { method: "PUT", body: JSON.stringify({ adminNote: noteDraft }) },
-      );
+      const res = await apiFetch<{ order: AdminOrder }>(`/api/admin/orders/${current.id}/note`, {
+        method: "PUT",
+        body: JSON.stringify({ adminNote: noteDraft }),
+      });
       if (res?.order) setCurrent(res.order);
       toast.success("内部备注已保存");
       onChanged?.();
@@ -167,9 +191,10 @@ export function OrderDetailDrawer({
   // 管理员不能直接标记为已送达，DELIVERED 只能由购物者确认收货
   // 所以 SHIPPED 状态的可推进状态只显示 REFUNDED
   const rawNextStatuses = current ? (ORDER_STATUS_FLOW[current.status] ?? []) : [];
-  const nextStatuses = current?.status === "SHIPPED"
-    ? rawNextStatuses.filter((s) => s !== "DELIVERED")
-    : rawNextStatuses;
+  const nextStatuses =
+    current?.status === "SHIPPED"
+      ? rawNextStatuses.filter((s) => s !== "DELIVERED")
+      : rawNextStatuses;
   // Paid/processing can ship; shipped can edit shipping info
   const canShip = Boolean(
     current && (current.status === "PAID" || current.status === "PROCESSING"),
@@ -177,10 +202,10 @@ export function OrderDetailDrawer({
   // 已支付/处理中/已发货/已送达均可补填或修改物流信息（与后端 PUT /tracking 的允许状态一致）
   const canEditTracking = Boolean(
     current &&
-      (current.status === "PAID" ||
-        current.status === "PROCESSING" ||
-        current.status === "SHIPPED" ||
-        current.status === "DELIVERED"),
+    (current.status === "PAID" ||
+      current.status === "PROCESSING" ||
+      current.status === "SHIPPED" ||
+      current.status === "DELIVERED"),
   );
 
   return (
@@ -203,6 +228,34 @@ export function OrderDetailDrawer({
                 <div className="text-muted-foreground">订单状态</div>
                 <div>
                   <StatusBadge status={current.status} labelMap={{ ...ORDER_STATUS_LABELS }} />
+                </div>
+                <div className="text-muted-foreground">认领人</div>
+                <div className="flex items-center gap-2">
+                  {current.assignee ? (
+                    <>
+                      <span title={current.assignee.email}>{current.assignee.name}</span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-xs"
+                        disabled={assignLoading}
+                        onClick={() => void toggleAssign()}
+                      >
+                        取消认领
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      disabled={assignLoading}
+                      onClick={() => void toggleAssign()}
+                    >
+                      <UserCheck className="mr-1 h-3 w-3" />
+                      认领跟进
+                    </Button>
+                  )}
                 </div>
                 <div className="text-muted-foreground">支付方式</div>
                 <div>
@@ -367,7 +420,9 @@ export function OrderDetailDrawer({
                       </TableCell>
                       <TableCell>{formatMoney(item.price, currency)}</TableCell>
                       <TableCell>×{item.quantity}</TableCell>
-                      <TableCell className="text-right">{formatMoney(item.subtotal, currency)}</TableCell>
+                      <TableCell className="text-right">
+                        {formatMoney(item.subtotal, currency)}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -427,9 +482,7 @@ export function OrderDetailDrawer({
               <SelectTrigger className="w-36" disabled={statusLoading}>
                 {/* value 是"当前状态"，但选项只列"下一可推进状态"，
                     Radix 匹配不到对应 SelectItem 会显示空白 → 用 placeholder 兜底当前状态文案 */}
-                <SelectValue
-                  placeholder={ORDER_STATUS_LABELS[current.status] ?? current.status}
-                />
+                <SelectValue placeholder={ORDER_STATUS_LABELS[current.status] ?? current.status} />
               </SelectTrigger>
               <SelectContent>
                 {nextStatuses.length > 0 ? (
@@ -488,7 +541,12 @@ export function OrderDetailDrawer({
             setCurrent({
               ...current,
               status: shipMode === "ship" ? "SHIPPED" : current.status,
-              ...(tracking ? { trackingCompany: tracking.trackingCompany, trackingNumber: tracking.trackingNumber } : {}),
+              ...(tracking
+                ? {
+                    trackingCompany: tracking.trackingCompany,
+                    trackingNumber: tracking.trackingNumber,
+                  }
+                : {}),
             });
           }
           onChanged?.();

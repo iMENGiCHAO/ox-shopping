@@ -130,6 +130,11 @@ export interface AdminOrder {
   note?: string | null;
   /** 运营内部备注（仅后台可见；管理端接口才返回，顾客侧被 serializeOrder 剥离） */
   adminNote?: string | null;
+  /**
+   * 认领此订单的员工（后台协作处理）：认领后由其负责跟进，可取消。
+   * 管理端列表 API include 此字段；顾客侧任何接口都不会返回。
+   */
+  assignee?: { id: string; name: string; email: string } | null;
   paidAt?: string | null;
   shippedAt?: string | null;
   deliveredAt?: string | null;

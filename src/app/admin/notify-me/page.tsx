@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bell, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -96,12 +97,11 @@ export default function AdminNotifyMePage() {
           </CardContent>
         </Card>
       ) : rows.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-14 text-center">
-            <Bell className="h-8 w-8 text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">暂无到货通知订阅</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={<Bell className="h-6 w-6" />}
+          title="暂无到货通知订阅"
+          description="顾客在商品售罄时点「到货通知我」，订阅会出现在这里"
+        />
       ) : (
         <Card>
           <CardContent className="p-0">

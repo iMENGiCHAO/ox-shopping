@@ -1,10 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { Download, Eye, Search } from "lucide-react";
+import { Download, Eye, Search, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 
-import {apiFetchRaw } from "@/lib/fetch-client";
+import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { ORDER_STATUS_LABELS } from "@/lib/order-status";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -125,6 +125,31 @@ export default function AdminOrdersPage() {
   React.useEffect(() => {
     void load();
   }, [load]);
+
+  /* ---------------- 订单认领（数据孤岛修复）----------------
+     后端 POST/DELETE /api/admin/orders/[id]/assign 早已存在（含审计、
+     认领即标已读），但 UI 一直没有入口——顾客订单谁来跟进无从知晓。
+     列表行内认领/取消，详情抽屉内同样可操作。 */
+  const [assigningId, setAssigningId] = React.useState<string | null>(null);
+
+  const toggleAssign = async (row: AdminOrder) => {
+    setAssigningId(row.id);
+    try {
+      await apiFetch(`/api/admin/orders/${row.id}/assign`, {
+        method: row.assignee ? "DELETE" : "POST",
+      });
+      toast.success(
+        row.assignee
+          ? `已取消 #${row.orderNumber} 的认领`
+          : `已认领 #${row.orderNumber}，请跟进处理`,
+      );
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "认领操作失败");
+    } finally {
+      setAssigningId(null);
+    }
+  };
 
   /** Export CSV (current filters) */
   const handleExport = () => {
@@ -254,13 +279,13 @@ export default function AdminOrdersPage() {
               </SelectTrigger>
               <SelectContent>
                 {/* DELIVERED 不在批量列表：确认收货是顾客的权利（与单笔接口同规则） */}
-                {(["PAID", "PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"] as AdminOrderStatus[]).map(
-                  (s) => (
-                    <SelectItem key={s} value={s}>
-                      {ORDER_STATUS_LABELS[s]}
-                    </SelectItem>
-                  ),
-                )}
+                {(
+                  ["PAID", "PROCESSING", "SHIPPED", "CANCELLED", "REFUNDED"] as AdminOrderStatus[]
+                ).map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {ORDER_STATUS_LABELS[s]}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button size="sm" disabled={batchBusy} onClick={() => void runBatchStatus()}>
@@ -301,9 +326,7 @@ export default function AdminOrdersPage() {
                     />
                   </TableHead>
                   {/* sticky 左：订单号始终可见 */}
-                  <TableHead className="sticky-col-left-2 w-[140px]">
-                    {t("Order #")}
-                  </TableHead>
+                  <TableHead className="sticky-col-left-2 w-[140px]">{t("Order #")}</TableHead>
                   <TableHead className="w-[180px]">用户</TableHead>
                   {/* 商品列：宽度自适应 */}
                   <TableHead className="hidden md:table-cell">商品</TableHead>
@@ -352,7 +375,10 @@ export default function AdminOrdersPage() {
                         onClick={() => openDrawer(row)}
                       >
                         {/* 批量选择：点击复选框不打开抽屉（stopPropagation） */}
-                        <TableCell className="sticky-col-left w-10" onClick={(e) => e.stopPropagation()}>
+                        <TableCell
+                          className="sticky-col-left w-10"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input
                             type="checkbox"
                             aria-label={`选择订单 ${row.orderNumber}`}
@@ -382,17 +408,26 @@ export default function AdminOrdersPage() {
                           <CellText value={productLine} title={productLine} />
                         </TableCell>
                         <TableCell className="w-24 text-right font-medium tabular-nums">
-                          <div>
-                            {formatMoney(row.total, row.currency || "USD")}
-                          </div>
+                          <div>{formatMoney(row.total, row.currency || "USD")}</div>
                           {row.currency && row.currency !== "CNY" ? (
-                            <div className="text-[10px] text-muted-foreground">
-                              {row.currency}
-                            </div>
+                            <div className="text-[10px] text-muted-foreground">{row.currency}</div>
                           ) : null}
                         </TableCell>
                         <TableCell className="w-24">
-                          <StatusBadge status={row.status} labelMap={{ ...ORDER_STATUS_LABELS }} />
+                          <div className="flex flex-col items-start gap-1">
+                            <StatusBadge
+                              status={row.status}
+                              labelMap={{ ...ORDER_STATUS_LABELS }}
+                            />
+                            {row.assignee ? (
+                              <span
+                                className="max-w-full truncate rounded bg-muted px-1.5 text-[10px] leading-4 text-muted-foreground"
+                                title={`认领人：${row.assignee.name}（${row.assignee.email}）`}
+                              >
+                                {row.assignee.name}
+                              </span>
+                            ) : null}
+                          </div>
                         </TableCell>
                         <TableCell className="hidden w-28 lg:table-cell">
                           {row.paymentProvider === "stripe" ? (
@@ -403,7 +438,7 @@ export default function AdminOrdersPage() {
                             <span className="text-muted-foreground">-</span>
                           )}
                         </TableCell>
-                        <TableCell className="hidden w-[120px] text-xs text-muted-foreground tabular-nums xl:table-cell">
+                        <TableCell className="hidden w-[120px] text-xs tabular-nums text-muted-foreground xl:table-cell">
                           {fmtShortDate(row.createdAt)}
                         </TableCell>
                         {/* sticky 右：操作列始终可见 */}
@@ -418,6 +453,18 @@ export default function AdminOrdersPage() {
                                 icon: Eye,
                                 onClick: () => openDrawer(row),
                                 primary: true,
+                              },
+                              {
+                                label:
+                                  assigningId === row.id
+                                    ? row.assignee
+                                      ? "取消认领中…"
+                                      : "认领中…"
+                                    : row.assignee
+                                      ? `取消认领（${row.assignee.name}）`
+                                      : "认领跟进",
+                                icon: UserCheck,
+                                onClick: () => void toggleAssign(row),
                               },
                             ]}
                           />
