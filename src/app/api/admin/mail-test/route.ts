@@ -33,7 +33,7 @@ export const POST = apiHandler(async (req) => {
   });
   if (!rl.ok) throw rateLimited("测试邮件发送过于频繁，请稍后再试");
 
-  const status = getMailStatus();
+  const status = await getMailStatus();
 
   try {
     const res = await sendTestMail(input.to);

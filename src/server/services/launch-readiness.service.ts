@@ -64,7 +64,7 @@ export async function getLaunchReadiness(): Promise<LaunchReadiness> {
       })
       .catch(() => []),
   ]);
-  const mail = getMailStatus();
+  const mail = await getMailStatus();
 
   const items: ReadinessItem[] = [];
 

@@ -4,7 +4,11 @@ import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { env, brandFallback, mailFrom } from "@/lib/env";
+import { env, brandFallback } from "@/lib/env";
+import {
+  getMailRuntimeConfig,
+  type MailRuntimeConfig,
+} from "@/server/services/mail-config.service";
 import { logger } from "@/lib/logger";
 import {
   AccountDeletedEmail,
@@ -220,13 +224,25 @@ export interface SendMailInput<T extends MailTemplate = MailTemplate> {
   data: MailData[T];
 }
 
-let resendClient: Resend | null = null;
-let smtpTransport: nodemailer.Transporter | null = null;
+/* 客户端按**配置指纹**缓存：配置在后台改过后必须重建 —— 否则改了主机/密码
+   仍会用旧连接池发信（表现为「保存成功但发信还是失败」的诡异现象）。 */
+let resendClient: { key: string; client: Resend } | null = null;
+let smtpTransport: { fingerprint: string; transport: nodemailer.Transporter } | null = null;
 
-async function sendViaResend(to: string, subject: string, html: string) {
-  if (!resendClient) resendClient = new Resend(env.RESEND_API_KEY);
-  const { error } = await resendClient.emails.send({
-    from: mailFrom,
+/** 实际生效通道：声明通道缺凭据时降级为 console（状态里会显式告警） */
+function effectiveChannel(cfg: MailRuntimeConfig): "resend" | "smtp" | "console" {
+  if (cfg.provider === "resend" && cfg.resend.apiKey) return "resend";
+  if (cfg.provider === "smtp" && cfg.smtp.host) return "smtp";
+  return "console";
+}
+
+async function sendViaResend(to: string, subject: string, html: string, cfg: MailRuntimeConfig) {
+  const key = cfg.resend.apiKey;
+  if (!resendClient || resendClient.key !== key) {
+    resendClient = { key, client: new Resend(key) };
+  }
+  const { error } = await resendClient.client.emails.send({
+    from: cfg.from,
     to,
     subject,
     html,
@@ -234,17 +250,21 @@ async function sendViaResend(to: string, subject: string, html: string) {
   if (error) throw new Error(`Resend 发送失败: ${error.message}`);
 }
 
-async function sendViaSmtp(to: string, subject: string, html: string) {
-  if (!smtpTransport) {
-    smtpTransport = nodemailer.createTransport({
-      host: env.SMTP_HOST,
-      port: env.SMTP_PORT,
-      secure: env.SMTP_SECURE,
-      auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
-    });
+async function sendViaSmtp(to: string, subject: string, html: string, cfg: MailRuntimeConfig) {
+  const fp = `${cfg.smtp.host}:${cfg.smtp.port}:${cfg.smtp.secure}:${cfg.smtp.user}`;
+  if (!smtpTransport || smtpTransport.fingerprint !== fp) {
+    smtpTransport = {
+      fingerprint: fp,
+      transport: nodemailer.createTransport({
+        host: cfg.smtp.host,
+        port: cfg.smtp.port,
+        secure: cfg.smtp.secure,
+        auth: cfg.smtp.user ? { user: cfg.smtp.user, pass: cfg.smtp.pass } : undefined,
+      }),
+    };
   }
-  await smtpTransport.sendMail({
-    from: mailFrom,
+  await smtpTransport.transport.sendMail({
+    from: cfg.from,
     to,
     subject,
     html,
@@ -282,15 +302,18 @@ export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>):
   const data = { ...base, ...(input.data as object) };
   const html = await meta.render(data);
   const subject = meta.subject(lang, base.siteName);
+  // 通道与发件人取**运行时配置**（后台可改，保存后立即生效；env 仅兜底）
+  const cfg = await getMailRuntimeConfig();
   try {
-    if (env.MAIL_PROVIDER === "resend" && env.RESEND_API_KEY) {
-      await sendViaResend(input.to, subject, html);
-    } else if (env.MAIL_PROVIDER === "smtp" && env.SMTP_HOST) {
-      await sendViaSmtp(input.to, subject, html);
+    const channel = effectiveChannel(cfg);
+    if (channel === "resend") {
+      await sendViaResend(input.to, subject, html, cfg);
+    } else if (channel === "smtp") {
+      await sendViaSmtp(input.to, subject, html, cfg);
     } else {
       await sendViaConsole(input.to, subject, html, input.template);
     }
-    logger.info({ to: input.to, template: input.template }, "邮件已发送");
+    logger.info({ to: input.to, template: input.template, channel }, "邮件已发送");
   } catch (err) {
     // 邮件失败不应阻断主流程(订单仍创建成功)
     logger.error({ err, to: input.to, template: input.template }, "邮件发送失败");
@@ -316,11 +339,13 @@ export interface MailChannelCheck {
 }
 
 export interface MailStatus {
-  /** .env 声明的通道 */
+  /** 选择的通道（后台配置优先，未配置时取环境变量） */
   provider: "resend" | "smtp" | "console";
-  /** 实际生效通道：声明通道缺配置时降级为 console */
+  /** 实际生效通道：所选通道缺凭据时降级为 console */
   effective: "resend" | "smtp" | "console";
   from: string;
+  /** 配置来源：db = 后台配置过；env = 完全由环境变量兜底 */
+  source: "db" | "env";
   /** 业务邮件能否真正送达收件人（console 一律视为不可送达） */
   deliverable: boolean;
   checks: MailChannelCheck[];
@@ -328,66 +353,52 @@ export interface MailStatus {
   warning?: string;
 }
 
-/** 当前邮件通道状态：声明通道、实际生效通道、缺失配置、发件地址 */
-export function getMailStatus(): MailStatus {
-  const isResend = env.MAIL_PROVIDER === "resend";
-  const isSmtp = env.MAIL_PROVIDER === "smtp";
+/**
+ * 当前邮件通道状态（**异步**：通道与凭据来自后台可配的运行时配置）。
+ * 后台「系统设置 → 邮件服务」据此展示：所选通道、实际生效通道、配置来源、
+ * 发件地址、缺失配置，以及「邮件不会真正送达」的告警。
+ */
+export async function getMailStatus(): Promise<MailStatus> {
+  const cfg = await getMailRuntimeConfig();
+  const isResend = cfg.provider === "resend";
+  const isSmtp = cfg.provider === "smtp";
 
   const checks: MailChannelCheck[] = isResend
     ? [
         {
-          key: "RESEND_API_KEY",
+          key: "resendApiKey",
           label: "Resend API Key",
-          configured: !!env.RESEND_API_KEY.trim(),
+          configured: !!cfg.resend.apiKey,
           required: true,
         },
       ]
     : isSmtp
       ? [
-          {
-            key: "SMTP_HOST",
-            label: "SMTP 主机",
-            configured: !!env.SMTP_HOST.trim(),
-            required: true,
-          },
-          { key: "SMTP_PORT", label: "SMTP 端口", configured: env.SMTP_PORT > 0, required: true },
-          {
-            key: "SMTP_USER",
-            label: "SMTP 用户名",
-            configured: !!env.SMTP_USER.trim(),
-            required: false,
-          },
-          {
-            key: "SMTP_PASS",
-            label: "SMTP 密码",
-            configured: !!env.SMTP_PASS.trim(),
-            required: false,
-          },
+          { key: "smtpHost", label: "SMTP 主机", configured: !!cfg.smtp.host, required: true },
+          { key: "smtpPort", label: "SMTP 端口", configured: cfg.smtp.port > 0, required: true },
+          { key: "smtpUser", label: "SMTP 用户名", configured: !!cfg.smtp.user, required: false },
+          { key: "smtpPass", label: "SMTP 密码", configured: !!cfg.smtp.pass, required: false },
         ]
       : [];
 
-  const effective: MailStatus["effective"] =
-    isResend && env.RESEND_API_KEY.trim()
-      ? "resend"
-      : isSmtp && env.SMTP_HOST.trim()
-        ? "smtp"
-        : "console";
+  const effective = effectiveChannel(cfg);
   const deliverable = effective !== "console";
   const missing = checks.filter((c) => c.required && !c.configured).map((c) => c.label);
 
   return {
-    provider: env.MAIL_PROVIDER,
+    provider: cfg.provider,
     effective,
-    from: mailFrom,
+    from: cfg.from,
+    source: cfg.source,
     deliverable,
     checks,
     warning: deliverable
       ? undefined
       : missing.length > 0
-        ? `已声明 ${env.MAIL_PROVIDER} 通道，但缺少必需配置：${missing.join("、")}。` +
+        ? `已选择 ${cfg.provider} 通道，但缺少必需配置：${missing.join("、")}。` +
           `当前所有邮件（订单确认、发货通知、到货提醒、找回密码等）只会写入日志，` +
-          `不会真正送达顾客 —— 请补齐配置后重启服务。`
-        : "未配置邮件通道（MAIL_PROVIDER=console）：所有邮件只会写入日志与本地 .mail-out 目录，不会真正送达顾客。",
+          `不会真正送达顾客 —— 请在下方补齐配置（保存后立即生效）。`
+        : "当前通道为「仅写日志」：所有邮件只会写入日志与本地 .mail-out 目录，不会真正送达顾客。请选择 SMTP 或 Resend 并填写配置。",
   };
 }
 
@@ -398,24 +409,25 @@ export function getMailStatus(): MailStatus {
  * 自检必须把真实错误交回后台（否则又是一个「转圈圈」的伪功能）。
  */
 export async function sendTestMail(to: string): Promise<{ channel: string; from: string }> {
-  const status = getMailStatus();
+  const cfg = await getMailRuntimeConfig();
+  const channel = effectiveChannel(cfg);
   const subject = `【邮件通道自检】${brandFallback}`;
   const html = `<!doctype html><html><body style="font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.7;color:#111">
   <h2 style="margin:0 0 12px">邮件通道自检</h2>
   <p>这封邮件由后台「系统设置 → 邮件服务」发出，用于验证当前邮件通道可用。</p>
   <p style="color:#555">This is a test email from the admin panel to verify the mail channel.</p>
   <p style="color:#555;font-size:13px;margin-top:16px">
-    通道 / Channel: <code>${status.effective}</code><br/>
-    发件人 / From: ${mailFrom}
+    通道 / Channel: <code>${channel}</code><br/>
+    发件人 / From: ${cfg.from}
   </p>
 </body></html>`;
 
-  if (status.effective === "resend") {
-    await sendViaResend(to, subject, html);
-  } else if (status.effective === "smtp") {
-    await sendViaSmtp(to, subject, html);
+  if (channel === "resend") {
+    await sendViaResend(to, subject, html, cfg);
+  } else if (channel === "smtp") {
+    await sendViaSmtp(to, subject, html, cfg);
   } else {
     await sendViaConsole(to, subject, html, "mail-test");
   }
-  return { channel: status.effective, from: mailFrom };
+  return { channel, from: cfg.from };
 }
