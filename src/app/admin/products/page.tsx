@@ -229,6 +229,16 @@ export default function AdminProductsPage() {
     }
   };
 
+  // 规格编辑面板的实时合计：改各规格明细时立刻看到总库存变化
+  const specEditTotal = React.useMemo(
+    () =>
+      Object.values(specEditValue).reduce(
+        (sum, m) => sum + Object.values(m).reduce((s, n) => s + (Number(n) || 0), 0),
+        0,
+      ),
+    [specEditValue],
+  );
+
   const startStockEdit = (product: AdminProduct) => {
     setStockEditId(product.id);
     setStockValue(String(product.stock));
@@ -541,47 +551,62 @@ export default function AdminProductsPage() {
                       {hasSpecStock(row) ? (
                         /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
                         specEditId === row.id ? (
-                          <div className="space-y-1.5 py-1">
+                          <div className="min-w-44 space-y-2 rounded border bg-muted/40 p-2">
                             {specGroupsOf(row).map((g) => (
-                              <div key={g.name} className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs text-muted-foreground">{g.name}</span>
-                                {g.values.map((v) => (
-                                  <div key={v} className="flex items-center gap-0.5">
-                                    <Input
-                                      inputMode="numeric"
-                                      value={specEditValue[g.name]?.[v] ?? ""}
-                                      onChange={(e) => {
-                                        const val = e.target.value.replace(/[^0-9]/g, "");
-                                        setSpecEditValue((prev) => ({
-                                          ...prev,
-                                          [g.name]: { ...(prev[g.name] ?? {}), [v]: val },
-                                        }));
-                                      }}
-                                      className="h-6 w-10 px-1 text-xs"
-                                      aria-label={`${g.name}:${v}`}
-                                    />
-                                    <span className="text-[10px] text-muted-foreground">{v}</span>
-                                  </div>
-                                ))}
+                              <div key={g.name} className="space-y-1">
+                                <div className="text-[11px] font-medium text-muted-foreground">
+                                  {g.name}
+                                </div>
+                                <div className="flex flex-wrap gap-x-2.5 gap-y-1">
+                                  {g.values.map((v) => (
+                                    <label
+                                      key={v}
+                                      className="flex items-center gap-1 text-[11px] leading-6"
+                                    >
+                                      <span className="text-muted-foreground">{v}</span>
+                                      <Input
+                                        inputMode="numeric"
+                                        value={specEditValue[g.name]?.[v] ?? ""}
+                                        onChange={(e) => {
+                                          const val = e.target.value.replace(/[^0-9]/g, "");
+                                          setSpecEditValue((prev) => ({
+                                            ...prev,
+                                            [g.name]: { ...(prev[g.name] ?? {}), [v]: val },
+                                          }));
+                                        }}
+                                        className="h-6 w-10 px-1 text-center text-xs tabular-nums"
+                                        aria-label={`${g.name}:${v}库存`}
+                                      />
+                                    </label>
+                                  ))}
+                                </div>
                               </div>
                             ))}
-                            <div className="flex gap-1">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-1.5 text-xs"
-                                onClick={() => void saveSpecStock(row)}
-                              >
-                                保存
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-1.5 text-xs"
-                                onClick={() => setSpecEditId(null)}
-                              >
-                                取消
-                              </Button>
+                            <div className="flex items-center justify-between border-t pt-1.5">
+                              <span className="text-[11px] text-muted-foreground">
+                                合计{" "}
+                                <span className="font-medium tabular-nums text-foreground">
+                                  {specEditTotal}
+                                </span>
+                              </span>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-1.5 text-xs"
+                                  onClick={() => void saveSpecStock(row)}
+                                >
+                                  保存
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-1.5 text-xs"
+                                  onClick={() => setSpecEditId(null)}
+                                >
+                                  取消
+                                </Button>
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -589,26 +614,30 @@ export default function AdminProductsPage() {
                             type="button"
                             aria-label="编辑规格库存"
                             onClick={() => startSpecEdit(row)}
-                            title="点击编辑各规格库存"
+                            title={
+                              specGroupsOf(row)
+                                .map((g) => {
+                                  const m =
+                                    (
+                                      row.specStock as Record<string, Record<string, number>> | null
+                                    )?.[g.name] ?? {};
+                                  return `${g.name}：${g.values.map((v) => `${v} ${m[v] ?? 0}`).join("、")}`;
+                                })
+                                .join("；") + "（点击编辑各规格库存）"
+                            }
                             className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
                           >
-                            <span className="text-xs text-muted-foreground">
-                              {specGroupsOf(row)
-                                .map((g) =>
-                                  g.values
-                                    .map((v) => {
-                                      const n =
-                                        (
-                                          row.specStock as Record<
-                                            string,
-                                            Record<string, number>
-                                          > | null
-                                        )?.[g.name]?.[v] ?? 0;
-                                      return `${v}×${n}`;
-                                    })
-                                    .join(" "),
-                                )
-                                .join(" · ")}
+                            <span
+                              className={
+                                row.stock <= lowStockThreshold
+                                  ? "font-medium tabular-nums text-destructive"
+                                  : "tabular-nums"
+                              }
+                            >
+                              {row.stock}
+                            </span>
+                            <span className="rounded bg-muted px-1 text-[10px] leading-4 text-muted-foreground">
+                              规格
                             </span>
                             <Pencil className="h-3 w-3 text-muted-foreground" />
                           </button>
@@ -619,7 +648,7 @@ export default function AdminProductsPage() {
                           <Input
                             value={stockValue}
                             onChange={(e) => setStockValue(e.target.value)}
-                            className="h-7 w-16 px-1 text-sm"
+                            className="h-7 w-16 px-1 text-sm tabular-nums"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === "Enter") void saveStock(row);
@@ -634,6 +663,14 @@ export default function AdminProductsPage() {
                           >
                             保存
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-1.5 text-xs"
+                            onClick={() => setStockEditId(null)}
+                          >
+                            取消
+                          </Button>
                         </div>
                       ) : (
                         <button
@@ -644,7 +681,9 @@ export default function AdminProductsPage() {
                         >
                           <span
                             className={
-                              row.stock <= lowStockThreshold ? "font-medium text-destructive" : ""
+                              row.stock <= lowStockThreshold
+                                ? "font-medium tabular-nums text-destructive"
+                                : "tabular-nums"
                             }
                           >
                             {row.stock}
