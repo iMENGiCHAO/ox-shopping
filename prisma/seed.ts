@@ -447,6 +447,32 @@ async function seedFaqs() {
   );
 }
 
+/**
+ * 分销启用基线（**仅测试库**）。
+ *
+ * 为什么需要：`getDistributionEnabledAt()` 在 SiteSetting 缺失时把**首次调用时刻**
+ * 记为基线，而 `reconcileDistribution` 会把「早于基线的订单」视为自然单、不补归属。
+ * 集成测试若在基线写入之前创建订单（清空测试库后的首轮就是如此），这些订单就永远
+ * 补不回归属 —— 表现为「对账补偿」用例随库状态时绿时红，极难定位。
+ * 预置一个很早的基线，让测试订单始终晚于它。
+ *
+ * ⚠️ 只在测试库写入：生产/开发库的真实启用时刻必须由运行时决定，
+ *   否则历史订单会被错误地回溯归属（那是真实的资金口径问题）。
+ */
+async function seedDistributionBaseline() {
+  const url = process.env.DATABASE_URL ?? "";
+  if (!/_test(\?|$)/.test(url)) return;
+
+  const KEY = "distributionEnabledAt";
+  const existing = await prisma.siteSetting.findUnique({ where: { key: KEY } });
+  if (existing) return;
+
+  await prisma.siteSetting.create({
+    data: { key: KEY, value: new Date("2020-01-01T00:00:00.000Z").toISOString() },
+  });
+  console.log("✓ 测试库分销启用基线已预置（2020-01-01，避免对账补归属被时间窗吞掉）");
+}
+
 async function main() {
   console.log("开始写入种子数据...");
   // 演示账号门控：生产环境默认跳过（admin@example.com 等已知口令绝不入生产库）。
@@ -467,6 +493,7 @@ async function main() {
   await seedSiteSettings();
   await seedFaqs();
   await seedPaymentChannels();
+  await seedDistributionBaseline();
   console.log("种子数据全部完成 ✔");
   if (seedDemo) {
     console.log("  管理员: admin@example.com / Admin@123456");

@@ -52,6 +52,29 @@ export default function globalSetup() {
       // eslint-disable-next-line no-console
       console.warn("[global-setup] 原始索引重建失败：", String(err).slice(0, 200));
     }
+    /* 清空上一轮遗留的业务数据（**仅测试库**）。
+       为什么必须：集成测试不做清理，多轮累积（实测 25148 用户 / 1700 订单）
+       后 cron 整轮任务（单事务内跑完：超时取消 → 清理 → 分销对账 → 业绩汇总）
+       会对全表聚合并超过 vitest 的 60s 超时，表现为「与本轮改动无关的 cron
+       用例突然失败」，定位成本极高。清库让数据规模恒定。
+       安全：只有 URL 库名以 _test 结尾才执行（SQL 内还有第二道断言）。 */
+    if (/_test(\?|$)/.test(dbUrl)) {
+      try {
+        execSync("npx prisma db execute --file prisma/sql/reset-test-data.sql", {
+          stdio: "pipe",
+          env: { ...process.env, DATABASE_URL: dbUrl },
+        });
+        // eslint-disable-next-line no-console
+        console.log("[global-setup] 测试库业务数据已清空（避免多轮累积拖慢对账/汇总）");
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[global-setup] 测试库清空失败：", String(err).slice(0, 200));
+      }
+    } else {
+      // eslint-disable-next-line no-console
+      console.warn("[global-setup] DATABASE_URL 不是 *_test 库，跳过清空（测试数据会累积到该库）");
+    }
+
     // 幂等种子数据（测试账号/商品/优惠券）
     execSync("npx tsx prisma/seed.ts", {
       stdio: "pipe",
