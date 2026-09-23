@@ -69,14 +69,6 @@ export const RATE_LIMITS = {
   },
   /** 到货提醒订阅：单邮箱 5 次/小时（另有同邮箱+商品去重兜底） */
   notifyMe: { limit: 5, windowSeconds: 3600 },
-  /** 客服留言：单 IP 5 次/小时；全站熔断 200 次/小时（留言会触发内部邮件） */
-  contact: {
-    limit: 5,
-    windowSeconds: 3600,
-    breakerKey: "contact:__global__",
-    breakerLimit: 200,
-    breakerWindowSeconds: 3600,
-  },
   /** 分销绑定关系变更：单用户 10 次/小时 */
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */

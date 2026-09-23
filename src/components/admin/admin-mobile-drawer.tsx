@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   FolderTree,
-  Inbox,
   KeyRound,
   LayoutDashboard,
   MessagesSquare,
@@ -39,7 +38,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/products", label: "商品", icon: Package },
   { href: "/admin/categories", label: "分类", icon: FolderTree },
   { href: "/admin/orders", label: "订单", icon: ShoppingCart },
-  { href: "/admin/contact-messages", label: "客服留言", icon: Inbox },
   { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
 ];
 

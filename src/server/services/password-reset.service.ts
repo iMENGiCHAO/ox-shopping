@@ -6,6 +6,7 @@ import { hashPassword } from "@/lib/auth/password";
 import { generateTempPassword } from "@/lib/auth/temp-password";
 import { revokeAllUserTokens } from "@/lib/auth/session";
 import { sendMail } from "@/lib/mail";
+import { getSiteSettings } from "@/server/services/settings.service";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { audit } from "@/lib/audit";
@@ -325,13 +326,21 @@ export async function rejectPasswordResetRequest(input: {
     },
   });
 
+  // 联系表单页已于 2026-09-22 整体下线（公开表单无商业价值 + 灌水攻击面）：
+  // 驳回后的求助入口改为「客服邮箱」直邮（一步到位），未配置邮箱时回落
+  // FAQ 页 —— 该页首屏答案即展示客服邮箱，不会出现死链。
+  const settings = await getSiteSettings().catch(() => null);
+  const contactUrl = settings?.contactEmail
+    ? `mailto:${settings.contactEmail}`
+    : `${env.SITE_URL}/pages/faqs`;
+
   await sendMail({
     to: request.email,
     template: "reset-rejected",
     data: {
       name: request.user?.name ?? "",
       ...(input.note?.trim() ? { reason: input.note.trim() } : {}),
-      contactUrl: `${env.SITE_URL}/pages/contact`,
+      contactUrl,
     },
   });
 

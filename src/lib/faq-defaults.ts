@@ -20,10 +20,10 @@ export const FAQ_DEFAULTS: readonly FaqDefault[] = [
   {
     question: "我对店里的某件商品有疑问，可以联系谁？",
     answer:
-      "商品、尺码、材质或批量采购等问题，请发送邮件至 {supportEmail}，或通过{contactForm}留言。我们的客服团队会在 1 个工作日内回复。",
+      "商品、尺码、材质或批量采购等问题，请发送邮件至 {supportEmail}。我们的客服团队会在 1 个工作日内回复。",
     questionEn: "I have a general product question about an item in the store. Who can I contact?",
     answerEn:
-      "For questions about a product, sizing, materials or wholesale, email us at {supportEmail} or use {contactForm}. Our team replies within one business day.",
+      "For questions about a product, sizing, materials or wholesale, email us at {supportEmail}. Our team replies within one business day.",
   },
   {
     question: "下单后需要修改订单怎么办？",

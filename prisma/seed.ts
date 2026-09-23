@@ -85,9 +85,7 @@ async function seedCategories() {
   // 一致性守卫：`xcom-catalog.ts` 由官方 /products.json 自动生成，
   // `xcom-collections.ts` 是手写集合清单。若自动目录里出现手写清单未收录的分类，
   // 说明官方新增了集合而清单没跟上 —— 直接报错，避免静默漏掉集合。
-  const missing = xcomCategories.filter(
-    (c) => !xcomCollections.some((k) => k.slug === c.slug),
-  );
+  const missing = xcomCategories.filter((c) => !xcomCollections.some((k) => k.slug === c.slug));
   if (missing.length > 0) {
     throw new Error(
       `prisma/xcom-collections.ts 缺少分类定义：${missing.map((c) => c.slug).join(", ")}` +
@@ -377,8 +375,7 @@ async function seedPaymentChannels() {
  *
  * 为什么需要它：`/pages/faqs` 是「先读库、库空才回落 `FAQ_DEFAULTS`」，
  * 而此前**没有任何种子或迁移往 `faqs` 表写数据** —— 库里的内容来自一次性手工插入，
- * 结果是仓库里的 `FAQ_DEFAULTS` 与库里的文案各自漂移（例如库中第 1 条
- * 缺少 `{contactForm}` 占位符，导致 FAQ 指向的联系页在线上永远不可达）。
+ * 结果是仓库里的 `FAQ_DEFAULTS` 与库里的文案各自漂移。
  *
  * 规则（幂等，且**绝不覆盖运营在后台的编辑**）：
  *   - 表为空 → 全量写入 `FAQ_DEFAULTS`

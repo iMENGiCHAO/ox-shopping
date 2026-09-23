@@ -774,45 +774,6 @@ export function RestockEmail(
 }
 
 /**
- * 联系表单留言通知 —— 发给**站点运营者**（不是顾客）。
- *
- * 与其它模板的区别：收件人是内部运营，因此文案以运营侧习惯为准
- * （默认中文），并把顾客原文完整附上，方便直接回复。
- * 顾客填写的姓名/邮箱/正文一律原样展示（已在上游做长度与格式校验）。
- */
-export function ContactMessageEmail(
-  props: BaseProps & { name: string; email: string; message: string; source: string },
-) {
-  const lang: Lang = props.lang ?? "zh";
-  const zh = lang === "zh";
-  return (
-    <EmailShell
-      {...props}
-      preview={zh ? "收到一条新的联系表单留言" : "New contact form message"}
-      lang={lang}
-    >
-      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>
-        {zh ? "新的联系表单留言" : "New contact form message"}
-      </Heading>
-      <Text style={{ lineHeight: "24px" }}>
-        <strong>{zh ? "姓名" : "Name"}</strong>：{props.name}
-        <br />
-        <strong>{zh ? "邮箱" : "E-mail"}</strong>：{props.email}
-        <br />
-        <strong>{zh ? "来源" : "Source"}</strong>：{props.source}
-      </Text>
-      <Hr style={{ borderColor: "#e5e7eb", margin: "16px 0" }} />
-      <Text style={{ lineHeight: "24px", whiteSpace: "pre-wrap" }}>{props.message}</Text>
-      <Text style={{ fontSize: 13, color: "#6b7280", lineHeight: "20px" }}>
-        {zh
-          ? "直接回复本邮件即可联系到对方；留言同时已存入后台「联系留言」。"
-          : "Reply to this email to reach the sender. The message is also stored in the admin inbox."}
-      </Text>
-    </EmailShell>
-  );
-}
-
-/**
  * 分销通知邮件（佣金结算/冲正、提现状态变更、成为分销商）。
  *
  * 为什么做成**一个通用模板**而不是每种事件一个组件：

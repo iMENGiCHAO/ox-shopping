@@ -705,38 +705,6 @@ model CouponRedemption {
 }
 
 
-
-/// 联系表单留言 —— 对应原站 `/pages/contact` 的三字段表单（Name / E-mail / Message）。
-///
-/// 为什么**落库**而不只发邮件：邮件通道可能未配置（`MAIL_PROVIDER=console`
-/// 时只打日志）或临时故障，只发邮件会静默丢单。落库保证留言不丢，
-/// 后台可随时查看与标记处理进度；邮件通知作为「有人找你」的提醒并行发送。
-model ContactMessage {
-  id      String @id @default(cuid())
-  name    String
-  email   String
-  message String
-  /// 提交时的站点语种（zh/en）—— 客服可按用户原语种回复
-  lang    String @default("en")
-  /// 处理状态：new | read | replied | spam
-  status  String @default("new")
-  /// 来源入口（contact-page / 其他内嵌表单），便于区分流量
-  source  String @default("contact-page")
-  /// 提交者 IP（限流与反滥用留痕；生产部署在可信反代后取 XFF 末跳）
-  ip      String?
-  /// 客服处理备注
-  note    String?
-  /// 是否已发过「新留言」通知邮件（避免重复打扰）
-  notified Boolean @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status, createdAt])
-  @@index([email, createdAt])
-  @@map("contact_messages")
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Distribution（分销 / 多级佣金）—— 隔离模块
 //

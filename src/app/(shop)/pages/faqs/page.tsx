@@ -1,11 +1,10 @@
 import { Fragment } from "react";
-import Link from "next/link";
 import type { Metadata } from "next";
 import { getT, getLang } from "@/lib/shop-i18n-server";
 import { prisma } from "@/lib/prisma";
 import { getSiteSettings } from "@/server/services/settings.service";
 import { FAQ_DEFAULTS } from "@/lib/faq-defaults";
-import { localizePath, type Lang } from "@/lib/shop-i18n";
+import type { Lang } from "@/lib/shop-i18n";
 
 export const dynamic = "force-dynamic";
 
@@ -72,42 +71,17 @@ async function loadContact() {
 }
 
 /**
- * FAQ 答案里的占位符 → 渲染片段的唯一解析口。
+ * FAQ 答案里的 `{supportEmail}` 占位符 → 渲染文案的唯一解析口。
  *
  * 原站原文：“For general questions regarding merchandise, you can email us at
  * merch@shop.x.com or fill out [this form](/pages/contact).”
- * 本地文案因此用两个占位符表达，**文案里不写死邮箱、也不写死链接**：
- *   - `{supportEmail}` → 后台「客服邮箱」配置值（纯文本，与原站一致，不加下划线）
- *   - `{contactForm}`  → 指向 `/pages/contact` 的站内链接
- *
- * 解析结果供两处消费：
- *   - JSX 正文：文本节点 / `<Link>` 交替
- *   - JSON-LD（FAQPage 结构化数据）：只需纯文本，见 `toPlain()`
+ * 原站把「联系表单」作为补充渠道；该公开留言功能已整体下线（无商业价值
+ * 且是灌水攻击面），因此 `{contactForm}` 占位符与对应站内链接一并撤掉，
+ * 只保留「客服邮箱」这一条联系渠道 —— 文案里仍不写死邮箱，
+ * 取后台「客服邮箱」配置值，与原站一致。
  */
-type FaqSegment = { kind: "text"; value: string } | { kind: "link"; path: string; label: string };
-
-const FAQ_TOKEN_RE = /(\{supportEmail\}|\{contactForm\})/g;
-
-function toSegments(text: string, supportEmail: string, formLabel: string): FaqSegment[] {
-  const out: FaqSegment[] = [];
-  let last = 0;
-  for (const m of text.matchAll(FAQ_TOKEN_RE)) {
-    const at = m.index ?? 0;
-    if (at > last) out.push({ kind: "text", value: text.slice(last, at) });
-    out.push(
-      m[0] === "{supportEmail}"
-        ? { kind: "text", value: supportEmail }
-        : { kind: "link", path: "/pages/contact", label: formLabel },
-    );
-    last = at + m[0].length;
-  }
-  if (last < text.length) out.push({ kind: "text", value: text.slice(last) });
-  return out;
-}
-
-/** JSON-LD 用：把占位符拍平成纯文本（链接取锚文本） */
-function toPlain(text: string, supportEmail: string, formLabel: string): string {
-  return text.replaceAll("{supportEmail}", supportEmail).replaceAll("{contactForm}", formLabel);
+function resolveFaqText(text: string, supportEmail: string): string {
+  return text.replaceAll("{supportEmail}", supportEmail);
 }
 
 /**
@@ -116,7 +90,7 @@ function toPlain(text: string, supportEmail: string, formLabel: string): string 
  *   - 正文列 **679px**（容器 720px + 20px 内边距）
  *   - 内容形态为「**加粗问题段 + 散文答案段**」交替，**无手风琴、无联系卡片**
  *   - 段内行距 25px、段间距 20px（原站实测字形间距 32px）
- *   - 答案里的 `{supportEmail}` / `{contactForm}` 在渲染期替换，文案不写死
+ *   - 答案里的 `{supportEmail}` 在渲染期替换，文案不写死
  */
 export default async function FaqsPage() {
   const t = await getT();
@@ -125,9 +99,7 @@ export default async function FaqsPage() {
   const [faqs, contact] = await Promise.all([loadFaqs(lang), loadContact()]);
 
   const supportEmail = settings.contactEmail;
-  const formLabel = t("this form");
-  const plain = (s: string) => toPlain(s, supportEmail, formLabel);
-  const seg = (s: string) => toSegments(s, supportEmail, formLabel);
+  const plain = (s: string) => resolveFaqText(s, supportEmail);
 
   const faqJsonLd = {
     "@context": "https://schema.org",
@@ -157,21 +129,7 @@ export default async function FaqsPage() {
             <p>
               <strong>{plain(f.q)}</strong>
             </p>
-            <p>
-              {seg(f.a).map((s, j) =>
-                s.kind === "text" ? (
-                  <Fragment key={j}>{s.value}</Fragment>
-                ) : (
-                  <Link
-                    key={j}
-                    href={localizePath(s.path, lang)}
-                    className="link-underline text-foreground"
-                  >
-                    {s.label}
-                  </Link>
-                ),
-              )}
-            </p>
+            <p>{plain(f.a)}</p>
           </Fragment>
         ))}
       </div>

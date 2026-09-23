@@ -3,7 +3,6 @@ import Link from "next/link";
 import { headers } from "next/headers";
 import {
   FolderTree,
-  Inbox,
   KeyRound,
   LayoutDashboard,
   Menu,
@@ -24,7 +23,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { prisma } from "@/lib/prisma";
 import { brandFallback } from "@/lib/env";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { getLang } from "@/lib/shop-i18n-server";
@@ -61,8 +59,6 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/admin/products", label: "商品", icon: Package },
   { href: "/admin/categories", label: "分类", icon: FolderTree },
   { href: "/admin/orders", label: "订单", icon: ShoppingCart },
-  // 客服留言是「有顾客在等回复」的待办，与到货提醒同列高频区
-  { href: "/admin/contact-messages", label: "客服留言", icon: Inbox },
   { href: "/admin/notify-me", label: "到货提醒", icon: Rss },
 ];
 
@@ -173,14 +169,11 @@ function SidebarContent({
   isAdmin,
   pathname,
   collapsed,
-  contactUnread = 0,
   brandName = BRAND_NAME,
 }: {
   isAdmin: boolean;
   pathname: string;
   collapsed?: boolean;
-  /** 「客服留言」未处理（status=new）数量，显示为侧栏待办角标 */
-  contactUnread?: number;
   /** 站点品牌名（来自站点设置，后台可改） */
   brandName?: string;
 }) {
@@ -225,11 +218,7 @@ function SidebarContent({
           {NAV_ITEMS.map((item) => (
             <SidebarLink
               key={item.href}
-              item={
-                item.href === "/admin/contact-messages"
-                  ? { ...item, badge: contactUnread }
-                  : item
-              }
+              item={item}
               active={isActive(pathname, item.href)}
               collapsed={collapsed}
             />
@@ -298,21 +287,11 @@ export async function AdminShellServer({
   const lang = await getLang();
   const brandName = pickLang(settings.siteName, lang).trim() || BRAND_NAME;
 
-  // 「客服留言」未处理数：让待办在侧栏可见（有顾客在等回复却没人知道 = 商业交付缺陷）
-  const contactUnread = await prisma.contactMessage
-    .count({ where: { status: "new" } })
-    .catch(() => 0);
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* ── 桌面固定侧栏 ───────────────────────────────────── */}
       <aside className="admin-sidebar fixed inset-y-0 left-0 z-30 hidden w-[264px] flex-col border-r border-border bg-card transition-[width] duration-200 ease-out lg:flex">
-        <SidebarContent
-          isAdmin={isAdmin}
-          pathname={pathname}
-          brandName={brandName}
-          contactUnread={contactUnread}
-        />
+        <SidebarContent isAdmin={isAdmin} pathname={pathname} brandName={brandName} />
         {/* 折叠按钮（侧栏底部，桌面） */}
         <div className="border-t border-border p-2">
           <AdminSidebarCollapseButton />

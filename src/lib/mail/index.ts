@@ -8,7 +8,6 @@ import { env, brandFallback, mailFrom } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import {
   AccountDeletedEmail,
-  ContactMessageEmail,
   DataDeletionEmail,
   DistributionNoticeEmail,
   DeletionRejectedEmail,
@@ -120,17 +119,6 @@ export interface MailData {
     lang?: MailLang;
   };
   /**
-   * 联系表单留言 → 发给**站点运营者**（不是顾客）。
-   * 收件地址由 `settings.contactEmail`（后台客服邮箱 / SUPPORT_EMAIL 兜底）决定。
-   */
-  "contact-message": {
-    name: string;
-    email: string;
-    message: string;
-    source: string;
-    lang?: MailLang;
-  };
-  /**
    * 分销通知（佣金结算/冲正、提现状态、成为分销商）。
    * 文案由 `distribution/notify.service.ts` 本地化后传入 —— 事件会持续增加，
    * 邮件层不为此膨胀成一堆近乎相同的模板组件。
@@ -218,12 +206,6 @@ const templates: Record<MailTemplate, TemplateMeta> = {
     subject: (lang, brand) =>
       subjectLine(lang, brand, "您关注的商品已补货", "Back in stock — the item you wanted"),
     render: (data) => render(RestockEmail(data as never)),
-  },
-  "contact-message": {
-    // 收件人是内部运营，主题行用运营侧语言（默认 zh），不随顾客语种变化
-    subject: (lang, brand) =>
-      subjectLine(lang, brand, "收到新的联系表单留言", "New contact form message"),
-    render: (data) => render(ContactMessageEmail(data as never)),
   },
   "distribution-notice": {
     // 主题行即业务标题（调用方已本地化），品牌名统一由 subjectLine 拼接

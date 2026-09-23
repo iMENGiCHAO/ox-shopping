@@ -255,7 +255,6 @@ const DICT: Dict = {
     zh: "税费与运费将在结算时计算",
   },
   Pagination: { en: "Pagination", zh: "分页" },
-  "Contact us": { en: "Contact us", zh: "联系我们" },
   "Share product card": { en: "Share product card", zh: "分享商品卡" },
   "Copy link": { en: "Copy link", zh: "复制链接" },
   Share: { en: "Share", zh: "分享" },
@@ -275,17 +274,9 @@ const DICT: Dict = {
   },
   "Link copied": { en: "Link copied", zh: "链接已复制" },
   "View product": { en: "View product", zh: "查看商品" },
-  "Didn't find your answer? Contact us.": {
-    en: "Didn't find your answer? Contact us.",
-    zh: "没有找到答案？联系我们",
-  },
   "FAQs · Frequently Asked Questions": {
     en: "FAQs · Frequently Asked Questions",
     zh: "常见问题 · FAQ",
-  },
-  "Contact us — we reply within 1 business day": {
-    en: "Contact us — we reply within 1 business day",
-    zh: "联系我们 · 工作日 24 小时内回复",
   },
   "Back to cart": { en: "Back to cart", zh: "返回购物车" },
   Items: { en: "Items", zh: "商品" },
@@ -344,27 +335,7 @@ const DICT: Dict = {
     zh: "请填写所有必填项",
   },
   "Send failed, please retry": { en: "Send failed, please retry", zh: "发送失败，请重试" },
-  "Your message has been sent.": { en: "Your message has been sent.", zh: "您的留言已提交。" },
-  "Our team will reply within one business day.": {
-    en: "Our team will reply within one business day.",
-    zh: "客服团队将在一个工作日内回复您。",
-  },
   "Sending…": { en: "Sending…", zh: "发送中…" },
-  "Send message": { en: "Send message", zh: "发送留言" },
-  /* ── /pages/contact 联系表单（原站字段名逐字对齐：Name / E-mail / Message） ── */
-  "Contact Us": { en: "Contact Us", zh: "联系我们" },
-  /* FAQ 答案里的 `{contactForm}` 链接文案 —— 原站原文 “or fill out this form” */
-  "this form": { en: "this form", zh: "此表单" },
-  "Please enter your name": { en: "Please enter your name", zh: "请输入姓名" },
-  "Please enter your message": { en: "Please enter your message", zh: "请输入留言内容" },
-  "Failed to send, please try again": {
-    en: "Failed to send, please try again",
-    zh: "发送失败，请稍后重试",
-  },
-  "Message sent — we'll get back to you soon.": {
-    en: "Message sent — we'll get back to you soon.",
-    zh: "留言已发送，我们会尽快回复您。",
-  },
   "Place order": { en: "Place order", zh: "提交订单" },
   "Pay now": { en: "Pay now", zh: "前往支付" },
   "Your order has no items": { en: "Your order has no items", zh: "订单中没有商品" },
