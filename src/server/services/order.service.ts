@@ -1134,22 +1134,25 @@ export async function updateOrderStatus(
     return await refundEntireOrder(order, actor?.id ?? null, opts);
   }
 
+  // 统一「有效物流」口径（大爷实测 bug 修复）：extra 优先（「发货」对话框
+  // 本次填写），订单已有物流信息兜底 —— 「补填物流后状态下拉直推已发货」
+  // 是合法路径：此前只看 extra 会误拒已填物流的订单，且邮件/站内信里的
+  // 物流信息在直推路径下会整体丢失。
+  const effTrackingCompany = (extra?.trackingCompany ?? order.trackingCompany ?? "").trim();
+  const effTrackingNumber = (extra?.trackingNumber ?? order.trackingNumber ?? "").trim();
+
   const data: Prisma.OrderUpdateInput = { status: to };
   if (to === "SHIPPED") {
     // 发货必填物流信息：防止后台漏填导致用户无法追踪
-    if (!extra?.trackingCompany || !extra?.trackingCompany.trim()) {
-      throw new ApiError(400, "BAD_REQUEST", "Carrier is required when marking an order as shipped");
+    if (!effTrackingCompany) {
+      throw new ApiError(400, "BAD_REQUEST", "缺少物流公司，请先补填物流信息再标记已发货");
     }
-    if (!extra?.trackingNumber || !extra?.trackingNumber.trim()) {
-      throw new ApiError(
-        400,
-        "BAD_REQUEST",
-        "Tracking number is required when marking an order as shipped",
-      );
+    if (!effTrackingNumber) {
+      throw new ApiError(400, "BAD_REQUEST", "缺少物流单号，请先补填物流信息再标记已发货");
     }
     data.shippedAt = new Date();
-    data.trackingCompany = extra.trackingCompany.trim();
-    data.trackingNumber = extra.trackingNumber.trim();
+    data.trackingCompany = effTrackingCompany;
+    data.trackingNumber = effTrackingNumber;
   }
   if (to === "DELIVERED") data.deliveredAt = new Date();
   if (to === "PAID") data.paidAt = new Date();
@@ -1173,8 +1176,8 @@ export async function updateOrderStatus(
         data: {
           name: greetingName(user?.name, order),
           orderNumber: order.orderNumber,
-          trackingCompany: extra?.trackingCompany ?? "",
-          trackingNumber: extra?.trackingNumber ?? "",
+          trackingCompany: effTrackingCompany,
+          trackingNumber: effTrackingNumber,
           orderUrl: orderUrlFor(order),
         },
       });
@@ -1193,9 +1196,7 @@ export async function updateOrderStatus(
   // 注：to === "CANCELLED" / "REFUNDED" 在函数顶部 early return，不需在此处理
   // 注：游客单无账号、无消息中心，`order.userId` 为 null 时整段跳过（其通知渠道是邮件）
   if (order.userId && to === "SHIPPED") {
-    const tracking = extra?.trackingNumber
-      ? `（${extra.trackingCompany ?? ""} ${extra.trackingNumber}）`
-      : "";
+    const tracking = effTrackingNumber ? `（${effTrackingCompany} ${effTrackingNumber}）` : "";
     void createNotification({
       userId: order.userId,
       type: "order",
@@ -1207,8 +1208,8 @@ export async function updateOrderStatus(
       meta: {
         orderNumber: order.orderNumber,
         status: "SHIPPED",
-        trackingCompany: extra?.trackingCompany ?? null,
-        trackingNumber: extra?.trackingNumber ?? null,
+        trackingCompany: effTrackingCompany || null,
+        trackingNumber: effTrackingNumber || null,
       },
     });
   } else if (order.userId && to === "DELIVERED") {
