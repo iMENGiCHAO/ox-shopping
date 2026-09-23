@@ -749,6 +749,30 @@ describe("P0 加固：换绑重建子树闭包", () => {
     expect(midAfter.get(u2.userId)).toBe(2);
     expect(midAfter.get(u4.userId)).toBe(3);
     expect(midAfter.has(u1.userId)).toBe(false);
+
+    // 层级字段必须与闭包**同批更新**（P2 回归）：此前子节点只重建闭包表，
+    // distLevel/distPath/invitedById 保持旧值 —— 「我的下级」列表按 distLevel
+    // 展示层级，换绑越深错得越多（与闭包口径分叉）。
+    const [u2Row, u3Row, u5Row] = await Promise.all([
+      prisma.user.findUniqueOrThrow({ where: { id: u2.userId }, select: { distLevel: true } }),
+      prisma.user.findUniqueOrThrow({
+        where: { id: u3.userId },
+        select: { distLevel: true, distPath: true, invitedById: true },
+      }),
+      prisma.user.findUniqueOrThrow({
+        where: { id: u5.userId },
+        select: { distLevel: true, distPath: true, invitedById: true },
+      }),
+    ]);
+    expect(u3Row.invitedById).toBe(u2.userId);
+    expect(u3Row.distLevel).toBe(u2Row.distLevel + 1);
+    expect(u5Row.invitedById).toBe(u3.userId);
+    expect(u5Row.distLevel).toBe(u3Row.distLevel + 1);
+    // 新路径指向新上级链，旧上级（u1）不得残留在路径里
+    expect(u3Row.distPath).toContain(`/${u2.userId}/`);
+    expect(u5Row.distPath).toContain(`/${u2.userId}/`);
+    expect(u3Row.distPath).not.toContain(`/${u1.userId}/`);
+    expect(u5Row.distPath).not.toContain(`/${u1.userId}/`);
   });
 });
 

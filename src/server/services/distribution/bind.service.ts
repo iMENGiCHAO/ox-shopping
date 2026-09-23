@@ -399,6 +399,16 @@ export async function attributeOrder(input: {
   }
 
   const chain = await getCommissionChain(distributorId);
+  /* ⚠️ 口径说明（2026-09-23 深度审查确认，勿误读）：
+     `relationPathSnapshot` 是**归属时刻的佣金链快照**，目前只用于审计与回溯，
+     **计佣并不读它** —— `commission.service` 计提时重新调 `getCommissionChain()`
+     取当时的活链，等级也取当时的 `distributorAccount.tier`。
+
+     因此存在两种口径差异（属产品决策，本轮未改资金口径）：
+       · 订单支付与计提之间若发生换绑/闭包重建（对账补算可延迟数天），该订单按**新链**分佣；
+       · 支付后调整等级，尚未计提的订单按**新等级**算。
+     若要切到「快照口径」（首次绑定定终身 + 支付时等级），需为等级**新增快照字段**
+     （当前只有链快照）、回填历史数据、并重新校准受影响的分销集成测试 —— 独立批次，勿顺手改。 */
   await prisma.orderAttribution.upsert({
     where: { orderId: input.orderId },
     create: {

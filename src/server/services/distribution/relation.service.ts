@@ -1,4 +1,5 @@
 import "server-only";
+import type { Prisma } from "@prisma/client";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
@@ -195,28 +196,94 @@ export async function rebuildSubtreeClosure(rootUserId: string): Promise<number>
   const queue: string[] = [rootUserId];
   let touched = 0;
 
+  /* 父节点的层级信息（用于推导子节点 distLevel/distPath），在 BFS 中逐层传递。
+     此前子节点只重算闭包表，`distLevel/distPath/invitedById` 保持旧值 ——
+     「我的下级」列表（report.service.getMySubordinates）按 `u.distLevel` 展示层级，
+     于是层级显示与闭包口径分叉（换绑越深，错得越多）。 */
+  const rootRow = await prisma.user.findUnique({
+    where: { id: rootUserId },
+    select: { distLevel: true, distPath: true },
+  });
+  const levelOf = new Map<string, number>([[rootUserId, rootRow?.distLevel ?? 0]]);
+  const pathOf = new Map<string, string | null>([[rootUserId, rootRow?.distPath ?? null]]);
+
+  /* 闭包链在**内存里**逐层推算，不再用 `getClosure()` 回查数据库。
+     原因：下面的写操作按批提交（不再逐节点提交），回查会读到尚未提交的旧链，
+     从而算出错误的新链。口径与 `planClosureRows` 完全一致：
+     自己 depth 0、父链整体 +1、同祖先保留最短路径。 */
+  type ChainNode = { userId: string; depth: number };
+  const chainOf = new Map<string, ChainNode[]>();
+  chainOf.set(rootUserId, await getClosure(rootUserId));
+
+  /* 分块提交：此前**每个节点一次独立事务**，大团队换绑既慢，中途异常还会留下
+     「一半新链、一半旧链」的混合闭包（之后这些节点的订单按错链分佣）。
+     现在批内原子（每 BATCH 个节点一批）；本函数幂等（每节点都是先删后按当前
+     父链重建），跨批失败时整体重跑即可收敛。 */
+  const BATCH = 50;
+  let ops: Prisma.PrismaPromise<unknown>[] = [];
+  let inBatch = 0;
+  const flush = async () => {
+    if (ops.length === 0) return;
+    await prisma.$transaction(ops);
+    ops = [];
+    inBatch = 0;
+  };
+
   while (queue.length > 0) {
     const parentId = queue.shift()!;
-    const parentChain = await getClosure(parentId);
     const children = await prisma.distributionRelation.findMany({
       where: { ancestorId: parentId, depth: 1 },
       select: { descendantId: true },
     });
+    if (children.length === 0) continue;
+
+    const parentChain = chainOf.get(parentId) ?? [];
+    const parentLevel = levelOf.get(parentId) ?? 0;
+    const parentPath = pathOf.get(parentId) ?? "/";
+
     for (const { descendantId } of children) {
       if (visited.has(descendantId)) continue;
       visited.add(descendantId);
+
       const rows = planClosureRows(descendantId, parentId, parentChain);
-      await prisma.$transaction([
+      const childLevel = parentLevel + 1;
+      // 与 syncClosureFromBind 同口径：distPath = 父路径 + 父 id + "/"
+      const childPath = `${parentPath}${parentId}/`;
+      levelOf.set(descendantId, childLevel);
+      pathOf.set(descendantId, childPath);
+
+      // 供下一代使用：自己的闭包 = 自己 depth 0 + 父链整体 +1（去重保留最短路径）
+      const chainByUser = new Map<string, number>([[descendantId, 0]]);
+      for (const c of parentChain) {
+        if (c.userId === descendantId) continue;
+        const d = c.depth + 1;
+        const existing = chainByUser.get(c.userId);
+        if (existing === undefined || d < existing) chainByUser.set(c.userId, d);
+      }
+      chainOf.set(
+        descendantId,
+        [...chainByUser.entries()].map(([userId, depth]) => ({ userId, depth })),
+      );
+
+      ops.push(
         prisma.distributionRelation.deleteMany({ where: { descendantId } }),
         prisma.distributionRelation.createMany({ data: rows, skipDuplicates: true }),
-      ]);
+        // 闭包与层级字段必须同批更新：分叉会让「我的下级」显示错层级
+        prisma.user.update({
+          where: { id: descendantId },
+          data: { invitedById: parentId, distLevel: childLevel, distPath: childPath },
+        }),
+      );
       touched += 1;
+      inBatch += 1;
       queue.push(descendantId);
+      if (inBatch >= BATCH) await flush();
     }
   }
+  await flush();
 
   if (touched > 0) {
-    logger.info({ rootUserId, touched }, "分销：换绑后已重建子树闭包");
+    logger.info({ rootUserId, touched }, "分销：换绑后已重建子树闭包（含层级字段同步）");
   }
   return touched;
 }
