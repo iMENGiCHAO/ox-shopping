@@ -1,5 +1,8 @@
+import type { OrderStatus } from "@prisma/client";
+
 import { apiHandler, jsonPaginated, searchParam } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
+import { ORDER_STATUS_FLOW } from "@/lib/order-status";
 import { parsePagination } from "@/lib/utils";
 import { assertDistributionEnabled } from "@/server/services/distribution/http";
 import { getMyTeamOrders } from "@/server/services/distribution";
@@ -19,10 +22,15 @@ export const GET = apiHandler(async (req) => {
   const { page, pageSize, skip, take } = parsePagination(sp, { page: 1, pageSize: 10 });
   const status = searchParam(sp, "status");
 
+  /* status 白名单校验：此前把任意字符串直传 Prisma 枚举过滤，
+     `?status=foo` 会触发运行时枚举校验错误并被兜成 500（爬虫/手滑即报错）。
+     与 my/commissions 的处理口径一致：非法值按「不过滤」处理。 */
   const { rows, total } = await getMyTeamOrders(user.id, {
     skip,
     take,
-    ...(status ? { status } : {}),
+    ...(status && (Object.keys(ORDER_STATUS_FLOW) as string[]).includes(status)
+      ? { status: status as OrderStatus }
+      : {}),
   });
   return jsonPaginated(rows, {
     page,

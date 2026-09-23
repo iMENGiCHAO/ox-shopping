@@ -33,6 +33,8 @@ export type BindOutcome =
   | "ALREADY_BOUND_OTHER"
   | "INVALID_CODE"
   | "SELF_BIND"
+  /** 会形成循环归属（目标分销商已是该客户的下级）—— 拒绝，防 A↔B 互绑互刷返佣 */
+  | "CYCLE"
   | "REBIND_DISABLED"
   /** 换绑已受理，等待平台审核（allowRebind=true 时的默认路径） */
   | "REBIND_PENDING";
@@ -86,6 +88,24 @@ export async function bindCustomer(input: {
   }
   if (distributor.id === input.customerId) {
     return { outcome: "SELF_BIND", distributorId: null };
+  }
+
+  /* 循环绑定防护（P2 修复）：只挡「直连自绑」不够 ——
+     B 先成为 A 的下级后，A 再作为**客户**绑定到 B（或绑定 B 的任一上级），
+     闭包表会形成环，此后 A 的订单给 B 返佣、B 的订单给 A 返佣（互刷）。
+     买家本人的自购佣金由 buyerId 规则挡住，所以现有风控的
+     `fromUserId === toUserId` 信号查不出这种链路。
+     判定：目标分销商不得已在该客户的后代集合中（闭包表一次命中查询）。 */
+  const wouldCycle = await prisma.distributionRelation.findFirst({
+    where: {
+      ancestorId: input.customerId,
+      descendantId: distributor.id,
+      depth: { gte: 1 },
+    },
+    select: { ancestorId: true },
+  });
+  if (wouldCycle) {
+    return { outcome: "CYCLE", distributorId: null };
   }
 
   const existingRow = await prisma.distributorCustomerBind.findUnique({

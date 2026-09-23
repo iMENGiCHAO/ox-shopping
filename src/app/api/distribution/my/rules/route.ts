@@ -31,7 +31,10 @@ export const GET = apiHandler(async () => {
   const [config, rules, scopedCount, tierRuleCount] = await Promise.all([
     getDistributionConfig(),
     prisma.commissionRule.findMany({
-      where: { enabled: true, scopeType: "GLOBAL" },
+      // 只下发**通用规则**（tierLevel=0）。等级专用规则（tierLevel>0）不发明细
+      // —— 否则同 level 会出现两条不同比例、且不带等级标识的数据，
+      // 分销商看到的比例与实际生效口径不符（下方 tierRuleCount 只告知"存在等级差异"）。
+      where: { enabled: true, scopeType: "GLOBAL", tierLevel: 0 },
       orderBy: { level: "asc" },
       select: {
         level: true,

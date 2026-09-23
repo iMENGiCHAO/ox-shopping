@@ -234,7 +234,45 @@ export async function getDistributionEnabledAt(): Promise<Date> {
  * 因此本函数每次调用都做一次幂等修复：按 level 去重（保留最近更新的一条）、
  * 并把剩余 GLOBAL 行的 scopeId 统一成空串，让唯一约束真正生效。
  */
+/**
+ * 历史脏数据自愈的进程内一次性标志。
+ *
+ * 为什么需要：本函数此前每次计佣（每笔支付订单）都执行「全量读 GLOBAL 规则 +
+ * 去重删除 + 无条件 updateMany 写库」。去重与 scopeId 归一是**一次性数据修复**，
+ * 不是每笔订单的职责 —— 它在高并发支付下与规则页写入争锁，且规则几乎不变。
+ * 现在重活每个进程只做一次；轻活（空表播种判断）保留每次执行。
+ */
+let globalRulesCleanupDone = false;
+
 export async function ensureDefaultCommissionRules(): Promise<number> {
+  // ── 重活（进程内一次）：全量扫描 + 去重 + scopeId 归一 ──
+  if (!globalRulesCleanupDone) {
+    await cleanupDuplicateGlobalRules();
+    globalRulesCleanupDone = true;
+  }
+
+  /* ── 轻活（每次执行）：通用规则缺失就播种 ──
+     不能省：管理员可能删光规则，此时不播种会让 resolveRatio 对所有层级返回 0
+     → 佣金静默算成 0（订单/页面/接口全正常）。一次 count（有索引）代价极小。 */
+  const genericCount = await prisma.commissionRule.count({
+    where: { scopeType: "GLOBAL", scopeId: "", tierLevel: 0 },
+  });
+  if (genericCount > 0) return 0;
+
+  const data = Object.entries(DEFAULT_COMMISSION_RATIOS).map(([level, ratio]) => ({
+    scopeType: "GLOBAL",
+    scopeId: "",
+    level: Number(level),
+    ratio,
+  }));
+  const res = await prisma.commissionRule.createMany({ data, skipDuplicates: true });
+  logger.info({ count: res.count }, "分销：已写入默认佣金规则（三级 10/5/2 + 预留四五级）");
+  await invalidateDistributionCache();
+  return res.count;
+}
+
+/** 历史脏数据自愈：重复 GLOBAL 规则去重 + NULL scopeId 归一（幂等，进程内只跑一次） */
+async function cleanupDuplicateGlobalRules(): Promise<void> {
   const globals = await prisma.commissionRule.findMany({
     where: { scopeType: "GLOBAL" },
     orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
@@ -245,12 +283,10 @@ export async function ensureDefaultCommissionRules(): Promise<number> {
   // （P0-1 的另一面：等级规则与通用规则此刻已能共存）
   const seenKeys = new Set<string>();
   const duplicateIds: string[] = [];
-  let hasGeneric = false;
   for (const r of globals) {
     const key = `${r.level}:${r.tierLevel}`;
     if (seenKeys.has(key)) duplicateIds.push(r.id);
     else seenKeys.add(key);
-    if (r.tierLevel === 0) hasGeneric = true;
   }
   if (duplicateIds.length > 0) {
     await prisma.commissionRule.deleteMany({ where: { id: { in: duplicateIds } } });
@@ -265,22 +301,6 @@ export async function ensureDefaultCommissionRules(): Promise<number> {
     data: { scopeId: "" },
   });
 
-  // 只认「通用规则」（tierLevel=0）判断是否需要播种：
-  // 若库里只有等级专用规则，通用兜底仍然缺失，必须补播种。
-  if (hasGeneric) {
-    // 可能刚清理过重复行 → 缓存的规则快照同样要作废
-    if (duplicateIds.length > 0) await invalidateDistributionCache();
-    return 0;
-  }
-
-  const data = Object.entries(DEFAULT_COMMISSION_RATIOS).map(([level, ratio]) => ({
-    scopeType: "GLOBAL",
-    scopeId: "",
-    level: Number(level),
-    ratio,
-  }));
-  const res = await prisma.commissionRule.createMany({ data, skipDuplicates: true });
-  logger.info({ count: res.count }, "分销：已写入默认佣金规则（三级 10/5/2 + 预留四五级）");
-  await invalidateDistributionCache();
-  return res.count;
+  // 清理过重复行 → 缓存的规则快照作废
+  if (duplicateIds.length > 0) await invalidateDistributionCache();
 }
