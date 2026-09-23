@@ -296,3 +296,126 @@ export async function sendMail<T extends MailTemplate>(input: SendMailInput<T>):
     logger.error({ err, to: input.to, template: input.template }, "邮件发送失败");
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   邮件通道状态与连通性自检（后台「系统设置 → 邮件服务」卡片）
+   ──────────────────────────────────────────────────────────────────────────
+   为什么需要：`sendMail` 在通道配置不全时**静默降级**到 console —— 只打日志 +
+   落盘 .mail-out。运营对此完全无感知：以为订单确认、发货通知、到货提醒都发出去了，
+   实际上全被丢弃。这里把「声明通道 / 实际生效通道 / 缺失的配置项」显式暴露到后台，
+   并提供**真实发信**的连通性自检（失败返回真实错误，不是转圈的伪按钮）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+export interface MailChannelCheck {
+  /** .env 变量名（后台按名展示，便于运维直接定位） */
+  key: string;
+  label: string;
+  configured: boolean;
+  /** 该通道下是否必需：用于区分「必填缺失」与「可选未配」 */
+  required: boolean;
+}
+
+export interface MailStatus {
+  /** .env 声明的通道 */
+  provider: "resend" | "smtp" | "console";
+  /** 实际生效通道：声明通道缺配置时降级为 console */
+  effective: "resend" | "smtp" | "console";
+  from: string;
+  /** 业务邮件能否真正送达收件人（console 一律视为不可送达） */
+  deliverable: boolean;
+  checks: MailChannelCheck[];
+  /** 配置不完整时的运营提示（说清后果，而非只报「未配置」） */
+  warning?: string;
+}
+
+/** 当前邮件通道状态：声明通道、实际生效通道、缺失配置、发件地址 */
+export function getMailStatus(): MailStatus {
+  const isResend = env.MAIL_PROVIDER === "resend";
+  const isSmtp = env.MAIL_PROVIDER === "smtp";
+
+  const checks: MailChannelCheck[] = isResend
+    ? [
+        {
+          key: "RESEND_API_KEY",
+          label: "Resend API Key",
+          configured: !!env.RESEND_API_KEY.trim(),
+          required: true,
+        },
+      ]
+    : isSmtp
+      ? [
+          {
+            key: "SMTP_HOST",
+            label: "SMTP 主机",
+            configured: !!env.SMTP_HOST.trim(),
+            required: true,
+          },
+          { key: "SMTP_PORT", label: "SMTP 端口", configured: env.SMTP_PORT > 0, required: true },
+          {
+            key: "SMTP_USER",
+            label: "SMTP 用户名",
+            configured: !!env.SMTP_USER.trim(),
+            required: false,
+          },
+          {
+            key: "SMTP_PASS",
+            label: "SMTP 密码",
+            configured: !!env.SMTP_PASS.trim(),
+            required: false,
+          },
+        ]
+      : [];
+
+  const effective: MailStatus["effective"] =
+    isResend && env.RESEND_API_KEY.trim()
+      ? "resend"
+      : isSmtp && env.SMTP_HOST.trim()
+        ? "smtp"
+        : "console";
+  const deliverable = effective !== "console";
+  const missing = checks.filter((c) => c.required && !c.configured).map((c) => c.label);
+
+  return {
+    provider: env.MAIL_PROVIDER,
+    effective,
+    from: mailFrom,
+    deliverable,
+    checks,
+    warning: deliverable
+      ? undefined
+      : missing.length > 0
+        ? `已声明 ${env.MAIL_PROVIDER} 通道，但缺少必需配置：${missing.join("、")}。` +
+          `当前所有邮件（订单确认、发货通知、到货提醒、找回密码等）只会写入日志，` +
+          `不会真正送达顾客 —— 请补齐配置后重启服务。`
+        : "未配置邮件通道（MAIL_PROVIDER=console）：所有邮件只会写入日志与本地 .mail-out 目录，不会真正送达顾客。",
+  };
+}
+
+/**
+ * 发送测试邮件 —— 走与业务邮件**完全相同**的通道，但失败时抛错。
+ *
+ * 与 `sendMail` 的差异只有一处：业务发信吞掉异常以保证主流程，
+ * 自检必须把真实错误交回后台（否则又是一个「转圈圈」的伪功能）。
+ */
+export async function sendTestMail(to: string): Promise<{ channel: string; from: string }> {
+  const status = getMailStatus();
+  const subject = `【邮件通道自检】${brandFallback}`;
+  const html = `<!doctype html><html><body style="font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.7;color:#111">
+  <h2 style="margin:0 0 12px">邮件通道自检</h2>
+  <p>这封邮件由后台「系统设置 → 邮件服务」发出，用于验证当前邮件通道可用。</p>
+  <p style="color:#555">This is a test email from the admin panel to verify the mail channel.</p>
+  <p style="color:#555;font-size:13px;margin-top:16px">
+    通道 / Channel: <code>${status.effective}</code><br/>
+    发件人 / From: ${mailFrom}
+  </p>
+</body></html>`;
+
+  if (status.effective === "resend") {
+    await sendViaResend(to, subject, html);
+  } else if (status.effective === "smtp") {
+    await sendViaSmtp(to, subject, html);
+  } else {
+    await sendViaConsole(to, subject, html, "mail-test");
+  }
+  return { channel: status.effective, from: mailFrom };
+}

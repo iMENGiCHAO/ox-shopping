@@ -11,6 +11,7 @@ import { apiFetch } from "@/lib/fetch-client";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AccountSettings } from "@/components/admin/account-settings";
 import { CurrencyManager } from "@/components/admin/currency-manager";
+import { MailStatusCard } from "@/components/admin/mail-status-card";
 import { BrandLogoCard } from "@/components/admin/brand-logo-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -309,6 +310,9 @@ export default function AdminSettingsPage() {
           </CardContent>
         </Card>
       </form>
+
+      {/* 邮件服务：通道状态 + 配置清单 + 连通性自检（独立于上方表单，不随「保存」提交） */}
+      <MailStatusCard />
 
       {/* My account: display name / password */}
       <AccountSettings />

@@ -73,4 +73,6 @@ export const RATE_LIMITS = {
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */
   distWithdraw: { limit: 5, windowSeconds: 3600 },
+  /** 后台邮件通道自检：单管理员 10 次/小时（测试邮件会真实发出，防手抖连点） */
+  adminMailTest: { limit: 10, windowSeconds: 3600 },
 } satisfies Record<string, RateLimitPolicy>;
