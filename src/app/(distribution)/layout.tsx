@@ -56,8 +56,10 @@ export default async function DistributionLayout({ children }: { children: React
               <Header />
             </HeaderShell>
             <main id="distribution-main" className="flex flex-1 flex-col">
-              {/* data-dist-center：只给这块内容区上现代圆角/柔影（页头页脚仍是商城原样） */}
-              <div className="container py-8 md:py-10" data-dist-center>
+              {/* data-apple-area + data-dist-center：分销中心内容区换成与账户/订单区
+                  同一套最新 Apple 样式（#F5F5F7 灰底圆角画布 / 16px 白卡 / 黑主色 /
+                  SF 字体栈），旧的 panel 悬浮与表格裁切补丁继续生效（页头页脚仍是商城原样） */}
+              <div className="container my-6 p-4 md:my-8 md:p-6" data-apple-area data-dist-center>
                 <header className="mb-6">
                   <h1 className="text-[26px] font-semibold leading-tight tracking-tight">
                     {t("Distribution center")}

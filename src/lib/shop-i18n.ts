@@ -1716,6 +1716,17 @@ const DICT: Dict = {
     en: "Scan to open my promotion page",
     zh: "扫码打开我的推广页",
   },
+  "Share card": { en: "Share card", zh: "分享卡" },
+  "Copy invite code": { en: "Copy code", zh: "复制推广码" },
+  "Scan to shop on {brand}": { en: "Scan to shop on {brand}", zh: "扫码逛 {brand}" },
+  "Every scan, signup and order through this card ties to your account — paid orders accrue commission.": {
+    en: "Every scan, signup and order through this card ties to your account — paid orders accrue commission.",
+    zh: "扫此码注册或下单的顾客都会归到你名下，其支付订单为你产生佣金。",
+  },
+  "Sharing is not supported here — link copied": {
+    en: "Sharing is not supported here — link copied",
+    zh: "当前环境不支持分享，已复制链接",
+  },
   "Team overview": { en: "Team overview", zh: "团队概览" },
   "Direct customers": { en: "Direct customers", zh: "直接客户" },
   "Team size": { en: "Team size", zh: "团队人数" },

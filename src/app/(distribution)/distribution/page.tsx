@@ -8,6 +8,7 @@ import {
   Copy,
   ImageDown,
   Network,
+  Share2,
   ShoppingBag,
   Users,
   Wallet,
@@ -16,7 +17,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useT } from "@/components/shop/lang-provider";
+import { useT, useSiteName } from "@/components/shop/lang-provider";
 import { apiFetch } from "@/lib/fetch-client";
 import type { DistributionAccountSummary, DistributionIdentity } from "@/lib/distribution/contract";
 import { cny } from "@/components/shop/distribution/format";
@@ -39,6 +40,7 @@ interface AccountResponse {
  */
 export default function DistributionOverviewPage() {
   const t = useT();
+  const siteName = useSiteName();
   const [identity, setIdentity] = useState<DistributionIdentity | null>(null);
   const [account, setAccount] = useState<DistributionAccountSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +70,37 @@ export default function DistributionOverviewPage() {
     try {
       await navigator.clipboard.writeText(text);
       toast.success(t("Copied"));
+    } catch {
+      toast.error(t("Copy failed"));
+    }
+  };
+
+  /**
+   * 分享推广卡（Web Share API，手机端直接唤起微信/短信等原生面板）：
+   * - 用户取消（AbortError）→ 静默返回，不算失败
+   * *桌面端不支持 share → 降级为复制邀请链接 + 明确提示（不静默假装分享成功）
+   */
+  const shareCard = async () => {
+    if (!identity) return;
+    const nav = navigator as Navigator & { share?: (data?: ShareData) => Promise<void> };
+    if (typeof nav.share === "function") {
+      try {
+        await nav.share({
+          title: t("Scan to shop on {brand}", { brand: siteName }),
+          text: t(
+            "Every scan, signup and order through this card ties to your account — paid orders accrue commission.",
+          ),
+          url: identity.inviteUrl,
+        });
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return; // 用户主动取消
+        // share 抛错（如无对应 app）→ 落到复制降级
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(identity.inviteUrl);
+      toast.info(t("Sharing is not supported here — link copied"));
     } catch {
       toast.error(t("Copy failed"));
     }
@@ -190,7 +223,14 @@ export default function DistributionOverviewPage() {
                   </div>
                 </div>
               </div>
-              <div className="shrink-0 text-center">
+              <div className="w-full shrink-0 rounded-2xl border border-border bg-card p-5 text-center shadow-card md:w-[300px]">
+                {/* 可分享的推广卡：站点信息 + 扫码用途 + 分享/下载动作（不再是裸二维码+下载按钮） */}
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                  {t("Share card")}
+                </p>
+                <p className="mt-1.5 text-[15px] font-semibold tracking-tight">
+                  {t("Scan to shop on {brand}", { brand: siteName })}
+                </p>
                 {/* 服务端直接出 SVG：客户端零依赖、零 JS，内容也只在服务端可信 */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -198,17 +238,32 @@ export default function DistributionOverviewPage() {
                   alt={t("Promotion QR code")}
                   width={160}
                   height={160}
-                  className="mx-auto h-40 w-40 border border-border bg-card"
+                  className="mx-auto mt-3 h-40 w-40 rounded-xl border border-border bg-card"
                 />
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {t("Scan to open my promotion page")}
+                <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
+                  {t("Every scan, signup and order through this card ties to your account — paid orders accrue commission.")}
                 </p>
+                <div className="mt-4 flex gap-2">
+                  <Button size="sm" className="h-9 flex-1" onClick={() => void shareCard()}>
+                    <Share2 className="h-4 w-4" />
+                    {t("Share")}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 flex-1"
+                    onClick={() => void copy(identity.referralCode)}
+                  >
+                    <Copy className="h-4 w-4" />
+                    {t("Copy invite code")}
+                  </Button>
+                </div>
                 {/* P1-11 推广海报：服务端出 SVG（矢量、可直接转发/长按保存） */}
                 <Button
                   asChild
                   variant="outline"
                   size="sm"
-                  className="mt-2.5 h-9 w-full justify-center"
+                  className="mt-2 h-9 w-full justify-center"
                 >
                   <a
                     href="/api/distribution/my/poster?download=1"

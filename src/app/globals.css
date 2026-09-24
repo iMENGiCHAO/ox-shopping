@@ -1219,6 +1219,12 @@ body.search-open [data-testid="header-shell"] > header {
   overflow: hidden;
 }
 
+/* 分销中心在 data-apple-area（最新 Apple 画布）里时，面板圆角对齐 Apple 16px 体系，
+   避免 14px 旧值与卡片 16px 两档并存的视觉断档 */
+[data-apple-area][data-dist-center] {
+  --panel-radius: 1rem;
+}
+
 /* ────────────────────────────────────────────────────────────────────────────
  * Admin Apple 质感补丁（仅 .admin-theme 作用域，前台零影响）
  *
