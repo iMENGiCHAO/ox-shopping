@@ -119,6 +119,88 @@ test.describe("购物全链路", () => {
     });
   });
 
+  test("游客持订单 token 可直接打开订单详情，不被父 layout 登录门禁拦截", async ({ page }) => {
+    await page.goto("/");
+
+    const created = await page.evaluate(async () => {
+      await fetch("/api/auth/csrf", { cache: "no-store" });
+      const csrf =
+        document.cookie
+          .split("; ")
+          .find((c) => c.startsWith("csrf_token="))
+          ?.split("=")[1] ?? "";
+      const productsResponse = await fetch("/api/products?inStock=true&pageSize=100");
+      const productsBody = (await productsResponse.json()) as {
+        data?: Array<{ id: string; slug?: string; attributes?: unknown[] }>;
+      };
+      const product = productsBody.data?.find(
+        (item) => item.slug === "macrohard-remove-before-flight-keychain",
+      );
+      if (!product || (product.attributes?.length ?? 0) > 0) {
+        throw new Error("guest-order E2E fixture product unavailable");
+      }
+
+      const orderResponse = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-csrf-token": decodeURIComponent(csrf) },
+        body: JSON.stringify({
+          contactEmail: "guest-order-e2e@example.com",
+          items: [{ productId: product.id, quantity: 1 }],
+          shippingAddress: {
+            country: "US",
+            firstName: "Guest",
+            lastName: "Buyer",
+            line1: "123 Test St",
+            city: "San Francisco",
+            state: "CA",
+            postalCode: "94105",
+          },
+          shippingMethod: "standard",
+          channelCode: "mock",
+        }),
+      });
+      const orderBody = (await orderResponse.json()) as {
+        data?: { order?: { orderNumber?: string }; orderToken?: string | null };
+        error?: { message?: string };
+      };
+      return {
+        status: orderResponse.status,
+        orderNumber: orderBody.data?.order?.orderNumber ?? "",
+        orderToken: orderBody.data?.orderToken ?? "",
+        error: orderBody.error?.message ?? "",
+      };
+    });
+
+    expect(created.status, created.error).toBe(200);
+    expect(created.orderNumber).toBeTruthy();
+    expect(created.orderToken).toBeTruthy();
+
+    await page.goto(
+      `/orders/${encodeURIComponent(created.orderNumber)}?token=${encodeURIComponent(created.orderToken)}`,
+    );
+    await expect(page).toHaveURL(new RegExp(`/orders/${created.orderNumber}\\?`));
+    await expect(page.getByRole("heading", { name: /订单详情|Order detail/i })).toBeVisible();
+    await expect(page.getByText(new RegExp(created.orderNumber)).first()).toBeVisible();
+
+    // 取消未付款游客单会回补库存，避免该 E2E 改变后续视觉/库存基线。
+    const cancelled = await page.evaluate(async ({ orderNumber, orderToken }) => {
+      const csrf =
+        document.cookie
+          .split("; ")
+          .find((c) => c.startsWith("csrf_token="))
+          ?.split("=")[1] ?? "";
+      const response = await fetch(`/api/orders/${encodeURIComponent(orderNumber)}/cancel`, {
+        method: "POST",
+        headers: {
+          "x-csrf-token": decodeURIComponent(csrf),
+          "x-order-token": orderToken,
+        },
+      });
+      return response.status;
+    }, created);
+    expect(cancelled).toBe(200);
+  });
+
   test("访客访问 /checkout 后快速导航不产生未捕获异常", async ({ page }) => {
     // 回归：访客 401 + addrPromise 浮动拒绝曾以 pageerror 打到导航后的下一页
     const pageErrors: string[] = [];

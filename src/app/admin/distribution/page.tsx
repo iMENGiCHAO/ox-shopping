@@ -142,7 +142,7 @@ export default function AdminDistributionOverviewPage() {
         );
       } else {
         toast.warning(
-          t("发现 {n} 个账户与流水不一致，合计偏差 ¥{amount} — 可点「修复账户」按流水对平")
+          t("发现 {n} 个账户与流水不一致，合计偏差 {amount} 元 — 可点「修复账户」按流水对平")
             .replace("{n}", String(res.drifted.length))
             .replace("{amount}", res.drifted.reduce((s, d) => s + d.drift, 0).toFixed(2)),
         );

@@ -850,7 +850,7 @@ body.search-open [data-testid="header-shell"] > header {
    *   - 页面背景：Apple 标志性 #F5F5F7 浅灰 canvas，与纯白卡片形成柔和层次
    *   - 卡片/侧栏/顶栏：纯白，12px 大圆角，弥散式低透明阴影 + 发丝边框
    *   - 文字：#1D1D1F（Apple 正文色），次级 #6E6E73
-   *   - 主色：Apple 蓝 #0071E3（按钮 / 焦点环 / 链接），语义色取 iOS 系统色
+   *   - 主色：黑 #1D1D1F（与全站品牌一致；不用 Apple 蓝按钮）
    *   - 顶栏：毛玻璃 backdrop-blur-xl + saturate，70% 透明白
    * ───────────────────────────────────────────────────────────────────────── */
   .admin-theme {
@@ -869,9 +869,9 @@ body.search-open [data-testid="header-shell"] > header {
 
     --border: 240 4% 91%; /* ≈ rgba(0,0,0,0.08) 发丝级 */
     --input: 240 4% 88%;
-    --ring: 211 100% 45%; /* Apple 蓝 focus ring */
+    --ring: 240 3% 25%; /* 中性 focus ring（不用蓝，贴合黑白品牌） */
 
-    --primary: 211 100% 45%; /* #0071E3 —— Apple 品牌蓝 */
+    --primary: 240 3% 12%; /* #1D1D1F —— 全站黑按钮（品牌一致，不用 Apple 蓝） */
     --primary-foreground: 0 0% 100%;
 
     --secondary: 240 5% 94%;
@@ -887,11 +887,11 @@ body.search-open [data-testid="header-shell"] > header {
     --success-foreground: 0 0% 100%;
     --warning: 35 100% 42%; /* iOS systemOrange 深化 */
     --warning-foreground: 0 0% 9%;
-    --info: 211 100% 45%; /* #0071E3 */
+    --info: 240 3% 33%; /* 信息提示也用中性灰蓝，蓝色信息仅留给链接态 */
     --info-foreground: 0 0% 100%;
 
-    /* 圆角：12px 系统（Apple 卡片圆角；rounded-full 保持胶囊） */
-    --radius: 0.75rem;
+    /* 圆角：14px 系统（最新 Apple 大圆角语言；rounded-full 保持胶囊） */
+    --radius: 0.875rem;
 
     /* 弥散式阴影 —— 低透明、大模糊半径（Apple 浮层质感） */
     --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.04);
@@ -914,9 +914,9 @@ body.search-open [data-testid="header-shell"] > header {
     --muted-foreground: 240 3% 62%;
     --border: 240 4% 20%;
     --input: 240 4% 20%;
-    --ring: 210 100% 52%;
-    --primary: 210 100% 52%; /* #0A84FF —— iOS 深色系统蓝 */
-    --primary-foreground: 0 0% 100%;
+    --ring: 240 4% 70%;
+    --primary: 0 0% 96%; /* 深色下主按钮反白 */
+    --primary-foreground: 240 4% 8%;
     --secondary: 240 4% 16%;
     --secondary-foreground: 240 6% 93%;
     --accent: 240 4% 22%;
@@ -924,7 +924,7 @@ body.search-open [data-testid="header-shell"] > header {
     --destructive: 3 100% 61%; /* iOS dark systemRed */
     --success: 135 59% 49%; /* iOS systemGreen */
     --warning: 35 100% 52%; /* iOS systemOrange */
-    --info: 210 100% 52%;
+    --info: 240 4% 70%;
     --shadow-card: 0 1px 2px hsl(0 0% 0% / 0.3), 0 2px 6px hsl(0 0% 0% / 0.3);
     --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.4), 0 8px 20px hsl(0 0% 0% / 0.4);
   }
@@ -932,15 +932,8 @@ body.search-open [data-testid="header-shell"] > header {
   /* Apple 字体栈 —— 仅后台：macOS/iOS 上渲染 SF Pro，其它平台平滑回退 */
   .admin-theme body {
     font-family:
-      -apple-system,
-      BlinkMacSystemFont,
-      "SF Pro Text",
-      "SF Pro Display",
-      "PingFang SC",
-      "Helvetica Neue",
-      "Segoe UI",
-      "Microsoft YaHei",
-      sans-serif;
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC",
+      "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif;
   }
 
   /* Dark mode — 启用方式: <html class="dark"> 或 .dark 父元素
@@ -1229,16 +1222,24 @@ body.search-open [data-testid="header-shell"] > header {
 /* ────────────────────────────────────────────────────────────────────────────
  * Admin Apple 质感补丁（仅 .admin-theme 作用域，前台零影响）
  *
- * 1) 蓝色主按钮 hover：[[Button]] default 变体 hover 走 bg-accent（前台黑色系
- *    深化 step 是对的），但 admin 主色换成 Apple 蓝后 hover 成灰就走样了 ——
- *    这里把 admin 下的蓝按钮 hover 收敛为同色系加深一档（#0060C9 方向）。
+ * 1) 主按钮 hover：[[Button]] default 变体 hover 走 bg-accent（前台黑色系
+ *    深化 step 是对的），但 admin 主色是独立令牌，hover 成灰会走样；浅色主题
+ *    使用黑色加深，深色主题单独反色，保证前景/背景对比度。
  * 2) 后台按钮字重提升到 500（Apple 系统按钮为 medium 字重），前台保持
  *    shop.x.com 的 regular 字重不变。
  * 3) 后台滚动条更细更隐（8px 半透明），贴近 macOS 观感。
  * ──────────────────────────────────────────────────────────────────────────── */
 .admin-theme button.bg-primary:hover:not(:disabled),
 .admin-theme a.bg-primary:hover {
-  background-color: hsl(211 100% 40%);
+  background-color: hsl(240 3% 22%); /* 浅色主题：黑按钮 hover 加深 */
+}
+
+/* 深色主题的 primary 是近白色，按钮文字是近黑色；hover 必须继续变浅，
+   不能沿用浅色主题的深色 hover，否则会变成深底深字。 */
+.admin-theme.dark button.bg-primary:hover:not(:disabled),
+.admin-theme.dark a.bg-primary:hover {
+  background-color: hsl(0 0% 82%);
+  color: hsl(0 0% 10%);
 }
 
 .admin-theme button,
@@ -1269,7 +1270,7 @@ body.search-open [data-testid="header-shell"] > header {
  * 商城其它页面（shop.x.com 方角黑白）完全不受影响。
  *   - canvas：#F5F5F7 浅灰圆角面板（与白色卡片形成层次）
  *   - 卡片/浮层：纯白 + 16px 大圆角 + 弥散阴影（经 --radius/--shadow 令牌生效）
- *   - 主色：Apple 蓝 #0071E3（导航选中 pill / 主按钮 / focus ring）
+ *   - 主色：黑 #1D1D1F（导航选中 pill / 主按钮，与全站品牌一致）
  *   - 字体：SF Pro 栈（仅限本区域，前台其余仍是 Helvetica 系）
  * ──────────────────────────────────────────────────────────────────────────── */
 [data-apple-area] {
@@ -1283,8 +1284,8 @@ body.search-open [data-testid="header-shell"] > header {
   --muted-foreground: 240 2% 45%; /* #6E6E73 */
   --border: 240 4% 91%;
   --input: 240 4% 88%;
-  --ring: 211 100% 45%;
-  --primary: 211 100% 45%; /* #0071E3 */
+  --ring: 240 3% 25%;
+  --primary: 240 3% 12%; /* #1D1D1F —— 黑按钮，与全站品牌一致 */
   --primary-foreground: 0 0% 100%;
   --secondary: 240 5% 94%;
   --secondary-foreground: 240 3% 12%;
@@ -1296,9 +1297,9 @@ body.search-open [data-testid="header-shell"] > header {
   --success-foreground: 0 0% 100%;
   --warning: 35 100% 42%;
   --warning-foreground: 0 0% 9%;
-  --info: 211 100% 45%;
+  --info: 240 3% 33%;
   --info-foreground: 0 0% 100%;
-  --radius: 1rem; /* 16px —— Apple 卡片圆角 */
+  --radius: 1rem; /* 16px —— 最新 Apple 大圆角语言 */
   --shadow-soft: 0 1px 2px hsl(0 0% 0% / 0.04);
   --shadow-card: 0 0.5px 1px hsl(0 0% 0% / 0.02), 0 4px 16px hsl(0 0% 0% / 0.04);
   --shadow-card-hover: 0 2px 6px hsl(0 0% 0% / 0.05), 0 16px 40px hsl(0 0% 0% / 0.08);
@@ -1307,19 +1308,12 @@ body.search-open [data-testid="header-shell"] > header {
   background-color: hsl(var(--background));
   border-radius: 1.5rem; /* 24px 外层面板圆角 */
   font-family:
-    -apple-system,
-    BlinkMacSystemFont,
-    "SF Pro Text",
-    "SF Pro Display",
-    "PingFang SC",
-    "Helvetica Neue",
-    "Segoe UI",
-    "Microsoft YaHei",
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC",
+    "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif;
 }
 
-/* 蓝色主按钮 hover 深化一档（同 admin 补丁逻辑，避免 hover 变灰） */
+/* 黑按钮 hover 深化一档（同 admin 补丁逻辑，避免 hover 变灰） */
 [data-apple-area] button.bg-primary:hover:not(:disabled),
 [data-apple-area] a.bg-primary:hover {
-  background-color: hsl(211 100% 40%);
+  background-color: hsl(240 3% 22%);
 }

@@ -23,4 +23,12 @@
 - 备份/恢复演练已在隔离库实测通过：`ecommerce_test` 备份 → 校验 SHA-256 → 恢复到临时库 `ecommerce_restore_test` → `SELECT count(*) FROM users` = 1005 → 清理临时库与产物；期间修复了 Prisma `?schema=` URL、pg_dump/gzip 归档命中和客户端大版本不匹配三类脚本缺陷。
 - 生产运行路径已实测：`next start` 生产模式 + 强密钥/S3/Stripe 守卫下 `/healthz`(readiness)、`/api/healthz`(liveness)、`/admin/login` 全部 200；`output: standalone` 产物按 Docker runner 布局组装后 `server.js` 启动，`/healthz`、`/api/healthz`、`/` 全部 200。
 - 本机没有 Docker CLI，因此 Docker 镜像 build/start smoke 仍需在 GitHub runner 或部署机执行；真实 Stripe、SMTP/Resend、S3/R2、素材授权、隐私/税务/KYC 属外部上线验收，不得由本地代码绿灯替代。
-- 代码整改已提交；另有其他模型产生的 `src/app/globals.css` 未提交改动留在工作区，未纳入本次提交也未覆盖。
+- 代码整改已提交。
+
+## 并行模型改动集成（用户暂停另一模型后）
+
+- 接收并审查另一模型产生的 17 个未提交 UI/i18n/分销文案改动；funds 与 commerce 队员分别只读复核 task-7/8。
+- 修复 4 个高置信问题：游客 token 订单详情被父 layout 提前登录拦截；隐私邮件主题未本地化；admin 深色主按钮 hover 深底深字；真实全额退款/在途错误未本地化。
+- 额外修复分销风控“不同订单币种退款直接相加再标 CNY”的错账，改为按订单 `exchangeRate` 快照逐笔折算并在 SQL 聚合。
+- 新增游客 token 订单详情 E2E、CNY 风险聚合集成测试和退款错误 i18n 单测。
+- 最终验证：typecheck 通过；lint 0 error/13 warning；unit 265/265；integration 155/155；Playwright 16/16；production build 通过。

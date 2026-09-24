@@ -318,7 +318,7 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
                     顾客要在收货时向承运商现金支付到付费 */}
                 {isCOD
                   ? codFee > 0
-                    ? `${t("Pay on delivery")}（${codFeeText}）`
+                    ? `${t("Pay on delivery")} (${codFeeText})`
                     : t("Pay on delivery")
                   : Number(order.shippingFee) === 0
                     ? t("Free shipping")

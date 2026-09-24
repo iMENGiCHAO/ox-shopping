@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth/session";
 import { AccountNavLink } from "@/components/shop/account-nav-link";
 import { getT } from "@/lib/shop-i18n-server";
@@ -25,17 +24,20 @@ export const dynamic = "force-dynamic";
  */
 async function AccountShell({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
-  if (!user) redirect("/auth/login?next=/orders");
-  // redirect() 在 next/* .d.ts 缺失时不被识别为 never，显式 throw 帮 TS narrow
-  if (!user) throw new Error("unreachable");
   const t = await getT();
+
+  // 游客订单详情使用 ?token= 自行鉴权，不能被父 layout 的登录门禁提前拦截。
+  // 订单列表页自身仍会在未登录时 redirect；游客详情则直接使用独立订单页面外壳。
+  if (!user) return <>{children}</>;
 
   // 统一账户导航（与 /account 布局共用同一份定义，顺序一致）：
   // 个人资料 → 收货地址 → 我的订单 → 消息通知（修改密码已并入个人资料页）
   const NAV = buildAccountNav(t);
 
+  // data-apple-area：订单页与 /account 共用同一套账户外壳，内容区域同步换成
+  // Apple 风格令牌（灰底圆角面板 + 白卡大圆角），顶栏/底栏保持 shop.x.com 不变。
   return (
-    <div className="container py-6 md:py-8">
+    <div className="container my-6 p-4 md:my-8 md:p-6" data-apple-area>
       {/* 顶部：账户标题（小屏紧凑） */}
       <div className="mb-4 md:mb-6">
         <h1 className="text-xl font-bold md:text-2xl">{t("My Account")}</h1>

@@ -1169,10 +1169,10 @@ export async function updateOrderStatus(
   if (to === "SHIPPED") {
     // 发货必填物流信息：防止后台漏填导致用户无法追踪
     if (!effTrackingCompany) {
-      throw new ApiError(400, "BAD_REQUEST", "缺少物流公司，请先补填物流信息再标记已发货");
+      throw new ApiError(400, "BAD_REQUEST", "Missing carrier; please fill in tracking info before marking as shipped");
     }
     if (!effTrackingNumber) {
-      throw new ApiError(400, "BAD_REQUEST", "缺少物流单号，请先补填物流信息再标记已发货");
+      throw new ApiError(400, "BAD_REQUEST", "Missing tracking number; please fill in tracking info before marking as shipped");
     }
     data.shippedAt = new Date();
     data.trackingCompany = effTrackingCompany;
@@ -1279,13 +1279,13 @@ export async function approveRefund(
 ): Promise<RefundExecutionResult> {
   const claimed = await prisma.$transaction(async (tx) => {
     const snapshot = await tx.refund.findUnique({ where: { id: refundId } });
-    if (!snapshot) throw notFound("退款申请不存在");
+    if (!snapshot) throw notFound("Refund request not found");
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${snapshot.orderId} FOR UPDATE`;
 
     const fresh = await tx.refund.findUniqueOrThrow({ where: { id: refundId } });
     const order = await tx.order.findUniqueOrThrow({ where: { id: fresh.orderId } });
     if (!(["REQUESTED", "FAILED"] as string[]).includes(fresh.status)) {
-      throw badRequest("该退款申请已处理，请勿重复操作");
+      throw badRequest("This refund request has already been processed");
     }
     const occupied = await tx.refund.aggregate({
       where: {
@@ -1298,7 +1298,7 @@ export async function approveRefund(
     const used = Number(occupied._sum.amount ?? 0);
     if (used + Number(fresh.amount) > Number(order.total) + 1e-9) {
       throw badRequest(
-        `累计退款超出订单金额：已占用/已退 ${used.toFixed(2)}，本笔 ${Number(fresh.amount).toFixed(2)}，订单总额 ${Number(order.total).toFixed(2)}`,
+        `Total refund exceeds the order total: already used/refunded ${used.toFixed(2)}, this request ${Number(fresh.amount).toFixed(2)}, order total ${Number(order.total).toFixed(2)}`,
       );
     }
     const updated = await tx.refund.update({
@@ -1586,7 +1586,7 @@ async function refundEntireOrder(
     return refund;
   });
   const result = await processRefundOutboxItem(queued.id);
-  if (result.state === "FAILED") throw badRequest(`退款失败：${result.error}`);
+  if (result.state === "FAILED") throw badRequest(`Refund failed: ${result.error}`);
   const finalOrder = await prisma.order.findUniqueOrThrow({
     where: { id: order.id },
     include: { items: true },

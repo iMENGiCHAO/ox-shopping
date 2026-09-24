@@ -443,8 +443,8 @@ export async function releaseBind(input: {
   const bind = await prisma.distributorCustomerBind.findUnique({
     where: { id: input.bindId },
   });
-  if (!bind) throw notFound("绑定关系不存在");
-  if (bind.status !== "ACTIVE") throw badRequest("该绑定已失效");
+  if (!bind) throw notFound("Binding relationship not found");
+  if (bind.status !== "ACTIVE") throw badRequest("This binding is no longer active");
 
   await prisma.distributorCustomerBind.update({
     where: { id: bind.id },
@@ -548,8 +548,8 @@ export async function reviewRebindRequest(input: {
   req?: NextRequest;
 }): Promise<{ status: "APPROVED" | "REJECTED"; customerId: string }> {
   const request = await prisma.rebindRequest.findUnique({ where: { id: input.requestId } });
-  if (!request) throw notFound("换绑申请不存在");
-  if (request.status !== "PENDING") throw badRequest("该申请已处理，请勿重复操作");
+  if (!request) throw notFound("Rebind request not found");
+  if (request.status !== "PENDING") throw badRequest("This request has already been processed");
 
   if (input.action === "reject") {
     await prisma.rebindRequest.update({
@@ -578,7 +578,7 @@ export async function reviewRebindRequest(input: {
     select: { referralCode: true, status: true },
   });
   if (!target || target.status !== "ACTIVE" || !target.referralCode) {
-    throw badRequest("目标上级账号不可用（已禁用或缺少推广码），无法完成换绑");
+    throw badRequest("The target upline account is unavailable (disabled or missing a referral code); rebind cannot be completed");
   }
 
   const result = await bindCustomer({
@@ -590,7 +590,7 @@ export async function reviewRebindRequest(input: {
     ...(input.req ? { req: input.req } : {}),
   });
   if (result.outcome !== "REBOUND" && result.outcome !== "BOUND") {
-    throw conflict(`换绑落库失败（${result.outcome}），请检查客户当前绑定状态`);
+    throw conflict(`Rebind failed (${result.outcome}); please check the customer current binding state`);
   }
 
   await prisma.rebindRequest.update({

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { PolicyPage } from "@/components/shop/policy-page";
 import { renderPolicyMarkdown } from "@/components/shop/policy-render";
-import { getSiteSettings, getPolicyText } from "@/server/services/settings.service";
+import { getSiteSettings, getPolicyText, pickLang } from "@/server/services/settings.service";
+import { brandFallback } from "@/lib/env";
 import { getLang, getT } from "@/lib/shop-i18n-server";
 import { POLICY_TITLES } from "@/lib/policy-defaults";
 
@@ -27,6 +28,8 @@ export default async function DataSharingOptOutPage() {
   const t = await getT();
   const lang = await getLang();
   const supportEmail = settings.contactEmail;
+  // 站名来自站点设置（后台可改），商用部署不写死品牌字面量
+  const siteName = pickLang(settings.siteName, lang).trim() || brandFallback;
 
   return (
     <PolicyPage
@@ -37,7 +40,9 @@ export default async function DataSharingOptOutPage() {
           <div className="border-t border-border pt-6">
             <a
               href={`mailto:${supportEmail}?subject=${encodeURIComponent(
-                "Do Not Sell or Share My Personal Information",
+                lang === "zh"
+                  ? "不出售或共享我的个人信息"
+                  : "Do Not Sell or Share My Personal Information",
               )}`}
               className="btn-sweep inline-flex h-[46px] items-center border border-primary px-[26px] text-[14px] font-normal text-foreground"
             >
@@ -59,8 +64,8 @@ export default async function DataSharingOptOutPage() {
         </p>
         <p className="mt-2">
           {lang === "zh"
-            ? "Ox Shopping 不出售您的个人信息，也不会将其用于跨情境行为广告。您可在账户资料页导出账号数据、撤回注销申请，或通过下方客服邮箱提交访问、更正、删除请求。请勿在邮件中发送密码或完整支付凭证。"
-            : "Ox Shopping does not sell your personal information or share it for cross-context behavioral advertising. From your Profile, you can export account data or withdraw a deletion request. You may also submit access, correction, or deletion requests using the support email below. Never include your password or full payment credentials in email."}
+            ? `${siteName} 不出售您的个人信息，也不会将其用于跨情境行为广告。您可在账户资料页导出账号数据、撤回注销申请，或通过下方客服邮箱提交访问、更正、删除请求。请勿在邮件中发送密码或完整支付凭证。`
+            : `${siteName} does not sell your personal information or share it for cross-context behavioral advertising. From your Profile, you can export account data or withdraw a deletion request. You may also submit access, correction, or deletion requests using the support email below. Never include your password or full payment credentials in email.`}
         </p>
       </div>
       {renderPolicyMarkdown(getPolicyText(settings.policies, "dataSharingOptOut", lang))}

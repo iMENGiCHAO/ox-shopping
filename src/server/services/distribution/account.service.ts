@@ -239,7 +239,7 @@ async function assertWithdrawLimits(
       if (elapsedHours < config.withdrawCooldownHours) {
         const wait = Math.ceil(config.withdrawCooldownHours - elapsedHours);
         throw badRequest(
-          `两次提现需间隔 ${config.withdrawCooldownHours} 小时，请 ${wait} 小时后再试`,
+          `Withdrawals must be at least ${config.withdrawCooldownHours} hours apart; please retry in ${wait} hour(s)`,
         );
       }
     }
@@ -260,7 +260,7 @@ async function assertWithdrawLimits(
     const today = await sumSince(dayStart);
     if (today + amount > config.dailyWithdrawLimit) {
       throw badRequest(
-        `超出单日提现上限（${config.dailyWithdrawLimit} 元，今日已申请 ${today} 元）`,
+        `Daily withdrawal limit exceeded (limit ${config.dailyWithdrawLimit}, applied today ${today})`,
       );
     }
   }
@@ -270,7 +270,7 @@ async function assertWithdrawLimits(
     const thisMonth = await sumSince(monthStart);
     if (thisMonth + amount > config.monthlyWithdrawLimit) {
       throw badRequest(
-        `超出单月提现上限（${config.monthlyWithdrawLimit} 元，本月已申请 ${thisMonth} 元）`,
+        `Monthly withdrawal limit exceeded (limit ${config.monthlyWithdrawLimit}, applied this month ${thisMonth})`,
       );
     }
   }
@@ -288,9 +288,9 @@ export async function applyWithdraw(input: {
   const config = await getDistributionConfig();
   const amount = round2(Number(input.amount));
 
-  if (!Number.isFinite(amount) || amount <= 0) throw badRequest("提现金额不合法");
+  if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Invalid withdrawal amount");
   if (amount < config.minWithdrawAmount) {
-    throw badRequest(`最低提现金额为 ${config.minWithdrawAmount} 元`);
+    throw badRequest(`Minimum withdrawal amount is ${config.minWithdrawAmount}`);
   }
 
   // 风控闸门（P0-5）：日/月累计上限 + 冷却期。放在"在途检查"之前 ——
@@ -300,7 +300,7 @@ export async function applyWithdraw(input: {
   const inflight = await prisma.withdrawRecord.count({
     where: { userId: input.userId, status: { in: ["PENDING", "APPROVED"] } },
   });
-  if (inflight > 0) throw conflict("您已有一笔在途提现申请，请等待处理完成后再提交");
+  if (inflight > 0) throw conflict("You already have a withdrawal request in progress; please wait until it is processed");
 
   /* KYC：一期是**线下打款**，必须能核对到人。实名与收款方式首次必填，
      之后可省略并沿用上一次的值（避免每次重复录入）。服务端强校验，不依赖前端。 */
@@ -311,8 +311,8 @@ export async function applyWithdraw(input: {
   });
   const payeeName = input.payeeName?.trim() || lastKyc?.payeeName || null;
   const payeeMethod = input.payeeMethod || lastKyc?.payeeMethod || null;
-  if (!payeeName) throw badRequest("请填写收款人实名（线下打款需要核对身份）");
-  if (!payeeMethod) throw badRequest("请选择收款方式");
+  if (!payeeName) throw badRequest("Please provide the payee real name (required for identity verification before payout)");
+  if (!payeeMethod) throw badRequest("Please choose a payout method");
 
   // 《分销规则》确认留痕：提现是产生资金往来的动作，必须留下确认时间
   const account = await prisma.distributorAccount.findUnique({
@@ -353,7 +353,7 @@ export async function applyWithdraw(input: {
         where: { userId: input.userId, balance: { gte: amount } },
         data: { balance: { decrement: amount }, frozen: { increment: amount } },
       });
-      if (claimed.count === 0) throw badRequest("可提现余额不足");
+      if (claimed.count === 0) throw badRequest("Insufficient withdrawable balance");
 
       return tx.withdrawRecord.create({
         data: {
@@ -376,7 +376,7 @@ export async function applyWithdraw(input: {
       "code" in err &&
       (err as { code?: string }).code === "P2002"
     ) {
-      throw conflict("您已有一笔在途提现申请，请等待处理完成后再提交");
+      throw conflict("You already have a withdrawal request in progress; please wait until it is processed");
     }
     throw err;
   }
@@ -414,7 +414,7 @@ export async function auditWithdraw(input: {
   req?: NextRequest;
 }): Promise<{ status: string }> {
   const record = await prisma.withdrawRecord.findUnique({ where: { id: input.id } });
-  if (!record) throw notFound("提现单不存在");
+  if (!record) throw notFound("Withdrawal request not found");
 
   const amount = Number(record.amount);
   const now = new Date();
@@ -429,7 +429,7 @@ export async function auditWithdraw(input: {
         auditNote: input.note?.trim() || null,
       },
     });
-    if (claimed.count === 0) throw conflict("该提现单当前状态不可审核通过");
+    if (claimed.count === 0) throw conflict("This withdrawal request cannot be approved in its current state");
   } else if (input.action === "paid") {
     await prisma.$transaction(async (tx) => {
       const claimed = await tx.withdrawRecord.updateMany({
@@ -441,7 +441,7 @@ export async function auditWithdraw(input: {
           payNote: input.payNote?.trim() || null,
         },
       });
-      if (claimed.count === 0) throw conflict("该提现单当前状态不可标记为已打款");
+      if (claimed.count === 0) throw conflict("This withdrawal request cannot be marked as paid in its current state");
       // 申请人已注销（userId=SetNull）时没有账户可动：提现记录本身照常留痕
       if (record.userId) {
         await tx.distributorAccount.updateMany({
@@ -461,7 +461,7 @@ export async function auditWithdraw(input: {
           auditNote: input.note?.trim() || null,
         },
       });
-      if (claimed.count === 0) throw conflict("该提现单当前状态不可驳回");
+      if (claimed.count === 0) throw conflict("This withdrawal request cannot be rejected in its current state");
       // 解冻退回余额（申请人已注销则跳过账户动作）
       if (record.userId) {
         await tx.distributorAccount.updateMany({

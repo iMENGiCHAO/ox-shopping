@@ -210,7 +210,7 @@ export default async function AdminDashboardPage() {
                         {formatMoney(r.total, code)}
                       </TableCell>
                       <TableCell className="text-right text-muted-foreground">
-                        ¥{r.cnyEquivalent.toFixed(2)}
+                        {formatMoney(r.cnyEquivalent, "CNY")}
                       </TableCell>
                     </TableRow>
                   ))}

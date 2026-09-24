@@ -232,7 +232,7 @@ export default function AdminCommissionsPage() {
                 <TableHead className="w-[70px]">{t("层级")}</TableHead>
                 <TableHead className="w-[80px] text-right">{t("比例")}</TableHead>
                 <TableHead className="w-[130px] text-right">{t("佣金（原币）")}</TableHead>
-                <TableHead className="w-[120px] text-right">{t("折合 ¥")}</TableHead>
+                <TableHead className="w-[120px] text-right">{t("折合 CNY")}</TableHead>
                 <TableHead className="w-[90px]">{t("Status")}</TableHead>
                 <TableHead className="w-[160px]">{t("时间")}</TableHead>
                 <TableHead className="w-[170px]">{t("结算 / 冲正")}</TableHead>

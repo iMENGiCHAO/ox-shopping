@@ -13,6 +13,7 @@ import {
 } from "@/lib/distribution/mask";
 import { round2 } from "@/lib/distribution/rules";
 import { getDistributionConfig, getDistributionEnabledAt } from "./config.service";
+import { cnyText } from "./format-server";
 import { getClosure, getDescendantIds } from "./relation.service";
 import {
   accrueForOrder,
@@ -883,6 +884,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
   const threshold = options.largeWithdrawThreshold ?? 1000;
   const since = new Date(Date.now() - 30 * 24 * 3600 * 1000);
   const config = await getDistributionConfig();
+  const usdToCny = await currentUsdToCny();
 
   const [selfBuys, negatives, refundHeavy, bigWithdraws, overRules] = await Promise.all([
     /* 自购判定下推到数据库（P1 修复）：此前「取最近 200 条流水 → 内存过滤
@@ -919,13 +921,28 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
       orderBy: { balance: "asc" },
       take: 50,
     }),
-    prisma.refund.groupBy({
-      by: ["userId"],
-      where: { status: "REFUNDED", createdAt: { gte: since }, userId: { not: null } },
-      _count: { _all: true },
-      _sum: { amount: true },
-      having: { userId: { _count: { gte: 3 } } },
-    }),
+    prisma.$queryRaw<Array<{ userId: string; count: number; amountCny: unknown }>>`
+      SELECT
+        r."userId",
+        COUNT(*)::int AS count,
+        ROUND(
+          SUM(
+            (CASE WHEN o.currency = 'USD'
+              THEN r.amount
+              ELSE r.amount / COALESCE(NULLIF(o."exchangeRate", 0), 1)
+            END) * ${usdToCny}
+          )::numeric,
+          2
+        ) AS "amountCny"
+      FROM refunds r
+      JOIN orders o ON o.id = r."orderId"
+      WHERE r.status = 'REFUNDED'
+        AND r."createdAt" >= ${since}
+        AND r."userId" IS NOT NULL
+      GROUP BY r."userId"
+      HAVING COUNT(*) >= 3
+      ORDER BY "amountCny" DESC
+    `,
     prisma.withdrawRecord.findMany({
       where: { status: { in: ["PENDING", "APPROVED"] }, amount: { gte: threshold } },
       select: {
@@ -955,7 +972,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
       kind: "self_purchase",
       severity: "high",
       title: "自购返佣",
-      detail: `${log.toUserName ?? "（已注销）"} 在自己下单的订单 ${log.order?.orderNumber ?? "-"} 上获得了 ¥${Number(log.amountCny).toFixed(2)} 佣金`,
+      detail: `${log.toUserName ?? "（已注销）"} 在自己下单的订单 ${log.order?.orderNumber ?? "-"} 上获得了 ${cnyText(log.amountCny)} 佣金`,
       refType: "order",
       refId: log.orderId,
       at: log.createdAt.toISOString(),
@@ -968,7 +985,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
       kind: "negative_balance",
       severity: "medium",
       title: "账户余额为负（退款冲正挂账）",
-      detail: `${acc.user?.name ?? "（已注销）"}（${acc.user?.email ?? "-"}）余额 ¥${Number(acc.balance).toFixed(2)}，将由后续佣金抵扣`,
+      detail: `${acc.user?.name ?? "（已注销）"}（${acc.user?.email ?? "-"}）余额 ${cnyText(acc.balance)}，将由后续佣金抵扣`,
       refType: "user",
       refId: acc.userId,
       at: new Date().toISOString(),
@@ -990,7 +1007,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
         kind: "high_refund",
         severity: "medium",
         title: "近 30 天高频退款",
-        detail: `${u?.name ?? "（已注销）"}（${u?.email ?? "-"}）30 天内退款 ${r._count._all} 笔，累计 ¥${Number(r._sum.amount ?? 0).toFixed(2)}`,
+        detail: `${u?.name ?? "（已注销）"}（${u?.email ?? "-"}）30 天内退款 ${r.count} 笔，累计 ${cnyText(Number(r.amountCny ?? 0))}`,
         refType: "user",
         refId: r.userId,
         at: new Date().toISOString(),
@@ -1004,7 +1021,7 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
       kind: "large_withdraw",
       severity: w.amount && Number(w.amount) >= threshold * 5 ? "high" : "medium",
       title: "大额在途提现",
-      detail: `${w.payeeName ?? "（未填写实名）"}（${w.userEmail ?? "-"}）¥${Number(w.amount).toFixed(2)} · ${w.status}`,
+      detail: `${w.payeeName ?? "（未填写实名）"}（${w.userEmail ?? "-"}）${cnyText(Number(w.amount))} · ${w.status}`,
       refType: "withdraw",
       refId: w.id,
       at: w.createdAt.toISOString(),

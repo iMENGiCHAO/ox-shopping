@@ -369,3 +369,11 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 - [ ] 17.8 外部上线验收（依赖外部环境）：GitHub Docker build/start smoke、真实 Stripe/SMTP/S3、正式域名、LICENSE 与素材授权
 
 **团队协作约束**：共享工作区，不允许两个 agent 同时写同一文件；每个任务先 team_task_get/claim，按 write_scopes 修改，完成时回报文件与验证结果。Lead 负责共享文件、跨域集成、最终 diff 与全量回归。
+
+### Phase 18: 并行模型改动集成与复核（2026-09-24）— Status: complete
+
+- [x] 18.1 暂停外部模型后接管 17 个未提交 UI/i18n/分销文件
+- [x] 18.2 双队员只读审查 task-7/8，确认资金/并发无回归并发现 4 个高置信前端问题
+- [x] 18.3 修复游客订单父 layout 门禁、隐私邮件主题、dark hover 退款错误本地化
+- [x] 18.4 修复风控高频退款跨币种直接求和的 CNY 错账
+- [x] 18.5 回归：typecheck、lint、unit 265、integration 155、E2E 16、production build 全通过

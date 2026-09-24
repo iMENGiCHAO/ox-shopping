@@ -718,20 +718,20 @@ export async function reverseCommissionManually(input: {
       FOR UPDATE
     `;
     const log = rows[0];
-    if (!log) throw notFound("佣金流水不存在");
-    if (log.status === "REVERSED") throw conflict("该笔佣金已全额冲正，无需重复操作");
+    if (!log) throw notFound("Commission log not found");
+    if (log.status === "REVERSED") throw conflict("This commission has already been fully reversed");
 
     const amount = Number(log.amount);
     const amountCny = Number(log.amountCny);
     const alreadyAmount = Number(log.reversedAmount);
     const alreadyCny = Number(log.reversedCny);
-    if (amount <= 0) throw badRequest("该笔佣金金额异常，无法冲正");
+    if (amount <= 0) throw badRequest("Invalid commission amount; cannot reverse");
 
     const targetAmount =
       input.amount == null ? amount : round2(Math.min(Number(input.amount), amount));
-    if (!(targetAmount > 0)) throw badRequest("冲正金额必须大于 0");
+    if (!(targetAmount > 0)) throw badRequest("Reversal amount must be greater than 0");
     if (targetAmount <= alreadyAmount) {
-      throw conflict(`冲正金额不得超过未冲正余额（当前可冲正 ${round2(amount - alreadyAmount)}）`);
+      throw conflict(`Reversal amount exceeds the remaining reversible balance (available: ${round2(amount - alreadyAmount)})`);
     }
 
     // 金额与人民币按同一比例推进，保证折算口径一致

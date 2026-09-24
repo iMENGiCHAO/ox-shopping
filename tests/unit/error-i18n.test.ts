@@ -30,14 +30,27 @@ describe("错误文案本地化 · 精确表", () => {
       "已支付订单请走退款流程，不能直接取消",
       "订单：已支付不可取消",
     ],
-    ["Carrier is required when marking an order as shipped", "发货时必须填写物流公司", "发货：物流公司"],
+    [
+      "Carrier is required when marking an order as shipped",
+      "发货时必须填写物流公司",
+      "发货：物流公司",
+    ],
     [
       "Tracking number is required when marking an order as shipped",
       "发货时必须填写物流单号",
       "发货：物流单号",
     ],
-    ["Order status has changed, please refresh and try again", "订单状态已变更，请刷新后重试", "并发状态变更"],
+    [
+      "Order status has changed, please refresh and try again",
+      "订单状态已变更，请刷新后重试",
+      "并发状态变更",
+    ],
     ["You don't have access to this order", "无权访问该订单", "订单鉴权 403"],
+    [
+      "Order has already been fully refunded or reserved",
+      "订单已全额退款或已有退款处理中，无法再次退款",
+      "退款：已全额退款或在途",
+    ],
   ];
 
   for (const [en, wantZh, label] of cases) {
@@ -83,7 +96,11 @@ describe("错误文案本地化 · 模式表（带插值）", () => {
       "「The Core Tee」的规格 Size:L 已售罄 — 仅剩 2 件",
       "规格售罄",
     ],
-    ['"The Core Tee" is out of stock — only 0 left', "「The Core Tee」已售罄 — 仅剩 0 件", "商品售罄"],
+    [
+      '"The Core Tee" is out of stock — only 0 left',
+      "「The Core Tee」已售罄 — 仅剩 0 件",
+      "商品售罄",
+    ],
   ];
 
   for (const [en, wantZh, label] of cases) {
@@ -95,9 +112,9 @@ describe("错误文案本地化 · 模式表（带插值）", () => {
 
   it("规则顺序：带 directly 的规则先于更宽的规则匹配（否则会被吃掉）", () => {
     // 若两条规则的顺序反了，这里会得到「不可标记为已退款」而丢掉「直接」
-    expect(localizeErrorMessage('Order in status "X" cannot be marked as refunded directly', "zh")).toBe(
-      "当前状态「X」不可直接置为已退款",
-    );
+    expect(
+      localizeErrorMessage('Order in status "X" cannot be marked as refunded directly', "zh"),
+    ).toBe("当前状态「X」不可直接置为已退款");
   });
 });
 
@@ -117,7 +134,10 @@ describe("错误文案本地化 · 兜底", () => {
 
   it("字段级 details 也本地化；非字符串 message 原样保留", () => {
     const details = localizeErrorDetails(
-      [{ path: "email", message: "Invalid email format" }, { path: "x", message: 42 }],
+      [
+        { path: "email", message: "Invalid email format" },
+        { path: "x", message: 42 },
+      ],
       "zh",
     ) as Array<{ message: unknown }>;
     expect(details[0]?.message).toBe("邮箱格式不正确");
@@ -162,13 +182,17 @@ describe("请求语言推断", () => {
   it("后台 API 恒为中文，不受店面 shop-lang / 币种影响", () => {
     const req = (url: string, cookies: Record<string, string>) => ({
       url,
-      cookies: { get: (n: string) => (cookies[n] === undefined ? undefined : { value: cookies[n]! }) },
+      cookies: {
+        get: (n: string) => (cookies[n] === undefined ? undefined : { value: cookies[n]! }),
+      },
     });
     // 店主把店面切成英文 —— 中文后台不该跟着变成英文
-    expect(langForApiRequest(req("http://t.local/api/admin/orders", { currency: "USD" }))).toBe("zh");
-    expect(
-      langForApiRequest(req("http://t.local/api/admin/orders", { "shop-lang": "en" })),
-    ).toBe("zh");
+    expect(langForApiRequest(req("http://t.local/api/admin/orders", { currency: "USD" }))).toBe(
+      "zh",
+    );
+    expect(langForApiRequest(req("http://t.local/api/admin/orders", { "shop-lang": "en" }))).toBe(
+      "zh",
+    );
     // 店面请求照旧按 cookie 推断
     expect(langForApiRequest(req("http://t.local/api/orders", { currency: "CNY" }))).toBe("zh");
     expect(langForApiRequest(req("http://t.local/api/orders", { currency: "USD" }))).toBe("en");

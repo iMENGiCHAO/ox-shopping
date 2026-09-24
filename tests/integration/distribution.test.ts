@@ -918,7 +918,7 @@ describe("P1-10 提现 KYC 与规则确认", () => {
 
     // 缺实名 → 拒绝（服务端强校验，不依赖前端）
     await expect(applyWithdraw({ userId: fresh.userId, amount: 100 })).rejects.toThrow(
-      /收款人实名/,
+      /payee real name/,
     );
 
     const applied = await applyWithdraw({
@@ -1028,6 +1028,55 @@ describe("P1-8 人工冲正与风控", () => {
     await expect(
       reverseCommissionManually({ logId: log.id, note: "重复冲正", actorId }),
     ).rejects.toThrow();
+  });
+
+  it("高频退款按各订单币种和汇率快照折算为 CNY，而不是直接相加原币", async () => {
+    const riskBuyer = await registerUser("risk-currency");
+    const fixtures = [
+      { currency: "USD", amount: 10, rate: 1 },
+      { currency: "EUR", amount: 20, rate: 2 },
+      { currency: "JPY", amount: 3000, rate: 100 },
+    ];
+    for (const [index, fixture] of fixtures.entries()) {
+      const order = await prisma.order.create({
+        data: {
+          orderNumber: `${SUITE}-risk-refund-${index}`,
+          userId: riskBuyer.userId,
+          status: "REFUNDED",
+          subtotal: fixture.amount,
+          total: fixture.amount,
+          currency: fixture.currency,
+          exchangeRate: fixture.rate,
+          addressSnapshot: {},
+          paidAt: new Date(),
+          refundedAt: new Date(),
+        },
+      });
+      await prisma.refund.create({
+        data: {
+          orderId: order.id,
+          userId: riskBuyer.userId,
+          reason: "risk currency fixture",
+          amount: fixture.amount,
+          status: "REFUNDED",
+          idempotencyKey: `${SUITE}-risk-refund-${index}`,
+        },
+      });
+    }
+
+    const [{ getRiskReport }, { currentUsdToCny }, { cnyText }] = await Promise.all([
+      import("@/server/services/distribution"),
+      import("@/server/services/distribution/commission.service"),
+      import("@/server/services/distribution/format-server"),
+    ]);
+    const usdToCny = await currentUsdToCny();
+    const report = await getRiskReport();
+    const finding = report.findings.find(
+      (item) => item.kind === "high_refund" && item.refId === riskBuyer.userId,
+    );
+    expect(finding).toBeDefined();
+    // 10 USD + 10 USD-equivalent + 30 USD-equivalent = 50 USD，再按当前 USD/CNY 汇率折算。
+    expect(finding?.detail).toContain(cnyText(Math.round(50 * usdToCny * 100) / 100));
   });
 
   it("风控视图能检出负余额账户与超层级规则", async () => {

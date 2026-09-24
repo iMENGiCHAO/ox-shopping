@@ -93,7 +93,7 @@ export async function ensureReferralCode(userId: string): Promise<string> {
     where: { id: userId },
     select: { referralCode: true },
   });
-  if (!user) throw notFound("用户不存在");
+  if (!user) throw notFound("User not found");
   if (user.referralCode) return user.referralCode;
 
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -109,7 +109,7 @@ export async function ensureReferralCode(userId: string): Promise<string> {
       // 唯一约束冲突（极低概率）→ 换码重试
     }
   }
-  throw badRequest("推广码生成失败，请稍后重试");
+  throw badRequest("Failed to generate a referral code; please try again later");
 }
 
 /** 按推广码找人（大小写已在入口规范化） */
@@ -403,14 +403,14 @@ export async function setDistributorTier(input: {
 }): Promise<{ userId: string; tier: number }> {
   const tier = Math.trunc(input.tier);
   if (!Number.isInteger(tier) || tier < 0 || tier > 10) {
-    throw badRequest("分销商等级需为 0 ~ 10 的整数（0=普通）");
+    throw badRequest("Distributor tier must be an integer between 0 and 10 (0 = standard)");
   }
   const user = await prisma.user.findUnique({
     where: { id: input.userId },
     select: { isDistributor: true, name: true, email: true },
   });
-  if (!user) throw notFound("用户不存在");
-  if (!user.isDistributor) throw badRequest("该用户还不是分销商（首次成功推广后自动成为分销商）");
+  if (!user) throw notFound("User not found");
+  if (!user.isDistributor) throw badRequest("This user is not a distributor yet (auto-promoted after their first successful referral)");
 
   const before = await getDistributorTier(input.userId);
   await prisma.distributorAccount.upsert({

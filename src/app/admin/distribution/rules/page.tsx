@@ -527,7 +527,7 @@ export default function AdminDistributionRulesPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dist-min-withdraw">{t("最低提现额（¥）")}</Label>
+            <Label htmlFor="dist-min-withdraw">{t("最低提现额（CNY）")}</Label>
             <Input
               id="dist-min-withdraw"
               inputMode="decimal"
@@ -539,7 +539,7 @@ export default function AdminDistributionRulesPage() {
 
           {/* 风控额度（P0-5）：账号被盗时避免一次性把余额提空。0 = 不限。 */}
           <div className="space-y-2">
-            <Label htmlFor="dist-daily-limit">{t("单日提现上限（¥）")}</Label>
+            <Label htmlFor="dist-daily-limit">{t("单日提现上限（CNY）")}</Label>
             <Input
               id="dist-daily-limit"
               inputMode="decimal"
@@ -552,7 +552,7 @@ export default function AdminDistributionRulesPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="dist-monthly-limit">{t("单月提现上限（¥）")}</Label>
+            <Label htmlFor="dist-monthly-limit">{t("单月提现上限（CNY）")}</Label>
             <Input
               id="dist-monthly-limit"
               inputMode="decimal"

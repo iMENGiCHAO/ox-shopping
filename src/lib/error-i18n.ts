@@ -157,6 +157,45 @@ const ERROR_ZH: Record<string, string> = {
   "Tracking number is required when marking an order as shipped": "发货时必须填写物流单号",
   "Order status has changed, please refresh and try again": "订单状态已变更，请刷新后重试",
   "You don't have access to this order": "无权访问该订单",
+
+  /* ── 分销（提现/绑定/冲正 —— 顾客侧分销中心与后台共用同一批文案） ── */
+  "Invalid withdrawal amount": "提现金额不合法",
+  "Please provide the payee real name (required for identity verification before payout)":
+    "请填写收款人实名（线下打款需要核对身份）",
+  "Please choose a payout method": "请选择收款方式",
+  "Insufficient withdrawable balance": "可提现余额不足",
+  "You already have a withdrawal request in progress; please wait until it is processed":
+    "您已有一笔在途提现申请，请等待处理完成后再提交",
+  "Withdrawal request not found": "提现单不存在",
+  "This withdrawal request cannot be approved in its current state": "该提现单当前状态不可审核通过",
+  "This withdrawal request cannot be marked as paid in its current state":
+    "该提现单当前状态不可标记为已打款",
+  "This withdrawal request cannot be rejected in its current state": "该提现单当前状态不可驳回",
+  "Binding relationship not found": "绑定关系不存在",
+  "This binding is no longer active": "该绑定已失效",
+  "Rebind request not found": "换绑申请不存在",
+  "This request has already been processed": "该申请已处理，请勿重复操作",
+  "The target upline account is unavailable (disabled or missing a referral code); rebind cannot be completed":
+    "目标上级账号不可用（已禁用或缺少推广码），无法完成换绑",
+  "Commission log not found": "佣金流水不存在",
+  "This commission has already been fully reversed": "该笔佣金已全额冲正，无需重复操作",
+  "Invalid commission amount; cannot reverse": "该笔佣金金额异常，无法冲正",
+  "Reversal amount must be greater than 0": "冲正金额必须大于 0",
+  "User not found": "用户不存在",
+  "Failed to generate a referral code; please try again later": "推广码生成失败，请稍后重试",
+  "Distributor tier must be an integer between 0 and 10 (0 = standard)":
+    "分销商等级需为 0 ~ 10 的整数（0=普通）",
+  "This user is not a distributor yet (auto-promoted after their first successful referral)":
+    "该用户还不是分销商（首次成功推广后自动成为分销商）",
+  /* ── 订单退款 / 发货（后台操作文案，但源串统一英文） ── */
+  "Missing carrier; please fill in tracking info before marking as shipped":
+    "缺少物流公司，请先补填物流信息再标记已发货",
+  "Missing tracking number; please fill in tracking info before marking as shipped":
+    "缺少物流单号，请先补填物流信息再标记已发货",
+  "Order has already been fully refunded or reserved":
+    "订单已全额退款或已有退款处理中，无法再次退款",
+  "Refund request not found": "退款申请不存在",
+  "This refund request has already been processed": "该退款申请已处理，请勿重复操作",
 };
 
 /**
@@ -206,6 +245,40 @@ const PATTERN_ZH: Array<{ test: RegExp; zh: (...groups: string[]) => string }> =
   {
     test: /^"(.+)" is out of stock — only (.+) left$/,
     zh: (name, n) => `「${name}」已售罄 — 仅剩 ${n} 件`,
+  },
+  // ── 分销 / 退款的插值文案 ──
+  {
+    test: /^Withdrawals must be at least (.+) hours apart; please retry in (.+) hour\(s\)$/,
+    zh: (hours, wait) => `两次提现需间隔 ${hours} 小时，请 ${wait} 小时后再试`,
+  },
+  {
+    test: /^Daily withdrawal limit exceeded \(limit (.+), applied today (.+)\)$/,
+    zh: (limit, today) => `超出单日提现上限（${limit} 元，今日已申请 ${today} 元）`,
+  },
+  {
+    test: /^Monthly withdrawal limit exceeded \(limit (.+), applied this month (.+)\)$/,
+    zh: (limit, month) => `超出单月提现上限（${limit} 元，本月已申请 ${month} 元）`,
+  },
+  {
+    test: /^Minimum withdrawal amount is (.+)$/,
+    zh: (min) => `最低提现金额为 ${min} 元`,
+  },
+  {
+    test: /^Rebind failed \((.+)\); please check the customer current binding state$/,
+    zh: (outcome) => `换绑落库失败（${outcome}），请检查客户当前绑定状态`,
+  },
+  {
+    test: /^Reversal amount exceeds the remaining reversible balance \(available: (.+)\)$/,
+    zh: (n) => `冲正金额不得超过未冲正余额（当前可冲正 ${n}）`,
+  },
+  {
+    test: /^Total refund exceeds the order total: already used\/refunded (.+), this request (.+), order total (.+)$/,
+    zh: (used, amount, total) =>
+      `累计退款超出订单金额：已占用/已退 ${used}，本笔 ${amount}，订单总额 ${total}`,
+  },
+  {
+    test: /^Refund failed: (.+)$/,
+    zh: (err) => `退款失败：${err}`,
   },
 ];
 
