@@ -9,6 +9,7 @@ import { orderApiUrl } from "@/lib/order-api";
 import { toast } from "sonner";
 import { useT, useShopLang } from "@/components/shop/lang-provider";
 import { punct } from "@/lib/shop-i18n";
+import { localizeErrorMessage } from "@/lib/error-i18n";
 
 export interface OrderActionsProps {
   orderNumber: string;
@@ -102,9 +103,10 @@ export function OrderActions({
       }
       if (skipped > 0) {
         const p = punct(lang);
+        // 跳过原因是英文源串（服务端不写死中文，防英文站泄漏）——展示前按当前语言本地化
         const reasons = (res?.skipped ?? [])
           .slice(0, 3)
-          .map((s) => `${s.name} (${s.reason})`)
+          .map((s) => `${s.name} (${localizeErrorMessage(s.reason, lang)})`)
           .join(p.list);
         toast.warning(
           `${t("{n} item(s) not added to cart", { n: skipped })}${p.colon}${reasons}${res && res.skipped.length > 3 ? "…" : ""}`,

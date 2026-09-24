@@ -73,6 +73,39 @@ export function assertValidSpecs(
   }
 }
 
+/**
+ * 该规格组合的**可售库存**（判断库存必须先过这一步）：
+ * - 商品配置了 specStock 且选中规格命中其中 → 返回该规格明细库存；
+ *   组存在但没有该值的记录 → 该规格组合已售罄（0），不能拿商品总库存兜底
+ *   （总库存含别的颜色/尺码，会让售罄规格被加进购物车）。
+ * - 未配置 specStock / 未选规格 → 返回商品总库存。
+ * - 预售商品（isPresale）不受库存上限约束 → 返回 Infinity，调用方不会拦。
+ */
+export function specAvailableQuantity(
+  product: { stock: number; isPresale?: boolean | null; specStock?: unknown },
+  attributes?: SpecSelection[] | null,
+): number {
+  if (product.isPresale) return Infinity;
+  const raw = product.specStock;
+  if (!raw || typeof raw !== "object") return product.stock;
+  const map = raw as Record<string, unknown>;
+  const specs = Array.isArray(attributes) ? attributes : [];
+  if (specs.length === 0) return product.stock;
+  for (const s of specs) {
+    const group = map[s.name];
+    if (group && typeof group === "object") {
+      const v = (group as Record<string, unknown>)[s.value];
+      const n = typeof v === "number" || (typeof v === "string" && v.trim() !== "") ? Number(v) : NaN;
+      if (Number.isFinite(n)) return Math.max(0, n);
+      // 组存在但该规格值没有库存记录 → 已售罄
+      return 0;
+    }
+    // 组不存在（specStock 结构不含该维度）→ 回落总库存
+    return product.stock;
+  }
+  return product.stock;
+}
+
 export async function getCart(
   userId: string,
 ): Promise<{ items: CartLine[]; count: number; subtotal: number }> {
@@ -130,9 +163,10 @@ export async function addToCart(
   });
 
   const newQuantity = Math.min((existing?.quantity ?? 0) + quantity, MAX_CART_ITEM_QUANTITY);
-  // 预售商品允许 0 库存下单(Pre-Order)；普通商品仍按库存校验
-  if (!product.isPresale && newQuantity > product.stock) {
-    throw badRequest(`Not enough stock — only ${product.stock} left`);
+  // 判断库存的唯一口径：规格级可售量（未配 specStock 即总库存；预售 Infinity 不拦）
+  const available = specAvailableQuantity(product, attributes);
+  if (!product.isPresale && newQuantity > available) {
+    throw badRequest(`Not enough stock — only ${available} left`);
   }
 
   if (existing) {
@@ -163,9 +197,13 @@ export async function updateCartItem(
   const item = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
   if (!item) throw notFound("Shopping Bag item not found");
   const product = await prisma.product.findUnique({ where: { id: item.productId } });
-  // 预售商品不受库存上限约束(Pre-Order)
-  if (!product?.isPresale && quantity > (product?.stock ?? 0)) {
-    throw badRequest(`Not enough stock — only ${product?.stock ?? 0} left`);
+  // 与 addToCart 同口径：按该行规格的可售量校验（预售不受约束）
+  const available = specAvailableQuantity(
+    { stock: product?.stock ?? 0, isPresale: product?.isPresale, specStock: product?.specStock },
+    item.attributes as SpecSelection[] | null,
+  );
+  if (!product?.isPresale && quantity > available) {
+    throw badRequest(`Not enough stock — only ${available} left`);
   }
   await prisma.cartItem.update({ where: { id: item.id }, data: { quantity } });
 }

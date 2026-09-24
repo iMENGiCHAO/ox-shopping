@@ -23,6 +23,11 @@ const ERROR_ZH: Record<string, string> = {
   "Request body is not valid JSON": "请求体不是合法的 JSON",
   "CSRF validation failed, please refresh and retry": "CSRF 校验失败，请刷新页面后重试",
 
+  /* ── 再次购买(reorder)跳过原因 —— 前端 toast 展示前经 localizeErrorMessage ── */
+  "Out of stock": "缺货",
+  Unavailable: "已下架",
+  "Failed to add": "加购失败",
+
   /* ── 认证 / 账号 ───────────────────────────────────────────────── */
   "Incorrect email or password": "邮箱或密码错误",
   "This account has been disabled": "该账号已被禁用",
