@@ -47,7 +47,8 @@
     "qa:layout": "node scripts/qa/qa-layout.mjs",
     "qa:probe": "node scripts/qa/qa-probe-geometry.mjs",
     "qa:static": "npm run qa:hardcode && npm run qa:error-lang && npm run qa:links:static",
-    "verify": "npm run typecheck && npm run qa:static && npm run test:unit"
+    "verify": "npm run typecheck && npm run qa:static && npm run test:unit",
+    "smoke:docker": "bash scripts/smoke-compose.sh"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
