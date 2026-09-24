@@ -60,7 +60,8 @@ beforeAll(async () => {
 }, 240_000);
 
 beforeEach(async () => {
-  for (const ip of ["127.0.0.1", "unknown", testClientKey()]) await resetRateLimit(`order-create-ip:${ip}`);
+  for (const ip of ["127.0.0.1", "unknown", testClientKey()])
+    await resetRateLimit(`order-create-ip:${ip}`);
   await resetRateLimit(`order-create:${userId}`);
 });
 
@@ -189,7 +190,7 @@ describe("定时任务 · 超时未支付订单自动取消", () => {
 });
 
 describe("定时任务 · 数据清理", () => {
-  it("清理过期 Refresh Token 与 90 天前的审计日志", async () => {
+  it("清理过期 Refresh Token、审计日志与已完成的旧 Webhook 幂等记录", async () => {
     // 造一条「过期 8 天」的 token（保留窗口是 7 天）
     const { createHash } = await import("node:crypto");
     const raw = `qa-cron-token-${Date.now()}`;
@@ -210,11 +211,48 @@ describe("定时任务 · 数据清理", () => {
       },
     });
 
+    const oldProcessed = await prisma.webhookEvent.create({
+      data: {
+        provider: "stripe",
+        eventId: `qa-old-processed-${Date.now()}`,
+        type: "test",
+        status: "PROCESSED",
+        processedAt: new Date(Date.now() - 100 * 86_400_000),
+      },
+    });
+    const recentProcessed = await prisma.webhookEvent.create({
+      data: {
+        provider: "stripe",
+        eventId: `qa-recent-processed-${Date.now()}`,
+        type: "test",
+        status: "PROCESSED",
+        processedAt: new Date(),
+      },
+    });
+    const oldFailed = await prisma.webhookEvent.create({
+      data: {
+        provider: "stripe",
+        eventId: `qa-old-failed-${Date.now()}`,
+        type: "test",
+        status: "FAILED",
+        lastError: "keep for investigation",
+      },
+    });
+
     const { runScheduledJobs } = await import("@/server/jobs/scheduler");
     await runScheduledJobs();
 
     expect(await prisma.refreshToken.findUnique({ where: { id: token.id } })).toBeNull();
     expect(await prisma.auditLog.findUnique({ where: { id: oldLog.id } })).toBeNull();
+    expect(await prisma.webhookEvent.findUnique({ where: { id: oldProcessed.id } })).toBeNull();
+    expect(
+      await prisma.webhookEvent.findUnique({ where: { id: recentProcessed.id } }),
+    ).not.toBeNull();
+    expect(await prisma.webhookEvent.findUnique({ where: { id: oldFailed.id } })).not.toBeNull();
+
+    await prisma.webhookEvent.deleteMany({
+      where: { id: { in: [recentProcessed.id, oldFailed.id] } },
+    });
   });
 
   it("保留窗口内的 Refresh Token 不被误删", async () => {

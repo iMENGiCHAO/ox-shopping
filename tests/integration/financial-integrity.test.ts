@@ -180,6 +180,72 @@ describe("资金完整性：退款审批并发与部分退款", () => {
     ).toBe("COMPLETED");
   });
 
+  it("Stripe event claim：处理中重复直返，失败可重试，完成后持久幂等", async () => {
+    const { claimStripeWebhookEvent, failStripeWebhookEvent, finishStripeWebhookEvent } =
+      await import("@/lib/payment/stripe");
+    const eventId = `evt_test_${Date.now()}`;
+    try {
+      expect((await claimStripeWebhookEvent({ eventId, type: "test.event" })).state).toBe(
+        "CLAIMED",
+      );
+      expect((await claimStripeWebhookEvent({ eventId, type: "test.event" })).state).toBe(
+        "DUPLICATE",
+      );
+      await failStripeWebhookEvent(eventId, new Error("transient"));
+      expect((await claimStripeWebhookEvent({ eventId, type: "test.event" })).state).toBe(
+        "CLAIMED",
+      );
+      await finishStripeWebhookEvent(eventId, "PROCESSED");
+      expect((await claimStripeWebhookEvent({ eventId, type: "test.event" })).state).toBe(
+        "DUPLICATE",
+      );
+      const row = await prisma.webhookEvent.findUniqueOrThrow({
+        where: { provider_eventId: { provider: "stripe", eventId } },
+      });
+      expect(row.status).toBe("PROCESSED");
+      expect(row.attempts).toBe(2);
+    } finally {
+      await prisma.webhookEvent.deleteMany({ where: { eventId } });
+    }
+  });
+
+  it("Stripe refund.id 乱序/重复落账：每个网关退款只记一次", async () => {
+    const { orderNumber, total } = await createOrder();
+    await payAndRefund(orderNumber, total);
+    const order = await prisma.order.findUniqueOrThrow({ where: { orderNumber } });
+    const { recordStripeGatewayRefund } = await import("@/lib/payment/stripe");
+    const newer = `re_new_${Date.now()}`;
+    const older = `re_old_${Date.now()}`;
+    try {
+      // 新退款先到、旧退款后到；重复投递也不得新增第二行。
+      await recordStripeGatewayRefund({
+        orderId: order.id,
+        userId: order.userId,
+        refundId: newer,
+        amountMinor: Math.round(Number(total) * 50),
+      });
+      await recordStripeGatewayRefund({
+        orderId: order.id,
+        userId: order.userId,
+        refundId: older,
+        amountMinor: Math.round(Number(total) * 50),
+      });
+      await recordStripeGatewayRefund({
+        orderId: order.id,
+        userId: order.userId,
+        refundId: newer,
+        amountMinor: Math.round(Number(total) * 50),
+      });
+      const rows = await prisma.refund.findMany({
+        where: { orderId: order.id, gatewayRefundId: { in: [newer, older] } },
+      });
+      expect(rows).toHaveLength(2);
+      expect(rows.reduce((sum, row) => sum + Number(row.amount), 0)).toBeCloseTo(Number(total), 2);
+    } finally {
+      await prisma.refund.deleteMany({ where: { gatewayRefundId: { in: [newer, older] } } });
+    }
+  });
+
   it("退款审批只有网关成功后才完成，部分退款不改变整单状态", async () => {
     const { orderNumber, total } = await createOrder();
     const refund = await payAndRefund(orderNumber, total / 2);

@@ -82,16 +82,66 @@ export async function cacheDel(key: string): Promise<void> {
   memoryStore.delete(key);
 }
 
-/** 失效所有商品列表缓存(管理端商品/分类变更后调用) */
+const PRODUCT_SCAN_COUNT = 200;
+const PRODUCT_SCAN_MAX_ITERATIONS = 100;
+const PRODUCT_DELETE_BATCH_SIZE = 500;
+
+/** 失效所有商品列表缓存(管理端商品/分类变更后调用)。 */
 export async function invalidateProductsCache(): Promise<void> {
   const redis = getRedis();
   if (redis) {
     try {
-      const keys = await redis.keys(`${PRODUCTS_CACHE_PREFIX}*`);
-      if (keys.length > 0) await redis.del(...keys);
+      let cursor = "0";
+      let iterations = 0;
+      do {
+        iterations += 1;
+        const previousCursor = cursor;
+        const [nextCursor, keys] = await redis.scan(
+          previousCursor,
+          "MATCH",
+          `${PRODUCTS_CACHE_PREFIX}*`,
+          "COUNT",
+          PRODUCT_SCAN_COUNT,
+        );
+        cursor = nextCursor;
+
+        // UNLINK 在后台回收 value，避免大批量 DEL 阻塞 Redis 主线程。
+        // 兼容没有 UNLINK 的旧 Redis/代理客户端，失败时回退到 DEL。
+        for (let offset = 0; offset < keys.length; offset += PRODUCT_DELETE_BATCH_SIZE) {
+          const batch = keys.slice(offset, offset + PRODUCT_DELETE_BATCH_SIZE);
+          if (typeof redis.unlink === "function") {
+            try {
+              await redis.unlink(...batch);
+            } catch (err) {
+              // UNLINK 是 Redis >=4 的命令；旧服务端/代理不支持时回退 DEL。
+              logger.warn(
+                { err, batchSize: batch.length },
+                "redis unlink failed; falling back to del",
+              );
+              await redis.del(...batch);
+            }
+          } else {
+            await redis.del(...batch);
+          }
+        }
+
+        // Redis 文档允许 SCAN 返回空批次；游标异常不动时必须退出，避免误报后无限循环。
+        if (nextCursor === previousCursor && keys.length === 0) {
+          logger.warn({ cursor }, "redis scan cursor did not advance; stopping cache invalidation");
+          break;
+        }
+      } while (cursor !== "0" && iterations < PRODUCT_SCAN_MAX_ITERATIONS);
+
+      if (cursor !== "0" && iterations >= PRODUCT_SCAN_MAX_ITERATIONS) {
+        logger.warn(
+          { cursor, iterations },
+          "redis product cache invalidation reached scan limit; remaining keys await TTL",
+        );
+      }
       return;
     } catch (err) {
-      logger.warn({ err }, "redis keys/del failed");
+      // Redis 短暂不可用时仍清理进程内缓存，缓存失效失败不能让商品写入请求失败。
+      logger.warn({ err }, "redis scan/unlink failed; falling back to memory cache");
     }
   }
   for (const key of [...memoryStore.keys()]) {

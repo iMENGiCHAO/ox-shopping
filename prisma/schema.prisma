@@ -69,6 +69,13 @@ enum RefundOutboxStatus {
   COMPLETED
 }
 
+enum WebhookEventStatus {
+  PROCESSING
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
 /// 折扣码类型：
 ///  - PERCENTAGE：按折前小计打折（value=1..100 的百分数，可用 maxDiscount 封顶）
 ///  - FIXED：固定减免金额（value 为基础币种 USD 金额）
@@ -82,65 +89,65 @@ enum CouponType {
 // ============ 用户 ============
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  name          String
-  role          Role      @default(CUSTOMER)
-  status        UserStatus @default(ACTIVE)
-  emailVerified Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  lastLoginAt   DateTime?
+  id                  String     @id @default(cuid())
+  email               String     @unique
+  passwordHash        String
+  name                String
+  role                Role       @default(CUSTOMER)
+  status              UserStatus @default(ACTIVE)
+  emailVerified       Boolean    @default(false)
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  lastLoginAt         DateTime?
   /// 注销申请时间（有值=申请处理中；admin 处理完成/驳回后清空）
   deletionRequestedAt DateTime?
   /// 管理员已发放临时密码、等待用户首次改密（true 时会话被强制限制在改密页）
-  mustChangePassword Boolean @default(false)
+  mustChangePassword  Boolean    @default(false)
   /// 最近一次密码修改时间（改密/临时密码重置均更新；用于风控与后台展示）
-  passwordChangedAt DateTime?
+  passwordChangedAt   DateTime?
 
   // ── 分销（隔离模块，仅最小外键；详见文件末尾 Distribution 段） ──
   /// 专属推广码（注册即生成；老用户首次访问推广页时惰性补齐）
-  referralCode String? @unique
+  referralCode   String?   @unique
   /// 直属上级（推广人）用户 id
-  invitedById  String?
+  invitedById    String?
   /// 层级路径快照（展示用；权限判定一律走闭包表，不用它查询）
-  distPath     String?
+  distPath       String?
   /// 层级深度（自然流量根=0）
-  distLevel    Int     @default(0)
+  distLevel      Int       @default(0)
   /// 是否已成为分销商（首次成功推广后自动置 true，无需申请审核）
-  isDistributor Boolean @default(false)
+  isDistributor  Boolean   @default(false)
   /// 首次成功推广时间（自动升级时写入）
   firstPromoteAt DateTime?
 
-  addresses  Address[]
-  cartItems  CartItem[]
-  orders     Order[]         @relation("UserOrders")
-  assignedOrders Order[]     @relation("OrderAssignee")
-  refunds    Refund[]
-  couponRedemptions CouponRedemption[]
-  auditLogs  AuditLog[]
-  refreshTokens RefreshToken[]
-  notifications Notification[]
-  passwordResetRequests PasswordResetRequest[] @relation("PasswordResetRequester")
-  handledPasswordResetRequests PasswordResetRequest[] @relation("PasswordResetHandler")
-  invitedBy  User?  @relation("DistributionInviter", fields: [invitedById], references: [id], onDelete: SetNull)
-  invitees   User[] @relation("DistributionInviter")
+  addresses                    Address[]
+  cartItems                    CartItem[]
+  orders                       Order[]                   @relation("UserOrders")
+  assignedOrders               Order[]                   @relation("OrderAssignee")
+  refunds                      Refund[]
+  couponRedemptions            CouponRedemption[]
+  auditLogs                    AuditLog[]
+  refreshTokens                RefreshToken[]
+  notifications                Notification[]
+  passwordResetRequests        PasswordResetRequest[]    @relation("PasswordResetRequester")
+  handledPasswordResetRequests PasswordResetRequest[]    @relation("PasswordResetHandler")
+  invitedBy                    User?                     @relation("DistributionInviter", fields: [invitedById], references: [id], onDelete: SetNull)
+  invitees                     User[]                    @relation("DistributionInviter")
   /// 换绑申请（作为客户/目标上级/原上级/审核人）
-  rebindAsCustomer  RebindRequest[] @relation("RebindCustomer")
-  rebindAsTarget    RebindRequest[] @relation("RebindTarget")
-  rebindAsSource    RebindRequest[] @relation("RebindSource")
-  rebindReviewed    RebindRequest[] @relation("RebindReviewer")
-  dailyStats        DistributionDailyStat[] @relation("DistributionDailyStat")
-  relationsAsAncestor   DistributionRelation[] @relation("DistributionAncestor")
-  relationsAsDescendant DistributionRelation[] @relation("DistributionDescendant")
-  bindingsAsDistributor DistributorCustomerBind[] @relation("BindDistributor")
-  bindingAsCustomer     DistributorCustomerBind?  @relation("BindCustomer")
-  commissionsEarned     CommissionLog[] @relation("CommissionBeneficiary")
-  commissionsGenerated  CommissionLog[] @relation("CommissionSource")
-  distributorAccount    DistributorAccount?
-  withdrawals           WithdrawRecord[]
-  auditedWithdrawals    WithdrawRecord[] @relation("WithdrawAuditor")
+  rebindAsCustomer             RebindRequest[]           @relation("RebindCustomer")
+  rebindAsTarget               RebindRequest[]           @relation("RebindTarget")
+  rebindAsSource               RebindRequest[]           @relation("RebindSource")
+  rebindReviewed               RebindRequest[]           @relation("RebindReviewer")
+  dailyStats                   DistributionDailyStat[]   @relation("DistributionDailyStat")
+  relationsAsAncestor          DistributionRelation[]    @relation("DistributionAncestor")
+  relationsAsDescendant        DistributionRelation[]    @relation("DistributionDescendant")
+  bindingsAsDistributor        DistributorCustomerBind[] @relation("BindDistributor")
+  bindingAsCustomer            DistributorCustomerBind?  @relation("BindCustomer")
+  commissionsEarned            CommissionLog[]           @relation("CommissionBeneficiary")
+  commissionsGenerated         CommissionLog[]           @relation("CommissionSource")
+  distributorAccount           DistributorAccount?
+  withdrawals                  WithdrawRecord[]
+  auditedWithdrawals           WithdrawRecord[]          @relation("WithdrawAuditor")
 
   @@index([status])
   @@index([isDistributor])
@@ -156,22 +163,22 @@ model User {
 /// 为什么落库而不是只发邮件：申请是**人工审批**流程，必须有可查询、可幂等、
 /// 可审计的状态载体；只发邮件会让「谁处理了、处理到哪一步」丢失。
 model PasswordResetRequest {
-  id        String              @id @default(cuid())
-  userId    String
+  id           String              @id @default(cuid())
+  userId       String
   /// 申请时的邮箱快照（用户之后改邮箱不影响历史记录）
-  email     String              @db.VarChar(254)
-  status    PasswordResetStatus @default(PENDING)
+  email        String              @db.VarChar(254)
+  status       PasswordResetStatus @default(PENDING)
   /// 用户填写的说明（选填，帮助客服甄别身份）
-  note      String?             @db.Text
+  note         String?             @db.Text
   /// 处理人（ADMIN/SUPPORT）与处理时间
-  handledById String?
-  handledAt   DateTime?
+  handledById  String?
+  handledAt    DateTime?
   /// 驳回原因（随邮件告知用户）
-  rejectReason String?          @db.Text
+  rejectReason String?             @db.Text
   /// 提交 IP（风控留痕）
-  ip        String?
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
+  ip           String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
 
   user      User  @relation("PasswordResetRequester", fields: [userId], references: [id], onDelete: Cascade)
   handledBy User? @relation("PasswordResetHandler", fields: [handledById], references: [id], onDelete: SetNull)
@@ -182,26 +189,28 @@ model PasswordResetRequest {
 }
 
 model Address {
-  id           String  @id @default(cuid())
-  userId       String
+  id            String   @id @default(cuid())
+  userId        String
   recipientName String
-  phone        String
-  province     String
-  city         String
-  district     String
-  detail       String
+  phone         String
+  province      String
+  city          String
+  district      String
+  detail        String
   /// 街道地址第二行（公寓/单元号）。结账页「Save this information for next time」写入。
-  line2        String?
+  line2         String?
   /// 国家/地区 ISO alpha-2。历史数据为 null（当时只有国内地址）。
-  country      String?
+  country       String?
   /// 邮编。历史数据为 null。
-  postalCode   String?
-  isDefault    Boolean @default(false)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  postalCode    String?
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  /// 部分唯一索引 addresses_one_default_per_user（PostgreSQL migration 维护）：
+  /// `WHERE "isDefault" = true` 时每个 userId 最多一条默认地址。
   @@index([userId])
   @@map("addresses")
 }
@@ -224,35 +233,35 @@ model RefreshToken {
 // ============ 商品 ============
 
 model Category {
-  id        String  @id @default(cuid())
-  name      String  // zh (fallback when nameEn is null)
-  nameEn    String? // optional English name
-  slug      String  @unique
-  description String?
+  id            String   @id @default(cuid())
+  name          String // zh (fallback when nameEn is null)
+  nameEn        String? // optional English name
+  slug          String   @unique
+  description   String?
   /// 首页横幅图（首页两块半宽 Collection 横幅取此图；也是落地页大横幅的兜底）
-  image     String?
+  image         String?
   /// `/collections` 集合卡片图。为空时回落到 `image`。
   /// 原站首页横幅是模特大片、集合卡片是灰底商品图 —— 两者不同，故单独一列，
   /// 避免为了对齐集合卡片而改坏首页横幅。
-  cardImage String?
+  cardImage     String?
   /// 落地页顶部全宽大横幅(与列表卡片 image 相互独立)
-  bannerImage String?
-  parentId  String?
-  sortOrder Int     @default(0)
+  bannerImage   String?
+  parentId      String?
+  sortOrder     Int      @default(0)
   /// 首页横幅顺序。非空 = 该集合出现在首页那两块半宽横幅里，值即左右次序（1=左，2=右）。
   ///
   /// 为什么与 `sortOrder` 分开：原站首页横幅是 `[ X Collection ]` + `[ SpaceXAI Collection ]`，
   /// 而 `/collections` 的陈列顺序是 `Mens · SpaceXAI Collection · Womens · X Collection`
   /// —— 两者顺序本就不同，用同一个字段无法同时表达。
   homeSortOrder Int?
-  isActive  Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
-  children Category[] @relation("CategoryTree")
+  parent      Category?           @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]          @relation("CategoryTree")
   /// 以本分类为**主分类**的商品（每件商品恰好一个主分类）
-  products Product[]
+  products    Product[]
   /// 集合成员关系（多对多）—— 一件商品可同时出现在多个集合里
   memberships ProductCollection[]
 
@@ -288,42 +297,42 @@ model ProductCollection {
 }
 
 model Product {
-  id            String        @id @default(cuid())
-  name          String  // zh (fallback when nameEn is null)
-  nameEn        String? // optional English name
-  slug          String        @unique
-  description   String  // zh description
-  descriptionEn String? // optional English description
-  sku           String        @unique
-  price         Decimal       @db.Decimal(10, 2)
-  compareAtPrice Decimal?     @db.Decimal(10, 2)
-  costPrice     Decimal?      @db.Decimal(10, 2)
-  stock         Int           @default(0)
-  soldCount     Int           @default(0)
+  id             String        @id @default(cuid())
+  name           String // zh (fallback when nameEn is null)
+  nameEn         String? // optional English name
+  slug           String        @unique
+  description    String // zh description
+  descriptionEn  String? // optional English description
+  sku            String        @unique
+  price          Decimal       @db.Decimal(10, 2)
+  compareAtPrice Decimal?      @db.Decimal(10, 2)
+  costPrice      Decimal?      @db.Decimal(10, 2)
+  stock          Int           @default(0)
+  soldCount      Int           @default(0)
   /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
-  isPresale     Boolean       @default(false)
+  isPresale      Boolean       @default(false)
   /// 预售提示文案（多语言，可选）。为空时使用站级默认（SiteSetting: presale_note_zh/en）。
-  presaleNoteZh String?
-  presaleNoteEn String?
+  presaleNoteZh  String?
+  presaleNoteEn  String?
   /// 运营标签：新品上市 / 热卖（前台徽标）
-  isNew         Boolean       @default(false)
-  isHot         Boolean       @default(false)
+  isNew          Boolean       @default(false)
+  isHot          Boolean       @default(false)
   /// 尺码参数表（官方 Size Chart）：{ headers: string[]; rows: string[][] }
-  sizeChart     Json?
+  sizeChart      Json?
   /// 规格级库存：{ "Size": { "S": 3, "M": 0 } }，值为 0 = 该规格售罄
-  specStock     Json?
-  images        Json          @default("[]") // string[]
-  attributes    Json          @default("[]") // { name: string; values: string[] }[]
-  status        ProductStatus @default(DRAFT)
-  categoryId    String
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+  specStock      Json?
+  images         Json          @default("[]") // string[]
+  attributes     Json          @default("[]") // { name: string; values: string[] }[]
+  status         ProductStatus @default(DRAFT)
+  categoryId     String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  category   Category     @relation(fields: [categoryId], references: [id])
+  category    Category            @relation(fields: [categoryId], references: [id])
   /// 附加集合归属（多对多）—— 与 `categoryId`（主分类）取并集构成完整归属
   collections ProductCollection[]
-  cartItems  CartItem[]
-  orderItems OrderItem[]
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
 
   @@index([slug])
   @@index([categoryId])
@@ -357,69 +366,69 @@ model CartItem {
 // ============ 订单 ============
 
 model Order {
-  id              String      @id @default(cuid())
-  orderNumber     String      @unique
+  id               String      @id @default(cuid())
+  orderNumber      String      @unique
   /// 下单用户；游客结账时为 null（此时联系邮箱见 contactEmail）
-  userId          String?
+  userId           String?
   /// 订单联系邮箱：登录单取用户邮箱，游客单取结账页填写的邮箱。
   /// 用于订单确认/发货/退款邮件，以及游客订单查询与每人限次券的统计口径。
-  contactEmail    String?
+  contactEmail     String?
   /// 游客订单查询令牌（登录单为 null）。订单详情页 /orders/[n]?token=xxx 凭此访问。
-  accessToken     String?     @unique
-  status          OrderStatus @default(PENDING_PAYMENT)
-  subtotal        Decimal     @db.Decimal(10, 2)
-  shippingFee     Decimal     @default(0) @db.Decimal(10, 2)
-  tax             Decimal     @default(0) @db.Decimal(10, 2)
-  discount        Decimal     @default(0) @db.Decimal(10, 2)
+  accessToken      String?     @unique
+  status           OrderStatus @default(PENDING_PAYMENT)
+  subtotal         Decimal     @db.Decimal(10, 2)
+  shippingFee      Decimal     @default(0) @db.Decimal(10, 2)
+  tax              Decimal     @default(0) @db.Decimal(10, 2)
+  discount         Decimal     @default(0) @db.Decimal(10, 2)
   /// 使用的折扣码 id / 券码快照（券被删改后订单仍可还原当时的优惠）
-  couponId        String?
-  couponCode      String?
-  total           Decimal     @db.Decimal(10, 2)
-  currency        String      @default("USD")
+  couponId         String?
+  couponCode       String?
+  total            Decimal     @db.Decimal(10, 2)
+  currency         String      @default("USD")
   // 汇率快照：订单创建时 1 USD 兑订单币种的汇率，确保已结算订单金额不再随汇率变动
-  exchangeRate    Decimal     @default(1) @db.Decimal(12, 6)
-  addressSnapshot Json // { recipientName, phone, province, city, district, detail }
-  paymentProvider String? // stripe | mock
-  paymentId       String? // Stripe PaymentIntent id
+  exchangeRate     Decimal     @default(1) @db.Decimal(12, 6)
+  addressSnapshot  Json // { recipientName, phone, province, city, district, detail }
+  paymentProvider  String? // stripe | mock
+  paymentId        String? // Stripe PaymentIntent id
   // 支付会话 ID（Stripe Checkout Session，掉单对账用预留字段；mock 模式为空）
   paymentSessionId String?
-  trackingCompany String?
-  trackingNumber  String?
-  note            String?
+  trackingCompany  String?
+  trackingNumber   String?
+  note             String?
   /// 运营内部备注（仅后台可见，不会随邮件发给顾客/不展示在顾客订单页）。
   /// 与 note 分离：note 是顾客下单时填的备注，运营改写会丢失顾客原话。
-  adminNote       String?
-  paidAt          DateTime?
-  shippedAt       DateTime?
-  deliveredAt     DateTime?
-  cancelledAt     DateTime?
-  refundedAt      DateTime?
+  adminNote        String?
+  paidAt           DateTime?
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+  refundedAt       DateTime?
   // 物流方式（多对多 1：实际选一种；后台管理；nullable=沿用默认值）
   shippingMethodId String?
   // 运费到付（货到付款）时为 true，shippingFee 仅作占位记录
-  isCashOnDelivery Boolean   @default(false)
+  isCashOnDelivery Boolean     @default(false)
   /// 货到付款参考金额：顾客在送达时应向承运商支付的到付费（订单 total 之外）。
   /// 仅 COD 订单有值（非 COD 为 null）；total 不含该金额——货到付款的运费不计入在线支付总额，
   /// 落库后仓库/客服可直接从订单看到「送达时应收现金 = total + codFee」。
-  codFee           Decimal?  @db.Decimal(10, 2)
+  codFee           Decimal?    @db.Decimal(10, 2)
   // 运营节点：被某个 admin/support 认领处理（防止多端重复处理 / 漏处理）
   assigneeId       String?
   assignedAt       DateTime?
   // 新订单提醒：true = 还没被任何人看过，admin 进入 /orders 列表后自动取消
-  isUnread         Boolean   @default(true)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  isUnread         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
-  user           User?             @relation("UserOrders", fields: [userId], references: [id])
-  coupon         Coupon?           @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  items          OrderItem[]
-  refunds        Refund[]
+  user              User?              @relation("UserOrders", fields: [userId], references: [id])
+  coupon            Coupon?            @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  items             OrderItem[]
+  refunds           Refund[]
   couponRedemptions CouponRedemption[]
-  shippingMethod ShippingMethod?   @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
-  assignee       User?             @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  shippingMethod    ShippingMethod?    @relation(fields: [shippingMethodId], references: [id], onDelete: SetNull)
+  assignee          User?              @relation("OrderAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   // 分销：归属快照与佣金流水（隔离模块，删除订单时级联清理）
-  attribution    OrderAttribution?
-  commissions    CommissionLog[]
+  attribution       OrderAttribution?
+  commissions       CommissionLog[]
 
   @@index([orderNumber])
   @@index([couponId])
@@ -434,19 +443,19 @@ model Order {
 }
 
 model OrderItem {
-  id           String  @id @default(cuid())
-  orderId      String
-  productId    String?
-  productName  String
-  productImage String?
+  id            String  @id @default(cuid())
+  orderId       String
+  productId     String?
+  productName   String
+  productImage  String?
   // 下单规格快照（[{ name, value }]）
-  attributes   Json?
-  sku          String
-  price        Decimal @db.Decimal(10, 2)
-  quantity     Int
-  subtotal     Decimal @db.Decimal(10, 2)
+  attributes    Json?
+  sku           String
+  price         Decimal @db.Decimal(10, 2)
+  quantity      Int
+  subtotal      Decimal @db.Decimal(10, 2)
   // 实际从商品库存扣减的数量（预售可少于 quantity，取消时精确回补）
-  stockDeducted Int    @default(0)
+  stockDeducted Int     @default(0)
   // 实际从规格库存(specStock)扣减的映射 { "组名/值": n }（取消时精确回补）
   specDeducted  Json?
 
@@ -461,27 +470,27 @@ model OrderItem {
 // ============ 退款 ============
 
 model Refund {
-  id        String       @id @default(cuid())
-  orderId   String
+  id              String       @id @default(cuid())
+  orderId         String
   /// 申请退款的用户；游客订单（Order.userId 为空）时为 null
-  userId    String?
-  reason    String
-  amount    Decimal      @db.Decimal(10, 2)
-  status    RefundStatus @default(REQUESTED)
-  adminNote String?
+  userId          String?
+  reason          String
+  amount          Decimal      @db.Decimal(10, 2)
+  status          RefundStatus @default(REQUESTED)
+  adminNote       String?
   // 支付网关退款单号（Stripe refund.id；mock 为空）
-  gatewayRefundId String?
+  gatewayRefundId String?      @unique
   /// 同一退款在所有重试中共用的渠道幂等键；DB 唯一约束防止重复建 outbox。
-  idempotencyKey  String    @unique
-  attempts        Int       @default(0)
-  lastError       String?   @db.Text
+  idempotencyKey  String       @unique
+  attempts        Int          @default(0)
+  lastError       String?      @db.Text
   nextRetryAt     DateTime?
   processedAt     DateTime?
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  user  User? @relation(fields: [userId], references: [id])
+  order  Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  user   User?         @relation(fields: [userId], references: [id])
   outbox RefundOutbox?
 
   @@index([orderId])
@@ -509,6 +518,25 @@ model RefundOutbox {
 
   @@index([status, nextAttemptAt])
   @@map("refund_outbox")
+}
+
+/// Provider webhook 持久幂等账本。签名验证后才允许 claim；lease 让失败/崩溃事件可重试。
+model WebhookEvent {
+  id          String             @id @default(cuid())
+  provider    String
+  eventId     String
+  type        String
+  status      WebhookEventStatus @default(PROCESSING)
+  attempts    Int                @default(0)
+  leaseUntil  DateTime?
+  lastError   String?            @db.Text
+  processedAt DateTime?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@unique([provider, eventId])
+  @@index([status, leaseUntil])
+  @@map("webhook_events")
 }
 
 // ============ 审计日志 ============
@@ -548,8 +576,8 @@ model SiteSetting {
 model PaymentChannel {
   id              String   @id @default(cuid())
   code            String   @unique // alipay | wechat | mock | stripe ...
-  name            String   // 后台/前台显示名
-  provider        String   // 对应 PaymentProvider.key 实现
+  name            String // 后台/前台显示名
+  provider        String // 对应 PaymentProvider.key 实现
   enabled         Boolean  @default(false)
   configEncrypted String
   sortOrder       Int      @default(0)
@@ -580,16 +608,16 @@ model PaymentLog {
 
 /// 到货通知（售罄商品 PDP 的 Notify me 订阅）
 model NotifyMe {
-  id        String    @id @default(cuid())
-  email     String    @db.VarChar(254)
-  productId String?
+  id         String    @id @default(cuid())
+  email      String    @db.VarChar(254)
+  productId  String?
   /// 客户选中的规格（如 {"Color":"Black","Size":"M"}）——补货按变体提醒
   attributes Json?
-  status    String    @default("draft") // draft=待通知 notified=已通知
+  status     String    @default("draft") // draft=待通知 notified=已通知
   notifiedAt DateTime?
   /// 订阅时浏览器的语种（"zh" | "en"），用于按用户原语种发到货通知邮件；nullable=未记录
-  lang      String?
-  createdAt DateTime  @default(now())
+  lang       String?
+  createdAt  DateTime  @default(now())
 
   @@unique([email, productId])
   @@index([createdAt])
@@ -598,49 +626,49 @@ model NotifyMe {
 
 /// FAQ 常见问题（后台「FAQ 管理」维护，前台 /pages/faqs 读取）
 model Faq {
-  id        String   @id @default(cuid())
-  question  String   @db.VarChar(200)
-  answer    String   @db.Text
+  id         String   @id @default(cuid())
+  question   String   @db.VarChar(200)
+  answer     String   @db.Text
   /// 英文问答（可空 —— 为空时前台英文站点回落到 question/answer，
   /// 与 Product.name/nameEn 同一套 pickName 语义，避免中文界面漏出英文、反之亦然）
-  questionEn String? @db.VarChar(200)
-  answerEn   String? @db.Text
-  sortOrder Int      @default(0)
-  published Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  questionEn String?  @db.VarChar(200)
+  answerEn   String?  @db.Text
+  sortOrder  Int      @default(0)
+  published  Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@map("faqs")
 }
 
 /// 物流方式（后台「设置 → 物流方式」维护；前台 checkout 选项）
 model ShippingMethod {
-  id        String   @id @default(cuid())
+  id               String   @id @default(cuid())
   /// 后台唯一代号（默认 "standard" / "express"；自定义如 "sf-next-day"）
-  code      String   @unique
+  code             String   @unique
   /// 显示名（zh fallback when nameEn is null）
-  name      String
-  nameEn    String?
+  name             String
+  nameEn           String?
   /// 简介（多语）
-  description String?
-  descriptionEn String?
+  description      String?
+  descriptionEn    String?
   /// 基础运费（统一币种，与 env.CURRENCY 挂钩）
-  fee       Decimal  @db.Decimal(10, 2) @default(0)
+  fee              Decimal  @default(0) @db.Decimal(10, 2)
   /// 满 X 金额免运费（0 = 不免邮）
-  freeOver  Decimal  @db.Decimal(10, 2) @default(0)
+  freeOver         Decimal  @default(0) @db.Decimal(10, 2)
   /// 是否到付（到付订单：fee 不计入 total，到付金额另算）
-  isCashOnDelivery Boolean @default(false)
+  isCashOnDelivery Boolean  @default(false)
   /// 排序（小的在前）
-  sortOrder Int      @default(0)
+  sortOrder        Int      @default(0)
   /// 是否启用
-  isActive  Boolean  @default(true)
+  isActive         Boolean  @default(true)
   /// 估计送达时间（zh / en 多语）
-  etaZh     String?
-  etaEn     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  etaZh            String?
+  etaEn            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
-  orders    Order[]
+  orders Order[]
 
   @@index([isActive, sortOrder])
   @@map("shipping_methods")
@@ -668,7 +696,7 @@ model Notification {
   isUnread  Boolean  @default(true)
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, isUnread])
   @@index([userId, createdAt])
@@ -679,35 +707,35 @@ model Notification {
 /// 下单时按订单币种汇率换算后再从折前小计/运费中扣减，
 /// 与 order.service 的「USD 计算 → 换算为用户币种」口径保持一致。
 model Coupon {
-  id       String     @id @default(cuid())
+  id            String     @id @default(cuid())
   /// 券码（统一大写存储，校验时对输入做 trim + upper）
-  code     String     @unique
-  type     CouponType
+  code          String     @unique
+  type          CouponType
   /// PERCENTAGE: 1..100 的百分数；FIXED: 减免金额(USD)；FREE_SHIPPING: 忽略
-  value    Decimal    @db.Decimal(10, 2)
+  value         Decimal    @db.Decimal(10, 2)
   /// 使用门槛：折前小计(USD) 达到该值才可用；0 = 无门槛
-  minSpend Decimal    @default(0) @db.Decimal(10, 2)
+  minSpend      Decimal    @default(0) @db.Decimal(10, 2)
   /// PERCENTAGE 的最大减免封顶(USD)；null = 不封顶
-  maxDiscount Decimal? @db.Decimal(10, 2)
+  maxDiscount   Decimal?   @db.Decimal(10, 2)
   /// 生效窗口
-  startsAt DateTime
-  endsAt   DateTime
+  startsAt      DateTime
+  endsAt        DateTime
   /// 总可用次数；0 = 不限量
-  usageLimit Int      @default(0)
+  usageLimit    Int        @default(0)
   /// 已核销次数（订单取消/退款时回补）
-  usedCount  Int      @default(0)
+  usedCount     Int        @default(0)
   /// 每人可用次数（登录单按 userId、游客单按 contactEmail 统计）；0 = 不限
-  perUserLimit Int    @default(1)
+  perUserLimit  Int        @default(1)
   /// 是否在公开领券页展示（false = 仅凭码使用，不对外露出）
-  isPublic Boolean    @default(false)
+  isPublic      Boolean    @default(false)
   /// 公开领券页的展示文案（多语，zh fallback）
   title         String?
   titleEn       String?
   description   String?
   descriptionEn String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive      Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   redemptions CouponRedemption[]
   orders      Order[]
@@ -742,7 +770,6 @@ model CouponRedemption {
   @@index([couponId, email])
   @@map("coupon_redemptions")
 }
-
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Distribution（分销 / 多级佣金）—— 隔离模块
@@ -803,19 +830,19 @@ model DistributionRelation {
 /// `customerId` 唯一：一个客户同时只能归属一个分销商，这是「不可抢绑」的**数据库级**保证
 /// —— 应用层判重会被并发穿透，唯一约束不会。
 model DistributorCustomerBind {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   /// 可空 + SetNull：任一方注销/删除时不级联删除绑定历史（审计与对账需要）
   distributorId String?
-  customerId    String?  @unique
+  customerId    String?   @unique
   /// 绑定来源：link（链接）| qrcode（二维码）| code（邀请码）
-  bindType      String   @default("link")
+  bindType      String    @default("link")
   /// 渠道留痕（utm/来源页等）
   source        String?
-  bindTime      DateTime @default(now())
+  bindTime      DateTime  @default(now())
   /// 绑定到期时间；null=永久（默认口径：绑定永久有效）
   expireAt      DateTime?
   /// ACTIVE | RELEASED（解绑后置 RELEASED，便于审计留痕）
-  status        String   @default("ACTIVE")
+  status        String    @default("ACTIVE")
   releasedAt    DateTime?
 
   distributor User? @relation("BindDistributor", fields: [distributorId], references: [id], onDelete: SetNull)
@@ -858,21 +885,21 @@ model DistributionDailyStat {
 
 /// 换绑审核申请（allowRebind=true 时，换绑必须经平台审核，不再自动生效）
 model RebindRequest {
-  id                 String   @id @default(cuid())
+  id                String    @id @default(cuid())
   /// 被换绑的客户
-  customerId         String
+  customerId        String
   /// 原上级（可能为空=自然流量客户）
-  fromDistributorId  String?
+  fromDistributorId String?
   /// 目标上级
-  toDistributorId    String
+  toDistributorId   String
   /// PENDING | APPROVED | REJECTED
-  status             String   @default("PENDING")
+  status            String    @default("PENDING")
   /// 申请人/发起来源备注
-  requestedNote      String?
-  reviewedById       String?
-  reviewNote         String?
-  createdAt          DateTime @default(now())
-  reviewedAt         DateTime?
+  requestedNote     String?
+  reviewedById      String?
+  reviewNote        String?
+  createdAt         DateTime  @default(now())
+  reviewedAt        DateTime?
 
   customer        User  @relation("RebindCustomer", fields: [customerId], references: [id], onDelete: Cascade)
   toDistributor   User  @relation("RebindTarget", fields: [toDistributorId], references: [id], onDelete: Cascade)
@@ -894,7 +921,7 @@ model CommissionRule {
   /// RATIO = 按比例（用 ratio）；FIXED = 固定金额（用 fixedAmount，订单币种）
   mode        String    @default("RATIO")
   /// 比例百分数：10.00 表示 10%（mode=RATIO 时生效）
-  ratio       Decimal   @db.Decimal(5, 2) @default(0)
+  ratio       Decimal   @default(0) @db.Decimal(5, 2)
   /// 固定金额（订单币种，mode=FIXED 时生效）：如"每单固定返 5 美元"
   fixedAmount Decimal?  @db.Decimal(10, 2)
   /// 仅对指定等级的分销商生效；**0 = 通用规则**（对该层所有分销商生效）。
@@ -919,39 +946,39 @@ model CommissionRule {
 /// 佣金流水（只追加，不修改金额；冲正=改状态并把痕迹留在 reversedAt/note）。
 /// 幂等键 `(orderId, toUserId, level)`：重复回调/并发补算都不会重复计佣。
 model CommissionLog {
-  id            String           @id @default(cuid())
-  orderId       String
+  id             String           @id @default(cuid())
+  orderId        String
   /// 预留：按订单项计佣时使用（MVP 为整单口径，恒为 null）
-  orderItemId   String?
+  orderItemId    String?
   /// 下单用户（自购时 = toUserId 的下一级来源，便于风控识别自购）
-  fromUserId    String?
+  fromUserId     String?
   /// 获得佣金的人。
   /// **可空**：用户注销/被删除时置 NULL（onDelete: SetNull），佣金流水必须留存
   /// —— 财务对账与法律留痕要求「钱走过就要有记录」，级联删除会把账本删掉。
   /// 展示用姓名/邮箱走下面的冗余快照字段（删除用户后仍可对账）。
-  toUserId      String?
-  level         Int
-  ratio         Decimal          @db.Decimal(5, 2)
+  toUserId       String?
+  level          Int
+  ratio          Decimal          @db.Decimal(5, 2)
   /// 佣金金额（订单币种）
-  amount        Decimal          @db.Decimal(10, 2)
+  amount         Decimal          @db.Decimal(10, 2)
   /// 折合人民币（账户与提现统一按 CNY 记账）
-  amountCny     Decimal          @db.Decimal(12, 2)
-  currency      String           @default("CNY")
+  amountCny      Decimal          @db.Decimal(12, 2)
+  currency       String           @default("CNY")
   /// 计佣基数快照（订单币种）：商品实付小计（不含运费/税）
-  baseAmount    Decimal          @db.Decimal(10, 2) @default(0)
-  status        CommissionStatus @default(PENDING)
+  baseAmount     Decimal          @default(0) @db.Decimal(10, 2)
+  status         CommissionStatus @default(PENDING)
   /// 累计已冲正金额（订单币种）。部分退款按比例冲正时是**增量累计**，
   /// 与 `amount` 相等即视为全额冲正（status=REVERSED）。
-  reversedAmount Decimal         @default(0) @db.Decimal(10, 2)
+  reversedAmount Decimal          @default(0) @db.Decimal(10, 2)
   /// 累计已冲正金额（CNY），与 reversedAmount 同步推进
-  reversedCny    Decimal         @default(0) @db.Decimal(12, 2)
+  reversedCny    Decimal          @default(0) @db.Decimal(12, 2)
   /// 受益人快照（用户注销后仍可对账；姓名/邮箱是当时的展示值）
-  toUserName    String?
-  toUserEmail   String?
-  createdAt     DateTime         @default(now())
-  settledAt     DateTime?
-  reversedAt    DateTime?
-  note          String?
+  toUserName     String?
+  toUserEmail    String?
+  createdAt      DateTime         @default(now())
+  settledAt      DateTime?
+  reversedAt     DateTime?
+  note           String?
 
   order    Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
   toUser   User? @relation("CommissionBeneficiary", fields: [toUserId], references: [id], onDelete: SetNull)
@@ -967,18 +994,18 @@ model CommissionLog {
 /// 分销商账户（CNY 记账）。所有金额都由 `commission_logs` / `withdraw_records` 汇总而来，
 /// 本表只是**物化汇总**，便于列表页与提现校验；对账不一致时以流水为准。
 model DistributorAccount {
-  userId          String   @id
+  userId          String    @id
   /// 分销商等级（0=普通，1..N 越高越优）；等级可命中差异化佣金规则
-  tier            Int      @default(0)
+  tier            Int       @default(0)
   /// 首次确认《分销规则》的时间（提现前必须确认；合规留痕）
   termsAcceptedAt DateTime?
   /// 可提现余额（CNY）
-  balance         Decimal  @default(0) @db.Decimal(12, 2)
+  balance         Decimal   @default(0) @db.Decimal(12, 2)
   /// 提现冻结（已申请未打款）
-  frozen          Decimal  @default(0) @db.Decimal(12, 2)
+  frozen          Decimal   @default(0) @db.Decimal(12, 2)
   /// 累计已结算佣金（CNY，含已提现）
-  totalCommission Decimal  @default(0) @db.Decimal(12, 2)
-  updatedAt       DateTime @updatedAt
+  totalCommission Decimal   @default(0) @db.Decimal(12, 2)
+  updatedAt       DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

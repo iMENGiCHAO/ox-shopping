@@ -1,24 +1,26 @@
 import "server-only";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getRateSnapshot } from "@/components/shop/currency-server";
 import { getSiteSettings } from "@/server/services/settings.service";
 
 /**
- * 管理端仪表盘统计
+ * 管理端仪表盘统计。
  *
- * 多币种结算说明：
- * - 订单存储用户选择的币种金额 + 汇率快照（1 USD 兑用户币种的汇率）
- * - 统计时先将每个订单金额根据其汇率快照转换为基础货币（USD）：USD 金额 = 用户币种金额 / 汇率
- * - 然后将 USD 金额转换为人民币（CNY）：CNY 金额 = USD 金额 × USD→CNY 汇率
- * - 已结算订单金额不再随汇率变动，因为使用的是订单创建时的汇率快照
- * - 同时按币种分组统计，显示多币种汇总（原始币种金额）
- * - 后台默认以人民币（CNY）作为显示和汇总货币，方便中国商家管理
+ * 多币种口径保持不变：
+ * - Order.total / exchangeRate 是下单时快照；先按每单快照折回 USD；
+ * - 再用当前 USD→CNY 汇率折算后台 CNY 展示值；
+ * - 统计范围仍是 paidAt 非空且状态不是 CANCELLED / REFUNDED 的订单。
+ *
+ * 性能边界：营收总额、币种分组和 14 天趋势全部由 PostgreSQL 聚合，
+ * 不再把全量已支付订单读入 Node 内存。趋势查询使用 Node 计算好的
+ * 14 组本地日边界，因此跨夏令时切换时仍与原来的本地零点口径一致。
  */
 
-import type { Prisma } from "@prisma/client";
+type DbNumber = string | number | null;
 
-/** 将订单金额转换为 USD（基础货币） */
-function toUsd(
+/** 将订单金额按订单快照汇率转换为基础货币 USD。 */
+export function toUsd(
   total: number | Prisma.Decimal,
   currency: string,
   exchangeRate: number | Prisma.Decimal | null,
@@ -29,65 +31,109 @@ function toUsd(
   return amount / rate;
 }
 
-/**
- * 本地时区日期键（YYYY-MM-DD）。
- * 必须与「今日营收」的 dayStart（本地零点）同口径；用 toISOString() 会按 UTC 分桶，
- * 导致趋势图最后一天永远缺"今天"、且两处营收对不上。
- */
-function localDateKey(d: Date): string {
+/** 本地时区日期键（YYYY-MM-DD）。 */
+export function localDateKey(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
 
+export interface DailyRevenueAggregate {
+  day: string;
+  orders: number;
+  revenueUsd: DbNumber;
+}
+
+/** 把数据库按日聚合结果补齐成前端固定 14 天序列。 */
+export function buildRevenueTrend(
+  days: Date[],
+  rows: DailyRevenueAggregate[],
+  usdToCny: number,
+): { date: string; orders: number; revenue: number }[] {
+  const byDay = new Map(rows.map((row) => [row.day, row]));
+  return days.map((day) => {
+    const key = localDateKey(day);
+    const row = byDay.get(key);
+    const revenueUsd = Number(row?.revenueUsd ?? 0);
+    return {
+      date: key,
+      orders: Number(row?.orders ?? 0),
+      revenue: Math.round(revenueUsd * usdToCny * 100) / 100,
+    };
+  });
+}
+
+/** 静态 SQL 片段：与原 Node toUsd 完全同口径。 */
+const ORDER_TOTAL_USD_SQL = Prisma.sql`
+  CASE
+    WHEN "currency" = 'USD' OR COALESCE("exchangeRate", 0) <= 0 THEN "total"
+    ELSE "total" / "exchangeRate"
+  END
+`;
+
+const REVENUE_ELIGIBLE_SQL = Prisma.sql`
+  "paidAt" IS NOT NULL
+  AND "status" NOT IN ('CANCELLED', 'REFUNDED')
+`;
+
+/** Prisma DateTime 在 PostgreSQL 是 timestamp；用 UTC 字符串避免驱动/session TZ 二次转换。 */
+function utcTimestampLiteral(date: Date): string {
+  return date.toISOString().replace("T", " ").replace("Z", "");
+}
+
+interface RevenueTotalsRow {
+  revenueUsd: DbNumber;
+  todayRevenueUsd: DbNumber;
+}
+
+interface RevenueByCurrencyRow {
+  currency: string;
+  total: DbNumber;
+  count: number;
+  cnyEquivalent: DbNumber;
+}
+
 export async function getAdminStats() {
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-  // 获取 USD → CNY 汇率（用于后台人民币汇总）
+  // 14 个本地自然日边界。拼成单个 CASE 后只扫描/聚合订单表一次；相比把 14 天
+  // CTE 逐日 LEFT JOIN，在缺少 paidAt 索引的现有 schema 上不会退化成 14 次扫描。
+  // 边界由 Node 计算，也避免 date_trunc 依赖 PostgreSQL session timezone。
+  const days = Array.from({ length: 14 }, (_, i) => {
+    const day = new Date(now);
+    day.setDate(day.getDate() - (13 - i));
+    day.setHours(0, 0, 0, 0);
+    return day;
+  });
+  const trendDayCases = days.map((day) => {
+    const end = new Date(day);
+    end.setDate(end.getDate() + 1);
+    return Prisma.sql`
+      WHEN "paidAt" >= CAST(${utcTimestampLiteral(day)} AS timestamp)
+       AND "paidAt" < CAST(${utcTimestampLiteral(end)} AS timestamp)
+      THEN ${localDateKey(day)}::text
+    `;
+  });
+  const trendDayCase = Prisma.join(trendDayCases, " ");
+  const trendStartLiteral = utcTimestampLiteral(days[0]!);
+  const trendEnd = new Date(days[days.length - 1]!);
+  trendEnd.setDate(trendEnd.getDate() + 1);
+  const trendEndLiteral = utcTimestampLiteral(trendEnd);
+
+  // 获取 USD → CNY 汇率（用于后台人民币汇总）。
   const rateSnapshot = await getRateSnapshot();
   const usdToCny = rateSnapshot.rates["CNY"] ?? 7.2;
 
-  // 库存预警阈值（后台可配）——低库存计数与商品筛选共用同一口径，
-  // 否则「仪表盘说 7 个低库存、筛出来 5 个」这种数据打架必出现。
+  // 库存预警阈值（后台可配）——低库存计数与商品筛选共用同一口径。
   const { lowStockThreshold } = await getSiteSettings();
-
-  // 查询所有已支付订单（包含币种和汇率快照）
-  const paidOrders = await prisma.order.findMany({
-    where: { paidAt: { not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } },
-    select: { total: true, currency: true, exchangeRate: true, paidAt: true, status: true },
-  });
-
-  // 今日已支付订单
-  const todayPaidOrders = paidOrders.filter((o) => o.paidAt && o.paidAt >= dayStart);
-
-  // 计算总营收（先转换为 USD，再转换为 CNY）
-  const revenueUsd = paidOrders.reduce(
-    (sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate),
-    0,
-  );
-  const todayRevenueUsd = todayPaidOrders.reduce(
-    (sum, o) => sum + toUsd(o.total, o.currency, o.exchangeRate),
-    0,
-  );
-  const revenue = Math.round(revenueUsd * usdToCny * 100) / 100;
-  const todayRevenue = Math.round(todayRevenueUsd * usdToCny * 100) / 100;
-
-  // 按币种分组统计（多币种汇总，显示原始币种金额）
-  const revenueByCurrency: Record<string, { total: number; count: number; cnyEquivalent: number }> =
-    {};
-  for (const o of paidOrders) {
-    const cur = o.currency || "USD";
-    if (!revenueByCurrency[cur]) revenueByCurrency[cur] = { total: 0, count: 0, cnyEquivalent: 0 };
-    revenueByCurrency[cur]!.total += Number(o.total);
-    revenueByCurrency[cur]!.count += 1;
-    // 计算该币种的人民币等值
-    const orderUsd = toUsd(o.total, o.currency, o.exchangeRate);
-    revenueByCurrency[cur]!.cnyEquivalent += Math.round(orderUsd * usdToCny * 100) / 100;
-  }
+  const todayStartLiteral = utcTimestampLiteral(dayStart);
 
   const [
+    totalsRows,
+    currencyRows,
+    trendRows,
     orderCount,
     paidOrderCount,
     userCount,
@@ -96,12 +142,54 @@ export async function getAdminStats() {
     pendingRefundCount,
     pendingShipCount,
     todayOrders,
-    // 数据打通：营销与用户行为数据统计（消除信息孤岛，admin 可全面了解业务）
     notifyMeCount,
     lowStockCount,
+    recentOrders,
+    topProducts,
   ] = await Promise.all([
+    prisma.$queryRaw<RevenueTotalsRow[]>(Prisma.sql`
+      SELECT
+        COALESCE(SUM(${ORDER_TOTAL_USD_SQL}), 0)::text AS "revenueUsd",
+        COALESCE(SUM(
+          CASE
+            WHEN "paidAt" >= CAST(${todayStartLiteral} AS timestamp)
+            THEN ${ORDER_TOTAL_USD_SQL}
+            ELSE 0
+          END
+        ), 0)::text AS "todayRevenueUsd"
+      FROM "orders"
+      WHERE ${REVENUE_ELIGIBLE_SQL}
+    `),
+    prisma.$queryRaw<RevenueByCurrencyRow[]>(Prisma.sql`
+      SELECT
+        "currency",
+        COALESCE(SUM("total"), 0)::text AS "total",
+        COUNT(*)::int AS "count",
+        COALESCE(
+          SUM(ROUND(
+            (${ORDER_TOTAL_USD_SQL}) * CAST(${String(usdToCny)} AS numeric),
+            2
+          )),
+          0
+        )::text AS "cnyEquivalent"
+      FROM "orders"
+      WHERE ${REVENUE_ELIGIBLE_SQL}
+      GROUP BY "currency"
+    `),
+    prisma.$queryRaw<DailyRevenueAggregate[]>(Prisma.sql`
+      SELECT
+        CASE ${trendDayCase} ELSE NULL END AS "day",
+        COUNT(*)::int AS "orders",
+        COALESCE(SUM(${ORDER_TOTAL_USD_SQL}), 0)::text AS "revenueUsd"
+      FROM "orders"
+      WHERE ${REVENUE_ELIGIBLE_SQL}
+        AND "paidAt" >= CAST(${trendStartLiteral} AS timestamp)
+        AND "paidAt" < CAST(${trendEndLiteral} AS timestamp)
+      GROUP BY "day"
+      ORDER BY "day" ASC
+    `),
     prisma.order.count(),
-    // 口径与营收一致：排除已取消/已退款，避免"营收不含退款单、订单数却含"的矛盾
+    // 与营收一致：排除已取消/已全额退款。
     prisma.order.count({
       where: { paidAt: { not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } },
     }),
@@ -111,52 +199,41 @@ export async function getAdminStats() {
     prisma.refund.count({ where: { status: "REQUESTED" } }),
     prisma.order.count({ where: { status: { in: ["PAID", "PROCESSING"] } } }),
     prisma.order.count({ where: { createdAt: { gte: dayStart } } }),
-    // 到货提醒订阅总数（需求信号指标，admin 可据此安排补货）
     prisma.notifyMe.count({ where: { status: "draft" } }),
-    // 低库存商品数（库存预警指标，stock ≤ 生效阈值且 status = ACTIVE）
-    prisma.product.count({
-      where: { status: "ACTIVE", stock: { lte: lowStockThreshold } },
+    prisma.product.count({ where: { status: "ACTIVE", stock: { lte: lowStockThreshold } } }),
+    prisma.order.findMany({
+      take: 8,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      include: {
+        user: { select: { name: true, email: true } },
+        items: { select: { productName: true } },
+      },
+    }),
+    prisma.product.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: [{ soldCount: "desc" }, { id: "asc" }],
+      take: 5,
+      select: { id: true, name: true, slug: true, soldCount: true, stock: true, price: true },
     }),
   ]);
 
-  // 近 14 天销售趋势（先转换为 USD，再转换为 CNY）
-  const days = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(now);
-    d.setDate(d.getDate() - (13 - i));
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
-  const trendStart = days[0]!;
-  const trendOrders = paidOrders.filter((o) => o.paidAt && o.paidAt >= trendStart);
-  const trend = days.map((d) => {
-    const key = localDateKey(d);
-    const dayOrders = trendOrders.filter((o) => o.paidAt && localDateKey(o.paidAt) === key);
-    const dayUsd = dayOrders.reduce((s, o) => s + toUsd(o.total, o.currency, o.exchangeRate), 0);
-    return {
-      date: key,
-      orders: dayOrders.length,
-      revenue: Math.round(dayUsd * usdToCny * 100) / 100,
+  const totals = totalsRows[0] ?? { revenueUsd: 0, todayRevenueUsd: 0 };
+  const revenueUsd = Number(totals.revenueUsd ?? 0);
+  const todayRevenueUsd = Number(totals.todayRevenueUsd ?? 0);
+
+  const revenueByCurrency: Record<string, { total: number; count: number; cnyEquivalent: number }> =
+    {};
+  for (const row of currencyRows) {
+    const currency = row.currency || "USD";
+    revenueByCurrency[currency] = {
+      total: Number(row.total ?? 0),
+      count: Number(row.count ?? 0),
+      cnyEquivalent: Number(row.cnyEquivalent ?? 0),
     };
-  });
-
-  const recentOrders = await prisma.order.findMany({
-    take: 8,
-    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-    include: {
-      user: { select: { name: true, email: true } },
-      items: { select: { productName: true } },
-    },
-  });
-
-  const topProducts = await prisma.product.findMany({
-    where: { status: "ACTIVE" },
-    orderBy: [{ soldCount: "desc" }, { id: "asc" }],
-    take: 5,
-    select: { id: true, name: true, slug: true, soldCount: true, stock: true, price: true },
-  });
+  }
 
   return {
-    revenue,
+    revenue: Math.round(revenueUsd * usdToCny * 100) / 100,
     revenueCurrency: "CNY",
     revenueUsd: Math.round(revenueUsd * 100) / 100,
     usdToCnyRate: usdToCny,
@@ -168,16 +245,14 @@ export async function getAdminStats() {
     activeProductCount,
     pendingRefundCount,
     pendingShipCount,
-    todayRevenue,
+    todayRevenue: Math.round(todayRevenueUsd * usdToCny * 100) / 100,
     todayRevenueUsd: Math.round(todayRevenueUsd * 100) / 100,
     todayOrders,
-    trend,
+    trend: buildRevenueTrend(days, trendRows, usdToCny),
     recentOrders,
     topProducts,
-    // 数据打通：营销与用户行为指标
     notifyMeCount,
     lowStockCount,
-    /** 当前生效的库存预警阈值（后台可配，前端展示口径与筛选联动用） */
     lowStockThreshold,
   };
 }

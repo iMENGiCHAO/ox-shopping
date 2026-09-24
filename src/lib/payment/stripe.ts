@@ -1,6 +1,8 @@
 import "server-only";
 import Stripe from "stripe";
+import { Prisma } from "@prisma/client";
 import { env, effectivePaymentMode } from "@/lib/env";
+import { prisma } from "@/lib/prisma";
 import { ORDER_EXPIRE_SECONDS } from "@/lib/constants";
 import { toCents } from "@/lib/utils";
 import { formatMoney } from "@/lib/utils";
@@ -185,6 +187,61 @@ export function constructWebhookEvent(
   return stripe.webhooks.constructEvent(payload, signature, secret);
 }
 
+/** 按 Stripe refund.id 幂等落账；事件乱序或重复不会创建第二条本地退款。 */
+export async function recordStripeGatewayRefund(input: {
+  orderId: string;
+  userId: string | null;
+  refundId: string;
+  amountMinor: number;
+  /** Stripe refund.metadata.idempotencyKey；用于把 webhook 合并回本地审批行。 */
+  localIdempotencyKey?: string | null;
+  processedAt?: Date;
+  client?: Prisma.TransactionClient;
+}): Promise<void> {
+  if (!Number.isInteger(input.amountMinor) || input.amountMinor < 0) {
+    throw new Error("Invalid Stripe refund amount");
+  }
+  const client = input.client ?? prisma;
+  if (input.localIdempotencyKey) {
+    const approved = await client.refund.findFirst({
+      where: { idempotencyKey: input.localIdempotencyKey },
+    });
+    if (approved) {
+      if (approved.orderId !== input.orderId) {
+        throw new Error("Stripe refund idempotency key belongs to another order");
+      }
+      await client.refund.update({
+        where: { id: approved.id },
+        data: {
+          status: "REFUNDED",
+          gatewayRefundId: input.refundId,
+          processedAt: input.processedAt ?? new Date(),
+          lastError: null,
+        },
+      });
+      return;
+    }
+  }
+  await client.refund.upsert({
+    where: { gatewayRefundId: input.refundId },
+    create: {
+      orderId: input.orderId,
+      userId: input.userId,
+      reason: "Stripe webhook charge.refunded",
+      amount: new Prisma.Decimal((input.amountMinor / 100).toFixed(2)),
+      status: "REFUNDED",
+      idempotencyKey: `stripe_refund_${input.refundId}`,
+      gatewayRefundId: input.refundId,
+      processedAt: input.processedAt ?? new Date(),
+    },
+    update: {
+      status: "REFUNDED",
+      processedAt: input.processedAt ?? new Date(),
+      lastError: null,
+    },
+  });
+}
+
 /** Stripe 退款(支付成功后订单退款) */
 export async function createStripeRefund(
   paymentIntentId: string,
@@ -202,6 +259,84 @@ export async function createStripeRefund(
     },
     idempotencyKey ? { idempotencyKey } : undefined,
   );
+}
+
+export type WebhookClaim =
+  { state: "CLAIMED"; eventId: string } | { state: "DUPLICATE"; eventId: string };
+
+/**
+ * Claim a verified provider event. Completed/ignored events and a live processing lease
+ * are duplicates. FAILED or expired PROCESSING events may be reclaimed atomically.
+ */
+export async function claimStripeWebhookEvent(input: {
+  eventId: string;
+  type: string;
+  leaseMs?: number;
+}): Promise<WebhookClaim> {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + (input.leaseMs ?? 5 * 60_000));
+  try {
+    await prisma.webhookEvent.create({
+      data: {
+        provider: "stripe",
+        eventId: input.eventId,
+        type: input.type,
+        status: "PROCESSING",
+        attempts: 1,
+        leaseUntil,
+      },
+    });
+    return { state: "CLAIMED", eventId: input.eventId };
+  } catch (err) {
+    if (
+      !(err instanceof Error) ||
+      !("code" in err) ||
+      (err as { code?: string }).code !== "P2002"
+    ) {
+      throw err;
+    }
+  }
+
+  const current = await prisma.webhookEvent.findUniqueOrThrow({
+    where: { provider_eventId: { provider: "stripe", eventId: input.eventId } },
+  });
+  if (current.status === "PROCESSED" || current.status === "IGNORED") {
+    return { state: "DUPLICATE", eventId: input.eventId };
+  }
+  if (current.status === "PROCESSING" && current.leaseUntil && current.leaseUntil > now) {
+    return { state: "DUPLICATE", eventId: input.eventId };
+  }
+  const claimed = await prisma.webhookEvent.updateMany({
+    where: {
+      id: current.id,
+      OR: [
+        { status: "FAILED" },
+        { status: "PROCESSING", OR: [{ leaseUntil: null }, { leaseUntil: { lte: now } }] },
+      ],
+    },
+    data: { status: "PROCESSING", attempts: { increment: 1 }, leaseUntil, lastError: null },
+  });
+  return claimed.count === 1
+    ? { state: "CLAIMED", eventId: input.eventId }
+    : { state: "DUPLICATE", eventId: input.eventId };
+}
+
+export async function finishStripeWebhookEvent(
+  eventId: string,
+  status: "PROCESSED" | "IGNORED",
+): Promise<void> {
+  await prisma.webhookEvent.updateMany({
+    where: { provider: "stripe", eventId, status: "PROCESSING" },
+    data: { status, processedAt: new Date(), leaseUntil: null, lastError: null },
+  });
+}
+
+export async function failStripeWebhookEvent(eventId: string, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : "Unknown webhook processing error";
+  await prisma.webhookEvent.updateMany({
+    where: { provider: "stripe", eventId, status: "PROCESSING" },
+    data: { status: "FAILED", leaseUntil: null, lastError: message },
+  });
 }
 
 export { effectivePaymentMode, formatMoney };

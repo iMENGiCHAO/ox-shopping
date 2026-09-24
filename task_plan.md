@@ -340,6 +340,7 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 | npm audit 全量 high/critical | 1 | 升级 Vitest/Vite 后 audit 0 |
 | RefundOutbox 历史 REQUESTED/REJECTED 误入队列 | 1 | migration 只回填 APPROVED/REFUNDED，worker 再做状态硬守卫 |
 | distribution 规则快照为空 | 1 | 归属前先确保默认规则落库 |
+| Prettier 无法推断 Prisma schema parser | 1 | schema 使用 `npx prisma format`，其余文件使用 Prettier |
 
 
 ### Phase 16: 项目全栈深度分析（2026-09-23）— Status: complete
@@ -377,3 +378,11 @@ admin 16 页数据源全部核实）。汇率管理复核：API+CurrencyManager 
 - [x] 18.3 修复游客订单父 layout 门禁、隐私邮件主题、dark hover 退款错误本地化
 - [x] 18.4 修复风控高频退款跨币种直接求和的 CNY 错账
 - [x] 18.5 回归：typecheck、lint、unit 265、integration 155、E2E 16、production build 全通过
+
+### Phase 19: 资金幂等与数据扩展性硬化（2026-07-24）— Status: complete
+
+- [x] 19.1 Stripe event/refund 持久幂等、乱序退款与处理 lease
+- [x] 19.2 Redis 商品缓存 SCAN 分批失效与 UNLINK→DEL 回退
+- [x] 19.3 地址默认项部分唯一索引、历史清理与 Serializable 事务
+- [x] 19.4 仪表盘营收/币种/趋势改数据库聚合，停止全量订单载入内存
+- [x] 19.5 两个 migration 空库部署；typecheck、lint、unit 274、integration 159、E2E 16、build、audit、preflight 全通过

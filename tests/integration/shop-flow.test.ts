@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { callApi, getData, login } from "../helpers/api";
 import { ACCESS_TOKEN_COOKIE, REFRESH_TOKEN_COOKIE } from "@/lib/constants";
@@ -69,6 +69,93 @@ describe("商品列表 API", () => {
       expect(Number(p.price)).toBeGreaterThanOrEqual(100);
       expect(Number(p.price)).toBeLessThanOrEqual(1000);
     }
+  });
+});
+
+describe("地址默认项数据库约束", () => {
+  let addressJar: { get: (n: string) => string | undefined; absorb: (r: Response) => void };
+  let addressUserId: string;
+  let originalDefaultId: string | null = null;
+  const createdIds: string[] = [];
+  const addressInput = {
+    recipientName: "Default Constraint",
+    phone: "13800000000",
+    province: "Test",
+    city: "Test",
+    district: "Test",
+    detail: "Constraint test address",
+  };
+
+  beforeAll(async () => {
+    addressJar = (await login("user@example.com", "User@123456")).jar;
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: "user@example.com" } });
+    addressUserId = user.id;
+    const existing = await prisma.address.findMany({ where: { userId: addressUserId } });
+    originalDefaultId = existing.find((address) => address.isDefault)?.id ?? null;
+  });
+
+  afterAll(async () => {
+    await prisma.$transaction(async (tx) => {
+      await tx.address.deleteMany({ where: { id: { in: createdIds } } });
+      await tx.address.updateMany({ where: { userId: addressUserId }, data: { isDefault: false } });
+      if (originalDefaultId) {
+        await tx.address.update({ where: { id: originalDefaultId }, data: { isDefault: true } });
+      }
+    });
+  });
+
+  it("创建/切换默认项原子化，数据库拒绝同用户第二个默认项", async () => {
+    const { POST } = await import("@/app/api/user/addresses/route");
+    const { PUT } = await import("@/app/api/user/addresses/[id]/route");
+
+    const first = await callApi(POST, {
+      method: "POST",
+      cookies: cookiesOf(addressJar),
+      body: { ...addressInput, isDefault: false },
+    });
+    expect(first.status).toBe(200);
+    const firstData = (await getData(first)) as { address: { id: string } };
+    createdIds.push(firstData.address.id);
+    const second = await callApi(POST, {
+      method: "POST",
+      cookies: cookiesOf(addressJar),
+      body: { ...addressInput, line2: "second", isDefault: false },
+    });
+    expect(second.status).toBe(200);
+    const secondData = (await getData(second)) as { address: { id: string } };
+    createdIds.push(secondData.address.id);
+
+    const makeSecondDefault = await callApi(PUT, {
+      method: "PUT",
+      cookies: cookiesOf(addressJar),
+      params: { id: secondData.address.id },
+      body: { isDefault: true },
+    });
+    expect(makeSecondDefault.status).toBe(200);
+    let defaults = await prisma.address.findMany({
+      where: { userId: addressUserId, isDefault: true },
+      select: { id: true },
+    });
+    expect(defaults.map((row) => row.id)).toEqual([secondData.address.id]);
+
+    const makeFirstDefault = await callApi(PUT, {
+      method: "PUT",
+      cookies: cookiesOf(addressJar),
+      params: { id: firstData.address.id },
+      body: { isDefault: true },
+    });
+    expect(makeFirstDefault.status).toBe(200);
+    defaults = await prisma.address.findMany({
+      where: { userId: addressUserId, isDefault: true },
+      select: { id: true },
+    });
+    expect(defaults.map((row) => row.id)).toEqual([firstData.address.id]);
+
+    await expect(
+      prisma.address.create({
+        data: { ...addressInput, userId: addressUserId, isDefault: true },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
   });
 });
 
@@ -144,7 +231,6 @@ describe("购物车与订单全链路", () => {
     });
     expect(del.status).toBe(200);
   });
-
 
   // 这条用例串了「建单 → 扣库存 → 重复支付 → 模拟支付 → 取消拦截 → 详情 → PDF 发票 → 申请退款 → 后台审批」
   // 十余次往返，在外置卷的测试库上单跑就约 54s，贴着 vitest 默认 60s 上限；

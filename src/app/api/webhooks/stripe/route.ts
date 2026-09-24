@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { Prisma } from "@prisma/client";
 import { json } from "@/lib/api";
-import { constructWebhookEvent } from "@/lib/payment/stripe";
+import {
+  claimStripeWebhookEvent,
+  constructWebhookEvent,
+  failStripeWebhookEvent,
+  finishStripeWebhookEvent,
+  recordStripeGatewayRefund,
+} from "@/lib/payment/stripe";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { str } from "@/lib/payment/provider";
 import { markOrderPaid, markOrderRefundedByGateway } from "@/server/services/order.service";
@@ -14,15 +19,61 @@ import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
-/**
- * POST /api/webhooks/stripe
- * 不用 apiHandler：签名错误必须返回 400(Stripe 会重试)。
- */
+class WebhookIgnoredError extends Error {}
+
+async function processChargeRefunded(charge: Stripe.Charge): Promise<void> {
+  const paymentIntent =
+    typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+  if (!paymentIntent) return;
+
+  const order = await prisma.order.findFirst({
+    where: { paymentId: paymentIntent },
+    include: { items: true },
+  });
+  if (!order) return;
+
+  // Stripe may deliver Refund A/B events in either order and each Charge snapshot can
+  // contain several refunds. Process every succeeded refund by its own refund.id, then
+  // decide from the transaction-visible aggregate; never trust list order or event order.
+  const succeededRefunds = (charge.refunds?.data ?? []).filter(
+    (refund): refund is Stripe.Refund => refund.status === "succeeded",
+  );
+  if (succeededRefunds.length === 0) return;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
+    for (const gatewayRefund of succeededRefunds) {
+      await recordStripeGatewayRefund({
+        orderId: order.id,
+        userId: order.userId,
+        refundId: gatewayRefund.id,
+        amountMinor: gatewayRefund.amount,
+        localIdempotencyKey: gatewayRefund.metadata?.idempotencyKey,
+        client: tx,
+      });
+    }
+  });
+
+  const completed = await prisma.refund.aggregate({
+    where: { orderId: order.id, status: "REFUNDED" },
+    _sum: { amount: true },
+  });
+  const refundedTotal = Number(completed._sum.amount ?? 0);
+  if (refundedTotal >= Number(order.total) - 1e-9 && order.status !== "REFUNDED") {
+    await markOrderRefundedByGateway(
+      order,
+      succeededRefunds[succeededRefunds.length - 1]?.id ?? null,
+    );
+  } else {
+    await distributionBridge.onOrderRefunded(order.id);
+  }
+}
+
+/** POST /api/webhooks/stripe — verify signature, claim event.id, then process exactly once. */
 export async function POST(req: Request) {
   const payload = await req.text();
   const sig = req.headers.get("stripe-signature") ?? "";
 
-  // 渠道化 Stripe：后台配置并启用了 stripe 渠道时优先用渠道密钥验签；否则回落 env
   let keys: { secretKey?: string; webhookSecret?: string } | undefined;
   try {
     const channel = await getChannelRuntimeByCode("stripe");
@@ -33,69 +84,61 @@ export async function POST(req: Request) {
       };
     }
   } catch {
-    /* DB 异常时回落 env 密钥 */
+    // DB unavailable: fall back to environment credentials; the later claim will retry/fail loudly.
   }
 
   let event: Stripe.Event;
   try {
     event = constructWebhookEvent(payload, sig, keys);
   } catch (err) {
-    // 签名/构造失败：Stripe 对 4xx 不重试，返回 400 属正确语义
     logError(err, req, { context: "stripe webhook signature" });
-    return NextResponse.json({ error: "Webhook 签名校验失败" }, { status: 400 });
+    return NextResponse.json({ error: "Webhook signature verification failed" }, { status: 400 });
   }
+
+  let claim: Awaited<ReturnType<typeof claimStripeWebhookEvent>>;
+  try {
+    claim = await claimStripeWebhookEvent({ eventId: event.id, type: event.type });
+  } catch (err) {
+    logError(err, req, { context: "stripe webhook claim", type: event.type });
+    return NextResponse.json({ error: "Webhook event claim failed" }, { status: 500 });
+  }
+  if (claim.state === "DUPLICATE") return json({ received: true, duplicate: true });
 
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const orderNumber = session.metadata?.orderNumber;
-        if (orderNumber) {
-          // 资金安全：校验网关侧支付金额与币种是否与订单一致，
-          // 防止篡改 session / 币种错配导致低价成交
-          const order = await prisma.order.findUnique({ where: { orderNumber } });
-          if (!order) {
-            logError(new Error(`订单不存在: ${orderNumber}`), req, {
-              context: "stripe checkout.session.completed",
-            });
-            return NextResponse.json({ error: "订单不存在" }, { status: 400 });
-          }
-          const expectedCents = Math.round(Number(order.total) * 100);
-          if (session.amount_total !== expectedCents) {
-            logError(
-              new Error(`支付金额不匹配: 网关=${session.amount_total}分, 订单=${expectedCents}分`),
-              req,
-              { context: "stripe checkout.session.completed amount_mismatch" },
-            );
-            await audit({
-              action: "STRIPE_AMOUNT_MISMATCH",
-              entity: "Order",
-              entityId: order.id,
-              meta: {
-                orderNumber,
-                gatewayAmount: session.amount_total,
-                expectedAmount: expectedCents,
-              },
-              req,
-            });
-            return NextResponse.json({ error: "支付金额与订单不一致" }, { status: 400 });
-          }
-          if (
-            session.currency &&
-            order.currency &&
-            session.currency.toLowerCase() !== order.currency.toLowerCase()
-          ) {
-            logError(
-              new Error(`支付币种不匹配: 网关=${session.currency}, 订单=${order.currency}`),
-              req,
-              { context: "stripe checkout.session.completed currency_mismatch" },
-            );
-            return NextResponse.json({ error: "支付币种与订单不一致" }, { status: 400 });
-          }
-          const paymentIntent =
-            typeof session.payment_intent === "string" ? session.payment_intent : undefined;
-          await markOrderPaid(orderNumber, paymentIntent);
+        if (!orderNumber) throw new WebhookIgnoredError("Missing order number");
+
+        const order = await prisma.order.findUnique({ where: { orderNumber } });
+        if (!order) throw new WebhookIgnoredError(`Order not found: ${orderNumber}`);
+
+        const expectedCents = Math.round(Number(order.total) * 100);
+        if (session.amount_total !== expectedCents) {
+          await audit({
+            action: "STRIPE_AMOUNT_MISMATCH",
+            entity: "Order",
+            entityId: order.id,
+            meta: {
+              orderNumber,
+              gatewayAmount: session.amount_total,
+              expectedAmount: expectedCents,
+            },
+            req,
+          });
+          throw new WebhookIgnoredError("Payment amount does not match order");
         }
+        if (
+          session.currency &&
+          order.currency &&
+          session.currency.toLowerCase() !== order.currency.toLowerCase()
+        ) {
+          throw new WebhookIgnoredError("Payment currency does not match order");
+        }
+        const paymentIntent =
+          typeof session.payment_intent === "string" ? session.payment_intent : undefined;
+        await markOrderPaid(orderNumber, paymentIntent);
         break;
       }
 
@@ -111,75 +154,26 @@ export async function POST(req: Request) {
         break;
       }
 
-      case "charge.refunded": {
-        const charge = event.data.object as Stripe.Charge;
-        const paymentIntent =
-          typeof charge.payment_intent === "string" ? charge.payment_intent : undefined;
-        if (paymentIntent) {
-          const order = await prisma.order.findFirst({
-            where: { paymentId: paymentIntent },
-            include: { items: true },
-          });
-          if (order) {
-            const latestRefund =
-              Array.isArray(charge.refunds?.data) && charge.refunds.data.length > 0
-                ? charge.refunds.data[charge.refunds.data.length - 1]
-                : null;
-            // charge.refunded 是网关事实：先把本次退款按 gatewayRefundId 幂等落账，
-            // 再按累计成功金额决定部分冲正还是整单终态。不能依赖此前本地审批状态。
-            if (latestRefund && latestRefund.status === "succeeded") {
-              await prisma.$transaction(async (tx) => {
-                const existing = await tx.refund.findFirst({
-                  where: {
-                    orderId: order.id,
-                    OR: [
-                      { gatewayRefundId: latestRefund.id },
-                      { idempotencyKey: `gateway_${latestRefund.id}` },
-                    ],
-                  },
-                });
-                if (existing) {
-                  await tx.refund.update({
-                    where: { id: existing.id },
-                    data: { status: "REFUNDED", gatewayRefundId: latestRefund.id },
-                  });
-                } else {
-                  await tx.refund.create({
-                    data: {
-                      orderId: order.id,
-                      userId: order.userId,
-                      reason: "Stripe webhook charge.refunded",
-                      amount: new Prisma.Decimal((latestRefund.amount / 100).toFixed(2)),
-                      status: "REFUNDED",
-                      idempotencyKey: `gateway_${latestRefund.id}`,
-                      gatewayRefundId: latestRefund.id,
-                      processedAt: new Date(),
-                    },
-                  });
-                }
-              });
-              const agg = await prisma.refund.aggregate({
-                where: { orderId: order.id, status: "REFUNDED" },
-                _sum: { amount: true },
-              });
-              const refundedTotal = Number(agg._sum.amount ?? 0);
-              if (refundedTotal >= Number(order.total) - 1e-9 && order.status !== "REFUNDED") {
-                await markOrderRefundedByGateway(order, latestRefund.id);
-              } else {
-                await distributionBridge.onOrderRefunded(order.id);
-              }
-            }
-          }
-        }
+      case "charge.refunded":
+        await processChargeRefunded(event.data.object as Stripe.Charge);
         break;
-      }
+
+      default:
+        throw new WebhookIgnoredError(`Unsupported Stripe event type: ${event.type}`);
     }
 
+    await finishStripeWebhookEvent(event.id, "PROCESSED");
     return json({ received: true });
   } catch (err) {
-    // 事件处理失败：返回 5xx 让 Stripe 按退避策略重试（掉单对账任务兜底）
+    if (err instanceof WebhookIgnoredError) {
+      await finishStripeWebhookEvent(event.id, "IGNORED");
+      // The event was verified and deliberately classified; acknowledge it so Stripe
+      // does not retry a permanent business mismatch forever.
+      return json({ received: true, ignored: true });
+    }
+    await failStripeWebhookEvent(event.id, err).catch(() => undefined);
     logError(err, req, { context: "stripe webhook processing", type: event.type });
     captureException(err, { url: req.url, webhookType: event.type });
-    return NextResponse.json({ error: "Webhook 事件处理失败" }, { status: 500 });
+    return NextResponse.json({ error: "Webhook event processing failed" }, { status: 500 });
   }
 }

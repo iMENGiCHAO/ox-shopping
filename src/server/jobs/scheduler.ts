@@ -109,6 +109,20 @@ async function runAllJobs(): Promise<void> {
     logger.error({ err }, "[cron] auditLog 清理失败");
   }
 
+  // 2c. Webhook 幂等账本保留 90 天：覆盖 Stripe 常规重试窗口，同时避免无限增长。
+  // FAILED 事件不自动删除，必须保留给运营排查与补偿。
+  try {
+    const n = await prisma.webhookEvent.deleteMany({
+      where: {
+        status: { in: ["PROCESSED", "IGNORED"] },
+        processedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
+      },
+    });
+    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前 Webhook 幂等记录已清理");
+  } catch (err) {
+    logger.error({ err }, "[cron] webhookEvent 清理失败");
+  }
+
   // 3. 掉单对账（仅 Stripe 模式有网关状态可查；mock 支付同步完成无此需求）
   // 门控必须覆盖两条收款路径：env Stripe（effectivePaymentMode）**或** 渠道化 Stripe
   // （后台「支付渠道→Stripe」配置密钥收款）。若只看 env 模式，运营在 PAYMENT_MODE=mock/auto

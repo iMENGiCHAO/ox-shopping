@@ -32,3 +32,11 @@
 - 额外修复分销风控“不同订单币种退款直接相加再标 CNY”的错账，改为按订单 `exchangeRate` 快照逐笔折算并在 SQL 聚合。
 - 新增游客 token 订单详情 E2E、CNY 风险聚合集成测试和退款错误 i18n 单测。
 - 最终验证：typecheck 通过；lint 0 error/13 warning；unit 265/265；integration 155/155；Playwright 16/16；production build 通过。
+
+## 商业化深度硬化 task-9 至 task-12
+
+- Stripe Webhook 新增 `(provider,eventId)` 持久化 claim、5 分钟 lease、FAILED 重试和 PROCESSED/IGNORED 终态；退款按 gateway refund.id 幂等合并，乱序事件不重复记账；调度器仅清理 90 天前已完成事件，FAILED 永久保留供调查。
+- 商品缓存失效由 Redis `KEYS` 改为 `SCAN COUNT=200`、分批 `UNLINK`、旧服务端回退 `DEL`，限制循环并保留 TTL 兜底。
+- 地址默认项新增每用户部分唯一索引；历史重复自动清理；创建、切换、删除使用 Serializable 事务与有限重试。
+- 仪表盘取消全量订单载入 Node 内存，营收/币种/14 天趋势改 PostgreSQL 单次聚合，保留订单汇率快照与逐单 CNY 舍入口径。
+- 两个新 migration 已从空测试库完整应用。最终验证：typecheck 通过；lint 0 error/13 warning；unit 274/274；integration 159/159；Playwright 16/16；build 通过；audit 0；test preflight 12/12。
