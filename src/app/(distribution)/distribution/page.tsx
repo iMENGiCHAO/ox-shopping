@@ -187,8 +187,8 @@ export default function DistributionOverviewPage() {
             <CardHeader>
               <CardTitle>{t("My promo code")}</CardTitle>
             </CardHeader>
-            <CardContent className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-              <div className="min-w-0 flex-1 space-y-4">
+            <CardContent className="flex flex-col gap-4">
+              <div className="min-w-0 space-y-4">
                 <div>
                   <p className="text-xs text-muted-foreground">{t("My promo code")}</p>
                   <div className="mt-1 flex items-center gap-2">
@@ -223,57 +223,52 @@ export default function DistributionOverviewPage() {
                   </div>
                 </div>
               </div>
-              <div className="w-full shrink-0 rounded-2xl border border-border bg-card p-5 text-center shadow-card md:w-[300px]">
-                {/* 可分享的推广卡：站点信息 + 扫码用途 + 分享/下载动作（不再是裸二维码+下载按钮） */}
-                <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                  {t("Share card")}
-                </p>
-                <p className="mt-1.5 text-[15px] font-semibold tracking-tight">
-                  {t("Scan to shop on {brand}", { brand: siteName })}
-                </p>
+              {/* 可分享的推广卡：整宽紧凑横条（大爷 2026-09-24：竖卡太宽把左边撑空了版面丑）——
+                  小二维码 + 标题/用途 + 动作组三段式，嵌在左栏下方，左栏恢复全宽 */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-xl border border-border bg-secondary/40 p-3">
                 {/* 服务端直接出 SVG：客户端零依赖、零 JS，内容也只在服务端可信 */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/api/distribution/my/qrcode"
                   alt={t("Promotion QR code")}
-                  width={160}
-                  height={160}
-                  className="mx-auto mt-3 h-40 w-40 rounded-xl border border-border bg-card"
+                  width={88}
+                  height={88}
+                  className="h-[88px] w-[88px] shrink-0 rounded-lg border border-border bg-card"
                 />
-                <p className="mt-2.5 text-xs leading-relaxed text-muted-foreground">
-                  {t("Every scan, signup and order through this card ties to your account — paid orders accrue commission.")}
-                </p>
-                <div className="mt-4 flex gap-2">
-                  <Button size="sm" className="h-9 flex-1" onClick={() => void shareCard()}>
+                <div className="min-w-[200px] flex-1">
+                  <p className="text-[13px] font-semibold tracking-tight">
+                    {t("Scan to shop on {brand}", { brand: siteName })}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    {t("Every scan, signup and order through this card ties to your account — paid orders accrue commission.")}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  <Button size="sm" className="h-8" onClick={() => void shareCard()}>
                     <Share2 className="h-4 w-4" />
                     {t("Share")}
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 flex-1"
+                    className="h-8"
                     onClick={() => void copy(identity.referralCode)}
                   >
                     <Copy className="h-4 w-4" />
                     {t("Copy invite code")}
                   </Button>
+                  {/* P1-11 推广海报：服务端出 SVG（矢量、可直接转发/长按保存） */}
+                  <Button asChild variant="outline" size="sm" className="h-8">
+                    <a
+                      href="/api/distribution/my/poster?download=1"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      <ImageDown className="h-4 w-4" />
+                      {t("Download poster")}
+                    </a>
+                  </Button>
                 </div>
-                {/* P1-11 推广海报：服务端出 SVG（矢量、可直接转发/长按保存） */}
-                <Button
-                  asChild
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 h-9 w-full justify-center"
-                >
-                  <a
-                    href="/api/distribution/my/poster?download=1"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ImageDown className="h-4 w-4" />
-                    {t("Download poster")}
-                  </a>
-                </Button>
               </div>
             </CardContent>
           </Card>
