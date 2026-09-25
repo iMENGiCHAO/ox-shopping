@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
-import { CURRENCIES } from "@/components/shop/currency";
-import { useCurrency } from "@/components/shop/currency-provider";
-import { cn } from "@/lib/utils";
+import { CURRENCIES as _CURRENCIES_FALLBACK } from "@/components/shop/currency";
+import { useCurrency } from "@/components/shop/currency-provider";import { cn } from "@/lib/utils";
 
 /** 头部币种选择器(上游参考站 式下拉，如 USD $ → 选国家/币种) */
 export function CurrencySelect({
@@ -21,7 +20,9 @@ export function CurrencySelect({
   direction?: "down" | "up";
   className?: string;
 }) {
-  const { code, def, setCode } = useCurrency();
+  const { code, def, setCode, currencies } = useCurrency();
+  /** 后台配置的 enabled 列表（API 未返回前回退内置清单） */
+  const list = currencies.length > 0 ? currencies : _CURRENCIES_FALLBACK;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +87,7 @@ export function CurrencySelect({
             align === "center" && "left-1/2 -translate-x-1/2",
           )}
         >
-          {CURRENCIES.map((c) => (
+          {list.map((c) => (
             <li key={c.code}>
               <button
                 type="button"
@@ -104,7 +105,15 @@ export function CurrencySelect({
                     : "text-ink-foreground/70"
                 }`}
               >
-                <span>
+                <span className="flex items-center gap-2.5">
+                  <img
+                    src={`/flags/${c.flagCode}.svg`}
+                    alt=""
+                    aria-hidden="true"
+                    width={20}
+                    height={15}
+                    className="h-[15px] w-[20px] shrink-0"
+                  />
                   {c.country} ({c.code} {c.symbol})
                 </span>
                 {c.code === code ? <span className="text-ink-foreground">✓</span> : null}

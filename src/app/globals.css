@@ -1140,12 +1140,11 @@ body.search-open [data-testid="header-shell"] > header {
   body.admin-sidebar-collapsed .admin-main {
     padding-left: 72px !important;
   }
-  /* 折叠时隐藏侧栏文字和分组标题 */
-  body.admin-sidebar-collapsed .admin-sidebar nav > div {
+  /* 折叠 = 纯图标模式：只藏文字（组标题 / 链接文字 / 品牌文字），
+     导航图标全部保留 —— 此前的 `nav > div { display:none }` 把整组连图标
+     一起藏掉，折叠后侧栏只剩一条光板，没有任何功能入口（2026-09-24 修复）。 */
+  body.admin-sidebar-collapsed .admin-sidebar .nav-group-label {
     display: none;
-  }
-  body.admin-sidebar-collapsed .admin-sidebar nav > div.space-y-0\.5 {
-    display: block;
   }
   body.admin-sidebar-collapsed .admin-sidebar .truncate {
     display: none;
@@ -1153,7 +1152,8 @@ body.search-open [data-testid="header-shell"] > header {
   body.admin-sidebar-collapsed .admin-sidebar .flex-col.leading-tight {
     display: none;
   }
-  body.admin-sidebar-collapsed .admin-sidebar .gap-2\.5 {
+  /* 链接收缩态：图标水平居中、无内边距（title 属性保留悬停提示） */
+  body.admin-sidebar-collapsed .admin-sidebar nav a {
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
@@ -1169,7 +1169,7 @@ body.search-open [data-testid="header-shell"] > header {
  * 现代面板作用域（大爷 2026-09-20 要求：「线条和框框太简单粗糙，要有流行的圆角」）
  *
  * 为什么用「属性作用域 + 覆盖工具类」而不是改全局令牌：
- *   商城前台（商品/购物车/结账）必须保持 shop.x.com 的**方角无阴影**视觉
+ *   商城前台（商品/购物车/结账）必须保持上游参考站的**方角无阴影**视觉
  *   （`--radius: 0`），那是大爷第一条铁律「不要改废本网店的面目」。
  *   而「账户概览」与「分销中心」是**面板型界面**，大爷明确要求现代圆角。
  *   因此这里只在带 `data-modern-cards`（账户概览）/ `data-dist-center`（分销中心）

@@ -15,10 +15,7 @@ import { getLang } from "@/lib/shop-i18n-server";
 import type { SessionUser } from "@/types/api";
 import { AdminUnreadBell } from "@/components/admin/admin-unread-bell";
 import { AdminUserMenu } from "@/components/admin/admin-user-menu";
-import {
-  AdminSidebarToggle,
-  AdminSidebarCollapseButton,
-} from "@/components/admin/admin-sidebar-toggle";
+import { AdminSidebarToggle } from "@/components/admin/admin-sidebar-toggle";
 import { MobileDrawerContent } from "@/components/admin/admin-mobile-drawer";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -152,7 +149,7 @@ function SidebarContent({
           return (
             <div key={group.key} className={gi === 0 ? undefined : "mt-5"}>
               {!collapsed ? (
-                <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                <div className="nav-group-label mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
                   {group.label}
                 </div>
               ) : null}
@@ -197,10 +194,8 @@ export async function AdminShellServer({
       {/* ── 桌面固定侧栏 ───────────────────────────────────── */}
       <aside className="admin-sidebar fixed inset-y-0 left-0 z-30 hidden w-[264px] flex-col border-r border-border bg-card transition-[width] duration-200 ease-out lg:flex">
         <SidebarContent isAdmin={isAdmin} pathname={pathname} brandName={brandName} />
-        {/* 折叠按钮（侧栏底部，桌面） */}
-        <div className="border-t border-border p-2">
-          <AdminSidebarCollapseButton />
-        </div>
+        {/* 折叠/展开统一由顶栏 AdminSidebarToggle 操作 —— 收缩态侧栏底部
+            不再放第二个折叠按钮（此前收缩后残留的按钮挤在 72px 宽度里） */}
       </aside>
 
       {/* ── 移动端抽屉侧栏 ─────────────────────────────────── */}

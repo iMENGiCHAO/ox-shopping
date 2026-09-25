@@ -1,19 +1,19 @@
-import { cookies } from "next/headers";
-import { Lang, LANGS, translate } from "@/lib/admin-i18n";
+import type { Lang } from "@/lib/admin-i18n";
+import { translate } from "@/lib/admin-i18n";
 
-const COOKIE_KEY = "admin-lang";
-
-/** Read the admin language preference from the request cookie.
- *  Used in server components to translate strings without client context. */
+/**
+ * 后台语言已锁定纯中文（与客户端 LangProvider 一致）。
+ *
+ * 为什么不再读 cookie：历史版本的语言切换会把 `admin-lang` 持久化到
+ * cookie，此后服务端 RSC 按 cookie=en 渲染、客户端组件按锁定的 zh
+ * 渲染 —— 同一页面中英混排（这正是大爷报告的 bug）。锁死服务端后，
+ * 存量脏 cookie 不再产生任何影响，无需清理。
+ */
 export async function getLang(): Promise<Lang> {
-  const store = await cookies();
-  const raw = store.get(COOKIE_KEY)?.value as Lang | undefined;
-  if (raw && LANGS.includes(raw)) return raw;
-  return "zh"; // 后台锁定中文（与客户端 LangProvider 默认 zh 一致）
+  return "zh";
 }
 
-/** Server-side translator: returns a `t` function bound to the current cookie lang. */
+/** Server-side translator: 后台恒中文。 */
 export async function getT() {
-  const lang = await getLang();
-  return (key: string) => translate(key, lang);
+  return (key: string) => translate(key, "zh");
 }
