@@ -25,7 +25,6 @@ import { apiFetchRaw } from "@/lib/fetch-client";
 import type { CommissionRow, CommissionState } from "@/lib/distribution/contract";
 import type { Paginated, PaginationMeta } from "@/components/shop/distribution/types";
 import {
-  cny,
   commissionStatusLabel,
   formatDateTime,
   levelLabel,
@@ -125,7 +124,7 @@ export default function DistributionCommissionsPage() {
                 <TableHead>{t("Level")}</TableHead>
                 <TableHead className="text-right">{t("Rate")}</TableHead>
                 <TableHead className="text-right">{t("Commission")}</TableHead>
-                <TableHead className="text-right">{t("Converted to CNY")}</TableHead>
+                <TableHead className="text-right">{t("Settlement amount")}</TableHead>
                 <TableHead>{t("Status")}</TableHead>
                 <TableHead>{t("Time")}</TableHead>
               </TableRow>
@@ -143,7 +142,7 @@ export default function DistributionCommissionsPage() {
                     {money(row.amount, row.currency)}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">
-                    {cny(row.amountCny)}
+                    {money(row.amountSettle, row.settleCurrency)}
                   </TableCell>
                   <TableCell>
                     <CommissionStatusBadge status={row.status} />

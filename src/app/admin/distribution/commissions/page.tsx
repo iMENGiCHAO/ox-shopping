@@ -50,7 +50,7 @@ import {
 } from "../_shared";
 
 const PAGE_SIZE = 20;
-const COL_COUNT = 11;
+const COL_COUNT = 12;
 
 type StatusFilter = "PENDING" | "SETTLED" | "REVERSED" | "all";
 
@@ -65,6 +65,9 @@ interface CommissionLogRow {
   ratio: number;
   amount: number;
   amountCny: number;
+  /** 结算币种与按其折算的金额（账户入账口径） */
+  settleCurrency: string;
+  amountSettle: number;
   currency: string;
   status: "PENDING" | "SETTLED" | "REVERSED";
   createdAt: string;
@@ -232,6 +235,7 @@ export default function AdminCommissionsPage() {
                 <TableHead className="w-[70px]">{t("层级")}</TableHead>
                 <TableHead className="w-[80px] text-right">{t("比例")}</TableHead>
                 <TableHead className="w-[130px] text-right">{t("佣金（原币）")}</TableHead>
+                <TableHead className="w-[130px] text-right">{t("结算金额（入账币种）")}</TableHead>
                 <TableHead className="w-[120px] text-right">{t("折合 CNY")}</TableHead>
                 <TableHead className="w-[90px]">{t("Status")}</TableHead>
                 <TableHead className="w-[160px]">{t("时间")}</TableHead>
@@ -278,6 +282,9 @@ export default function AdminCommissionsPage() {
                       {formatMoney(row.amount, row.currency)}
                     </TableCell>
                     <TableCell className="text-right text-sm font-medium tabular-nums">
+                      {formatMoney(row.amountSettle, row.settleCurrency)}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                       {formatCny(row.amountCny)}
                     </TableCell>
                     <TableCell>

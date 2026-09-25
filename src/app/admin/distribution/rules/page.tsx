@@ -112,6 +112,8 @@ interface ConfigForm {
   maxTotalRatio: string;
   selfPurchaseCommission: boolean;
   selfPurchaseCountForUpstream: boolean;
+  /** 计佣基数口径：SALES=销售额 / PROFIT=利润分成（成本价差） */
+  commissionBaseMode: "SALES" | "PROFIT";
   settleHoldDays: string;
   minWithdrawAmount: string;
   /** 风控额度（P0-5）：0 = 不限 */
@@ -129,6 +131,7 @@ function toConfigForm(c: DistributionConfig): ConfigForm {
     maxTotalRatio: String(c.maxTotalRatio),
     selfPurchaseCommission: c.selfPurchaseCommission,
     selfPurchaseCountForUpstream: c.selfPurchaseCountForUpstream,
+    commissionBaseMode: c.commissionBaseMode,
     settleHoldDays: String(c.settleHoldDays),
     minWithdrawAmount: String(c.minWithdrawAmount),
     dailyWithdrawLimit: String(c.dailyWithdrawLimit),
@@ -276,6 +279,7 @@ export default function AdminDistributionRulesPage() {
           maxTotalRatio: totalRatio,
           selfPurchaseCommission: configForm.selfPurchaseCommission,
           selfPurchaseCountForUpstream: configForm.selfPurchaseCountForUpstream,
+          commissionBaseMode: configForm.commissionBaseMode,
           settleHoldDays: holdDays,
           minWithdrawAmount: minWithdraw,
           dailyWithdrawLimit: dailyLimit,
@@ -610,6 +614,31 @@ export default function AdminDistributionRulesPage() {
             </Select>
             <p className="text-xs text-muted-foreground">
               {t("「首次下单才绑定」可减少只注册不消费的无效归属")}
+            </p>
+          </div>
+
+          {/* 计佣基数口径（2026-09-24）：把商品「成本价」用起来 ——
+              PROFIT 模式下佣金按真实利润分，而不是按销售额分，防止亏本单也返佣 */}
+          <div className="space-y-2">
+            <Label htmlFor="dist-base-mode">{t("计佣基数口径")}</Label>
+            <Select
+              value={configForm.commissionBaseMode}
+              onValueChange={(v) =>
+                setConfigForm((f) => ({ ...f, commissionBaseMode: v as "SALES" | "PROFIT" }))
+              }
+            >
+              <SelectTrigger id="dist-base-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="SALES">{t("销售额（实付小计）")}</SelectItem>
+                <SelectItem value="PROFIT">{t("利润分成（实付 − 成本价）")}</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。",
+              )}
             </p>
           </div>
 

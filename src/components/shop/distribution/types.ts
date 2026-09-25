@@ -36,6 +36,8 @@ export interface MyCustomerRow {
 export interface WithdrawRow {
   id: string;
   amount: number;
+  /** 提现币种（账户结算币种的申请时快照；amount 按此币种计价） */
+  currency: string;
   status: string;
   accountInfo: string | null;
   remark: string | null;

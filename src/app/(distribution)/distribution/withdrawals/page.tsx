@@ -22,7 +22,7 @@ import { useShopLang, useT } from "@/components/shop/lang-provider";
 import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
 import type { DistributionAccountSummary } from "@/lib/distribution/contract";
 import type { Paginated, PaginationMeta, WithdrawRow } from "@/components/shop/distribution/types";
-import { cny, formatDateTime } from "@/components/shop/distribution/format";
+import { formatDateTime, money } from "@/components/shop/distribution/format";
 import { StatCard, TableSkeleton, WithdrawStatusBadge } from "@/components/shop/distribution/ui";
 
 const PAGE_SIZE = 10;
@@ -105,7 +105,11 @@ export default function DistributionWithdrawalsPage() {
       return;
     }
     if (value < minWithdrawAmount) {
-      toast.error(t("Amount must be at least {amount}", { amount: cny(minWithdrawAmount) }));
+      toast.error(
+        t("Amount must be at least {amount}", {
+          amount: money(minWithdrawAmount, account?.settlementCurrency ?? "CNY"),
+        }),
+      );
       return;
     }
     if (account && value > account.balance) {
@@ -149,10 +153,22 @@ export default function DistributionWithdrawalsPage() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label={t("Available balance")} value={cny(account?.balance ?? 0)} />
-        <StatCard label={t("Frozen")} value={cny(account?.frozen ?? 0)} />
-        <StatCard label={t("Pending commission")} value={cny(account?.pendingCommission ?? 0)} />
-        <StatCard label={t("Minimum withdrawal")} value={cny(minWithdrawAmount)} />
+        <StatCard
+          label={t("Available balance")}
+          value={money(account?.balance ?? 0, account?.settlementCurrency ?? "CNY")}
+        />
+        <StatCard
+          label={t("Frozen")}
+          value={money(account?.frozen ?? 0, account?.settlementCurrency ?? "CNY")}
+        />
+        <StatCard
+          label={t("Pending commission")}
+          value={money(account?.pendingCommission ?? 0, account?.settlementCurrency ?? "CNY")}
+        />
+        <StatCard
+          label={t("Minimum withdrawal")}
+          value={money(minWithdrawAmount, account?.settlementCurrency ?? "CNY")}
+        />
       </div>
 
       <Card className="panel">
@@ -175,7 +191,9 @@ export default function DistributionWithdrawalsPage() {
                 className="h-10"
               />
               <p className="text-xs text-muted-foreground">
-                {t("Minimum withdrawal: {amount}", { amount: cny(minWithdrawAmount) })}
+                {t("Minimum withdrawal: {amount}", {
+                  amount: money(minWithdrawAmount, account?.settlementCurrency ?? "CNY"),
+                })}
               </p>
             </div>
             <div className="space-y-1.5">
@@ -287,7 +305,7 @@ export default function DistributionWithdrawalsPage() {
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {cny(row.amount)}
+                      {money(row.amount, row.currency)}
                     </TableCell>
                     <TableCell>
                       <WithdrawStatusBadge status={row.status} />

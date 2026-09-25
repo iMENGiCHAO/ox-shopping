@@ -89,6 +89,8 @@ export const GET = apiHandler(async (req) => {
       balance: Number(accountMap.get(u.id)?.balance ?? 0),
       totalCommission: Number(accountMap.get(u.id)?.totalCommission ?? 0),
       tier: accountMap.get(u.id)?.tier ?? 0,
+      /** 账户结算币种（余额/累计佣金的计价币种） */
+      settlementCurrency: accountMap.get(u.id)?.settlementCurrency ?? "CNY",
     })),
     { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
   );

@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import {
   convertPrice,
+  CURRENCIES,
   CURRENCY_COOKIE,
   DEFAULT_CURRENCY,
   FALLBACK_RATES,
@@ -30,6 +31,11 @@ interface CurrencyContextValue {
   format: (amountBase: number) => string;
   /** 切换币种(写 cookie + 刷新服务端渲染) */
   setCode: (code: string) => void;
+  /**
+   * 可选币种列表（后台「货币与汇率」配置驱动，enabled=true 的行）。
+   * 拉取失败/未完成时回退内置 CURRENCIES 清单 —— 前台绝不因配置故障白屏。
+   */
+  currencies: CurrencyDef[];
 }
 
 const CurrencyContext = createContext<CurrencyContextValue | null>(null);
@@ -78,6 +84,8 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   // 初始固定为默认币种，与服务端渲染一致；水合后再从 cookie 同步，避免 hydration 报错
   const [code, setCodeState] = useState<string>(DEFAULT_CURRENCY);
   const [rates, setRates] = useState<Record<string, number>>(FALLBACK_RATES);
+  // 币种列表初始 = 内置清单（首屏即有完整菜单）；水合后用后台配置覆盖（后台可增删币种）
+  const [currencies, setCurrencies] = useState<CurrencyDef[]>(CURRENCIES);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,6 +97,20 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         /* 保持内置汇率 */
+      });
+    fetch("/api/currency/list", { cache: "no-store" })
+      .then((res) =>
+        res.ok
+          ? (res.json() as Promise<{ data?: { currencies?: CurrencyDef[] } }>)
+          : null,
+      )
+      .then((data) => {
+        if (!cancelled && data?.data?.currencies && data.data.currencies.length > 0) {
+          setCurrencies(data.data.currencies);
+        }
+      })
+      .catch(() => {
+        /* 后台币种配置拉取失败：保持内置清单 */
       });
     return () => {
       cancelled = true;
@@ -136,8 +158,9 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
       rate,
       format: (amountBase: number) => formatAmount(convertPrice(amountBase, rate), code),
       setCode,
+      currencies,
     };
-  }, [code, rates, setCode]);
+  }, [code, rates, setCode, currencies]);
 
   return <CurrencyContext.Provider value={value}>{children}</CurrencyContext.Provider>;
 }

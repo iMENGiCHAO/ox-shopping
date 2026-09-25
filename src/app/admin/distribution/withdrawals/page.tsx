@@ -32,9 +32,9 @@ import {
   WITHDRAW_STATUS_LABELS,
   WITHDRAW_STATUS_TABS,
   WITHDRAW_STATUS_VARIANTS,
-  formatCny,
   formatDateTime,
 } from "../_shared";
+import { formatMoney } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
 const COL_COUNT = 7;
@@ -44,6 +44,8 @@ type StatusFilter = "all" | "PENDING" | "APPROVED" | "PAID" | "REJECTED";
 interface WithdrawRow {
   id: string;
   amount: number;
+  /** 提现币种（账户结算币种的申请时快照；amount 按此币种计价） */
+  currency: string;
   status: "PENDING" | "APPROVED" | "PAID" | "REJECTED";
   /** 收款账户：平台侧不脱敏，打款要照抄 */
   accountInfo: string | null;
@@ -139,7 +141,7 @@ export default function AdminWithdrawalsPage() {
 
   const submit = async (row: WithdrawRow, action: "approve" | "paid" | "reject"): Promise<void> => {
     const name = row.userName || row.userEmail;
-    const amountText = formatCny(row.amount);
+    const amountText = formatMoney(row.amount, row.currency);
 
     const confirms: Record<typeof action, string> = {
       approve:
@@ -254,7 +256,7 @@ export default function AdminWithdrawalsPage() {
                       <CellPair primary={row.userName} secondary={row.userEmail} />
                     </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
-                      {formatCny(row.amount)}
+                      {formatMoney(row.amount, row.currency)}
                     </TableCell>
                     <TableCell className="min-w-0">
                       <CellText value={row.accountInfo || "-"} className="text-xs" />
@@ -326,7 +328,7 @@ export default function AdminWithdrawalsPage() {
                   <div className="text-muted-foreground">{t("Email")}</div>
                   <div className="break-all">{detail.userEmail}</div>
                   <div className="text-muted-foreground">{t("金额")}</div>
-                  <div className="font-medium tabular-nums">{formatCny(detail.amount)}</div>
+                  <div className="font-medium tabular-nums">{formatMoney(detail.amount, detail.currency)}</div>
                   <div className="text-muted-foreground">{t("收款账户")}</div>
                   <div className="break-all">{detail.accountInfo || t("（未填写）")}</div>
                   <div className="mt-1 text-xs text-muted-foreground">

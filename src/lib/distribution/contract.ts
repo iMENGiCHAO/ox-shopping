@@ -120,6 +120,15 @@ export interface DistributionConfig {
   monthlyWithdrawLimit: number;
   /** 两次提现之间的冷却小时数；0 = 无冷却 */
   withdrawCooldownHours: number;
+  /**
+   * 计佣基数口径（2026-09-24 大爷要求：把成本价用起来）：
+   *   · "SALES"  —— 销售额模式（默认，历史口径）：基数 = 商品实付小计
+   *                （subtotal − discount，不含运费/税）；
+   *   · "PROFIT" —— 利润分成模式：基数 = Σ(订单行实付分摊 − 成本价快照 × 数量)。
+   *                只对**填了成本价**的订单行计佣 —— 未填成本价的行无法确定
+   *                利润，跳过并在流水 note 说明（宁可不付，也不瞎付）。
+   */
+  commissionBaseMode: "SALES" | "PROFIT";
 }
 
 export const DEFAULT_DISTRIBUTION_CONFIG: DistributionConfig = {
@@ -137,6 +146,7 @@ export const DEFAULT_DISTRIBUTION_CONFIG: DistributionConfig = {
   dailyWithdrawLimit: 5000,
   monthlyWithdrawLimit: 50000,
   withdrawCooldownHours: 0,
+  commissionBaseMode: "SALES",
 };
 
 /** 默认三级比例（后台可改）：一级 10% / 二级 5% / 三级 2% */
@@ -173,6 +183,8 @@ export interface DistributionAccountSummary {
   /** 是否已确认《分销规则》（提现前必须确认） */
   termsAccepted: boolean;
   termsAcceptedAt: string | null;
+  /** 账户结算币种（余额/冻结/累计/在途金额的计价币种） */
+  settlementCurrency: string;
   balance: number;
   frozen: number;
   totalCommission: number;
@@ -190,6 +202,9 @@ export interface CommissionRow {
   ratio: number;
   amount: number;
   amountCny: number;
+  /** 结算币种（账户记账币种）与按其折算的金额（我的佣金页展示口径） */
+  settleCurrency: string;
+  amountSettle: number;
   status: CommissionState;
   createdAt: string;
   settledAt: string | null;

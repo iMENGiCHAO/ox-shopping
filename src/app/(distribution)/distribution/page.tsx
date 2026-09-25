@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useT, useSiteName } from "@/components/shop/lang-provider";
 import { apiFetch } from "@/lib/fetch-client";
 import type { DistributionAccountSummary, DistributionIdentity } from "@/lib/distribution/contract";
-import { cny } from "@/components/shop/distribution/format";
+import { money } from "@/components/shop/distribution/format";
 import { StatCard } from "@/components/shop/distribution/ui";
 
 interface LinksResponse {
@@ -30,6 +30,8 @@ interface LinksResponse {
 interface AccountResponse {
   account: DistributionAccountSummary;
   minWithdrawAmount: number;
+  /** 可选结算币种（后台「货币与汇率」的 enabled 列表） */
+  settlementCurrencies: { code: string; name: string; symbol: string }[];
 }
 
 /**
@@ -43,7 +45,11 @@ export default function DistributionOverviewPage() {
   const siteName = useSiteName();
   const [identity, setIdentity] = useState<DistributionIdentity | null>(null);
   const [account, setAccount] = useState<DistributionAccountSummary | null>(null);
+  const [currencyOptions, setCurrencyOptions] = useState<
+    { code: string; name: string; symbol: string }[]
+  >([]);
   const [loading, setLoading] = useState(true);
+  const [switchingCurrency, setSwitchingCurrency] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,6 +60,7 @@ export default function DistributionOverviewPage() {
       ]);
       setIdentity(links.identity);
       setAccount(acc.account);
+      setCurrencyOptions(acc.settlementCurrencies ?? []);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("Load failed"));
     } finally {
@@ -64,6 +71,25 @@ export default function DistributionOverviewPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** 变更结算币种（服务端强校验：有余额/流水时拒绝 —— 账本币种不能中途换） */
+  const changeSettlementCurrency = async (next: string) => {
+    if (!account || next === account.settlementCurrency) return;
+    setSwitchingCurrency(true);
+    try {
+      const res = await apiFetch<AccountResponse>("/api/distribution/my/account", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ settlementCurrency: next }),
+      });
+      setAccount(res.account);
+      toast.success(t("Saved"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("Save failed"));
+    } finally {
+      setSwitchingCurrency(false);
+    }
+  };
 
   /** 剪贴板在非安全上下文/无权限时会 reject，不能静默 —— 否则用户以为复制成功了 */
   const copy = async (text: string) => {
@@ -177,11 +203,48 @@ export default function DistributionOverviewPage() {
           ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label={t("Available balance")} value={cny(account.balance)} />
-            <StatCard label={t("Frozen")} value={cny(account.frozen)} />
-            <StatCard label={t("Total settled")} value={cny(account.settledCommission)} />
-            <StatCard label={t("Pending commission")} value={cny(account.pendingCommission)} />
+            <StatCard
+              label={t("Available balance")}
+              value={money(account.balance, account.settlementCurrency)}
+            />
+            <StatCard label={t("Frozen")} value={money(account.frozen, account.settlementCurrency)} />
+            <StatCard
+              label={t("Total settled")}
+              value={money(account.settledCommission, account.settlementCurrency)}
+            />
+            <StatCard
+              label={t("Pending commission")}
+              value={money(account.pendingCommission, account.settlementCurrency)}
+            />
           </div>
+
+          {/* 结算币种：佣金入账与提现都按它计价。有余额/流水后不可再改（服务端强校验），
+              新分销客请在产生第一笔佣金前选定 —— 这是多币种结算的账户级口径 */}
+          <Card className="panel">
+            <CardHeader>
+              <CardTitle>{t("Settlement currency")}</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-wrap items-center gap-3">
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  "Commission and withdrawals are accounted in this currency. It can only be changed before you earn your first commission.",
+                )}
+              </p>
+              <select
+                value={account.settlementCurrency}
+                onChange={(e) => void changeSettlementCurrency(e.target.value)}
+                disabled={switchingCurrency || currencyOptions.length === 0}
+                aria-label={t("Settlement currency")}
+                className="h-9 rounded-md border border-border bg-background px-3 text-sm"
+              >
+                {currencyOptions.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} — {c.name}
+                  </option>
+                ))}
+              </select>
+            </CardContent>
+          </Card>
 
           <Card className="panel">
             <CardHeader>

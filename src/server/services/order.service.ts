@@ -9,6 +9,7 @@ import { getLang } from "@/lib/shop-i18n-server";
 import { ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
 import { generateOrderNumber, toCents, formatMoney } from "@/lib/utils";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
+import { payableCurrencyCodes } from "@/server/services/currency-config.service";
 import { assertTransition, canTransition } from "@/lib/order-status";
 import { queueMail } from "@/server/services/mail-outbox.service";
 import { audit } from "@/lib/audit";
@@ -378,6 +379,14 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
   const cookieStore = await cookies();
   const userCurrency =
     parseCurrencyCode(cookieStore.get(CURRENCY_COOKIE)?.value) || DEFAULT_CURRENCY;
+  // 支付币种校验：后台可把某币种标记为「不可支付」（仅展示换算，不结算）。
+  // null = 配置不可用，跳过校验（配置故障不能挡住正常卖货）。
+  const payableCodes = await payableCurrencyCodes();
+  if (payableCodes && !payableCodes.has(userCurrency)) {
+    throw badRequest(
+      `当前币种（${userCurrency}）暂不支持结算，请在币种选择器切换到可支付的币种后重新提交`,
+    );
+  }
   const rateSnap = await getRateSnapshot();
   const exchangeRate = rateSnap.rates[userCurrency] ?? 1;
   // 基础货币为 USD，用户币种金额 = USD 金额 × 汇率
@@ -574,6 +583,9 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
               sku: p.sku,
               price: d(priceUser),
               quantity: item.quantity,
+              // 成本价快照（USD 基准，与 price 同口径）：分销「利润分成」模式的
+              // 计佣基数依赖此值 —— 之后修改成本价不影响已下单订单的利润口径
+              costPrice: freshById.get(item.productId)!.costPrice,
               // 行小计用对齐后的值：Σ 行小计 == 订单小计（不这样写会出现明细求和差 1 分）
               subtotal: d(lineSubtotalsUser[idx]!),
               // 实际扣减记录（取消订单时精确回补的依据）

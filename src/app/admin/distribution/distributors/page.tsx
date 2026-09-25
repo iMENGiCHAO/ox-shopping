@@ -35,10 +35,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { AdminListResult } from "@/components/admin/types";
-import { formatCny, formatDateTime } from "../_shared";
+import { formatDateTime } from "../_shared";
+import { formatMoney } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
-const COL_COUNT = 10;
+const COL_COUNT = 11;
 
 interface DistributorRow {
   id: string;
@@ -53,6 +54,8 @@ interface DistributorRow {
   totalCommission: number;
   /** 分销商等级（0=普通）；等级命中 `commission_rules.tierLevel` 的差异化比例 */
   tier: number;
+  /** 账户结算币种（余额/累计佣金按它计价） */
+  settlementCurrency: string;
 }
 
 /**
@@ -177,6 +180,7 @@ export default function AdminDistributorsPage() {
                 <TableHead className="w-[100px] text-right">{t("团队人数")}</TableHead>
                 <TableHead className="w-[130px] text-right">{t("可提现余额")}</TableHead>
                 <TableHead className="w-[130px] text-right">{t("累计佣金")}</TableHead>
+                <TableHead className="w-[80px]">{t("结算币种")}</TableHead>
                 <TableHead className="w-[90px]">{t("等级")}</TableHead>
                 <TableHead className="sticky-col-right w-[140px] text-right">
                   {t("Actions")}
@@ -230,10 +234,13 @@ export default function AdminDistributorsPage() {
                       {row.teamCount}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {formatCny(row.balance)}
+                      {formatMoney(row.balance, row.settlementCurrency)}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {formatCny(row.totalCommission)}
+                      {formatMoney(row.totalCommission, row.settlementCurrency)}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {row.settlementCurrency}
                     </TableCell>
                     <TableCell className="text-sm tabular-nums">
                       {row.tier > 0 ? (

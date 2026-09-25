@@ -40,7 +40,7 @@ import { notifyCommissionReversed, notifyCommissionSettled } from "./notify.serv
 /** 订单处于这些状态才可能产生/保留佣金（已取消的单永远不算） */
 const COMMISSIONABLE_ORDER_STATUS: OrderStatus[] = ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"];
 
-/** 金额折算：订单币种 → CNY（账户与提现统一 CNY 记账） */
+/** 金额折算：订单币种 → CNY（历史审计口径；账本记账见 toSettle） */
 export function toCny(
   amount: number,
   currency: string,
@@ -50,6 +50,30 @@ export function toCny(
   const rate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
   const usd = currency === "USD" || !currency ? amount : amount / rate;
   return round2(usd * usdToCny);
+}
+
+/**
+ * 金额折算：订单币种 → 受益人**结算币种**（账户入账/提现的记账口径）。
+ *
+ * 路径：订单币种 → USD（用订单的 exchangeRate 快照，1 USD = rate 订单币种）
+ *       → 结算币种（用计提时点的站点汇率快照）。金额在计提时固化到
+ * `amountSettle`，之后汇率波动不影响已计提的账。
+ */
+export function toSettle(
+  amount: number,
+  orderCurrency: string,
+  exchangeRate: number,
+  settleCurrency: string,
+  usdRates: Record<string, number>,
+): number {
+  if (orderCurrency === settleCurrency) return round2(amount);
+  const rate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
+  const usd = orderCurrency === "USD" || !orderCurrency ? amount : amount / rate;
+  const lookup: number | undefined =
+    settleCurrency === "USD" ? 1 : usdRates[settleCurrency];
+  const target = lookup ?? Number.NaN;
+  if (!Number.isFinite(target) || target <= 0) return round2(usd);
+  return round2(usd * target);
 }
 
 /** 当前 USD→CNY 汇率（读站点汇率快照，含内置兜底，不会因外部接口故障而中断计佣） */
@@ -63,9 +87,61 @@ export async function currentUsdToCny(): Promise<number> {
   }
 }
 
-/** 计佣基数：商品**实付**小计 = 小计 − 折扣（不含运费与税） */
+/** 计提时点的 USD 基准汇率表（结算币种折算用；故障时退化为仅 USD 可折） */
+async function currentUsdRates(): Promise<Record<string, number>> {
+  try {
+    return (await getRateSnapshot()).rates;
+  } catch {
+    return {};
+  }
+}
+
+/** 计佣基数（销售额模式）：商品**实付**小计 = 小计 − 折扣（不含运费与税） */
 export function commissionBase(order: { subtotal: unknown; discount: unknown }): number {
   return round2(Number(order.subtotal) - Number(order.discount));
+}
+
+/**
+ * 计佣基数（利润分成模式）：Σ(订单行实付分摊 − 成本价快照 × 数量)。
+ *
+ * 口径细节：
+ *   · **币种统一经 USD 中转**：商品 price/costPrice 按 USD 基准存储（与前台
+ *     多币种的价格体系一致），订单行小计是用户币种 —— 利润全部换算到 USD
+ *     计算，最后按订单汇率换回订单币种作为计佣基数；
+ *   · 行实付分摊 = 行小计 × (订单商品实付小计 / 订单商品小计)，把订单级
+ *     折扣按行小计比例分摊到每个订单行（与退款按比例的口径一致）；
+ *   · 只对**有成本价快照**的行计佣 —— 未填成本价的行无法确定利润，
+ *     跳过该行（宁可少付，不瞎付）；全部行都没有成本价 → 返回 0
+ *     并由调用方记 skipped 原因；
+ *   · 行利润为负（亏本卖）按负数参与求和 —— 真实利润口径，不夹取。
+ */
+export async function profitBaseForOrder(
+  tx: { orderItem: { findMany: typeof prisma.orderItem.findMany } },
+  orderId: string,
+  /** 订单商品实付小计（订单币种） */
+  orderPaidBase: number,
+  /** 1 USD = X 订单币种（订单汇率快照） */
+  exchangeRate: number,
+): Promise<number> {
+  const items = await tx.orderItem.findMany({
+    where: { orderId },
+    select: { subtotal: true, quantity: true, costPrice: true },
+  });
+  const grossTotal = round2(
+    items.reduce((acc, i) => acc + Number(i.subtotal), 0),
+  );
+  if (grossTotal <= 0 || orderPaidBase <= 0) return 0;
+  const rate = Number.isFinite(exchangeRate) && exchangeRate > 0 ? exchangeRate : 1;
+  // 订单商品实付小计换 USD（利润计算的统一币种）
+  const paidBaseUsd = orderPaidBase / rate;
+  let profitUsd = 0;
+  for (const item of items) {
+    if (item.costPrice == null) continue; // 无成本快照的行：跳过（不确定利润就不计佣）
+    const shareUsd = (Number(item.subtotal) / grossTotal) * paidBaseUsd;
+    profitUsd += shareUsd - Number(item.costPrice) * item.quantity;
+  }
+  // 回到订单币种（计佣基数与佣金金额同币种，ratio×base 的口径不变）
+  return round2(profitUsd * rate);
 }
 
 /**
@@ -144,10 +220,26 @@ export async function accrueForOrder(
   const already = await prisma.commissionLog.count({ where: { orderId } });
   if (already > 0) return { count: 0, skipped: "ALREADY_ACCRUED" };
 
-  const baseAmount = commissionBase(order);
-  if (baseAmount <= 0) return { count: 0, skipped: "ZERO_BASE" };
-
   const config = await getDistributionConfig();
+  // 计佣基数（2026-09-24）：SALES=商品实付小计（历史口径）；
+  // PROFIT=利润分成 Σ(行实付分摊 − 成本价快照×数量)，未填成本价的行跳过计佣。
+  const salesBase = commissionBase(order);
+  let baseAmount = salesBase;
+  let baseNote: string | null = null;
+  if (config.commissionBaseMode === "PROFIT") {
+    baseAmount = await profitBaseForOrder(
+      prisma,
+      orderId,
+      salesBase,
+      Number(order.exchangeRate),
+    );
+    if (baseAmount <= 0) {
+      // 全部行都没有成本价快照（或整体亏损）→ 利润不可得 → 不计佣（宁可不付，不瞎付）
+      return { count: 0, skipped: "PROFIT_BASE_UNAVAILABLE" };
+    }
+    baseNote = "利润分成：基数=订单利润（行实付分摊−成本快照）";
+  }
+  if (baseAmount <= 0) return { count: 0, skipped: "ZERO_BASE" };
   //
   // 为什么必须放在**计佣路径**里，而不是只放在后台规则页：
   // 规则若只在「后台打开规则页」时惰性写入，则只要没人点过那个页面，
@@ -237,19 +329,37 @@ export async function accrueForOrder(
   if (planned.length === 0) return { count: 0, skipped: "NO_PLAN" };
 
   const usdToCny = await currentUsdToCny();
+  const usdRates = await currentUsdRates();
   const exchangeRate = Number(order.exchangeRate);
-  const rows = planned.map((p) => ({
-    orderId,
-    fromUserId: order.userId,
-    toUserId: p.userId,
-    level: p.level,
-    ratio: p.ratio,
-    amount: p.amount,
-    amountCny: toCny(p.amount, order.currency, exchangeRate, usdToCny),
-    currency: order.currency,
-    baseAmount,
-    status: "PENDING" as const,
-  }));
+  // 受益人各自的结算币种（账户级；还没开户的受益人按默认 CNY）
+  const payeeAccounts = await prisma.distributorAccount.findMany({
+    where: { userId: { in: planned.map((p) => p.userId) } },
+    select: { userId: true, settlementCurrency: true },
+  });
+  const settleCurrencyOf = new Map(payeeAccounts.map((a) => [a.userId, a.settlementCurrency]));
+  const rows = planned.map((p) => {
+    const settleCurrency = settleCurrencyOf.get(p.userId) ?? COMMISSION_CURRENCY;
+    const amountCny = toCny(p.amount, order.currency, exchangeRate, usdToCny);
+    return {
+      orderId,
+      fromUserId: order.userId,
+      toUserId: p.userId,
+      level: p.level,
+      ratio: p.ratio,
+      amount: p.amount,
+      amountCny,
+      settleCurrency,
+      // 计提时点按汇率快照固化结算币种金额 —— 之后汇率波动不影响这笔账
+      amountSettle:
+        settleCurrency === "CNY"
+          ? amountCny
+          : toSettle(p.amount, order.currency, exchangeRate, settleCurrency, usdRates),
+      currency: order.currency,
+      baseAmount,
+      status: "PENDING" as const,
+      ...(baseNote ? { note: baseNote } : {}),
+    };
+  });
 
   // 受益人快照：用户注销/删除后（toUserId 置 NULL）仍能对账与客服追溯
   const payees = await prisma.user.findMany({
@@ -303,6 +413,11 @@ interface LockedCommissionRow {
   toUserId: string | null;
   amount: unknown;
   amountCny: unknown;
+  /** 受益人结算币种（账户账本币种；老数据回填后恒非空） */
+  settleCurrency: string;
+  /** 结算币种口径的佣金/已冲正（账户入账、余额扣减都用这对值） */
+  amountSettle: unknown;
+  reversedSettle: unknown;
   reversedAmount: unknown;
   reversedCny: unknown;
   settledAt: Date | null;
@@ -322,15 +437,15 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
   await prisma.$transaction(async (tx) => {
     // 锁行后读库内当前值：净额必须以「此刻的已冲正额」为准
     const logs = await tx.$queryRaw<LockedCommissionRow[]>`
-      SELECT id, "toUserId", "amountCny", "reversedCny"
+      SELECT id, "toUserId", "amountCny", "reversedCny", "settleCurrency", "amountSettle", "reversedSettle"
       FROM "commission_logs"
       WHERE "orderId" = ${orderId} AND status = 'PENDING'
       FOR UPDATE
     `;
 
     for (const log of logs) {
-      // 入账「净额」：已经按比例冲正掉的部分不进余额（部分退款的正确口径）
-      const net = round2(Number(log.amountCny) - Number(log.reversedCny));
+      // 入账「净额」（结算币种口径）：已经按比例冲正掉的部分不进余额（部分退款的正确口径）
+      const net = round2(Number(log.amountSettle) - Number(log.reversedSettle));
       if (net <= 0) {
         await tx.commissionLog.updateMany({
           where: { id: log.id, status: "PENDING" },
@@ -368,21 +483,34 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
       });
       const credited = await prisma.commissionLog.findMany({
         where: { orderId, settledAt: { not: null } },
-        select: { toUserId: true, amountCny: true, reversedCny: true },
+        select: {
+          toUserId: true,
+          amountSettle: true,
+          reversedSettle: true,
+          settleCurrency: true,
+        },
       });
-      const byUser = new Map<string, number>();
+      /** 按受益人聚合净额（同一订单可能有多级受益人）；金额口径=各自结算币种 */
+      const byUser = new Map<string, { net: number; currency: string }>();
       for (const log of credited) {
         if (!log.toUserId) continue;
-        const net = round2(Number(log.amountCny) - Number(log.reversedCny));
+        const net = round2(Number(log.amountSettle) - Number(log.reversedSettle));
         if (net <= 0) continue;
-        byUser.set(log.toUserId, round2((byUser.get(log.toUserId) ?? 0) + net));
+        const prev = byUser.get(log.toUserId);
+        byUser.set(log.toUserId, {
+          net: round2((prev?.net ?? 0) + net),
+          currency: log.settleCurrency,
+        });
       }
       // 刻意不 await：邮件可能走真实 SMTP（秒级~分钟级），绝不能拖慢结算与 API 响应
       void Promise.all(
-        [...byUser.entries()].map(([userId, amountCny]) =>
-          notifyCommissionSettled({ userId, amountCny, orderNumber: order?.orderNumber }).catch(
-            (err) => logger.error({ err, userId }, "分销：结算通知失败（已忽略）"),
-          ),
+        [...byUser.entries()].map(([userId, entry]) =>
+          notifyCommissionSettled({
+            userId,
+            amountCny: entry.net,
+            settleCurrency: entry.currency,
+            orderNumber: order?.orderNumber,
+          }).catch((err) => logger.error({ err, userId }, "分销：结算通知失败（已忽略）")),
         ),
       );
     } catch (err) {
@@ -456,15 +584,15 @@ export async function applyOrderReversal(
   if (!(ratio > 0)) return 0;
 
   let touched = 0;
-  /** 事务内累积「谁被扣了多少」——通知在事务外发送，避免邮件拖长持锁时间 */
-  const reversedByUser = new Map<string, number>();
+  /** 事务内累积「谁被扣了多少（结算币种）」——通知在事务外发送，避免邮件拖长持锁时间 */
+  const reversedByUser = new Map<string, { amount: number; currency: string }>();
 
   await prisma.$transaction(async (tx) => {
     // 行锁 + 库内当前值（P0 修复）：增量、「是否已结算」、回写 status 全部取
     // 锁内值。此前读事务外快照后回写 `log.status`，会把并发结算过的流水重新
     // 写成 PENDING（下一轮再次入账 = 双重入账），并用旧 settledAt 漏扣余额。
     const logs = await tx.$queryRaw<LockedCommissionRow[]>`
-      SELECT id, "toUserId", amount, "amountCny", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
+      SELECT id, "toUserId", amount, "amountCny", "settleCurrency", "amountSettle", "reversedSettle", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
       FROM "commission_logs"
       WHERE "orderId" = ${orderId} AND status <> 'REVERSED'
       FOR UPDATE
@@ -473,11 +601,14 @@ export async function applyOrderReversal(
     for (const log of logs) {
       const amount = Number(log.amount);
       const amountCny = Number(log.amountCny);
+      const amountSettle = Number(log.amountSettle);
       const targetAmount = round2(amount * ratio);
       const targetCny = round2(amountCny * ratio);
+      const targetSettle = round2(amountSettle * ratio);
       const deltaAmount = round2(targetAmount - Number(log.reversedAmount));
       const deltaCny = round2(targetCny - Number(log.reversedCny));
-      if (deltaAmount <= 0 && deltaCny <= 0) continue; // 已冲正到位（幂等）
+      const deltaSettle = round2(targetSettle - Number(log.reversedSettle));
+      if (deltaAmount <= 0 && deltaCny <= 0 && deltaSettle <= 0) continue; // 已冲正到位（幂等）
 
       const full = targetAmount >= round2(amount) - 0.005;
       // 行已被 FOR UPDATE 锁到本事务提交：无需再比对 CAS 条件，也不会丢更新
@@ -486,6 +617,7 @@ export async function applyOrderReversal(
         data: {
           reversedAmount: targetAmount,
           reversedCny: targetCny,
+          reversedSettle: targetSettle,
           status: full ? "REVERSED" : log.status,
           reversedAt: full ? new Date() : log.reversedAt,
           note,
@@ -493,19 +625,20 @@ export async function applyOrderReversal(
       });
 
       // 已入账的部分要按增量扣回（余额可为负 → 挂账，由后续佣金抵扣）
-      if (log.settledAt && deltaCny > 0 && log.toUserId) {
+      if (log.settledAt && deltaSettle > 0 && log.toUserId) {
         await tx.distributorAccount.upsert({
           where: { userId: log.toUserId },
-          create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
+          create: { userId: log.toUserId, balance: -deltaSettle, totalCommission: -deltaSettle },
           update: {
-            balance: { decrement: deltaCny },
-            totalCommission: { decrement: deltaCny },
+            balance: { decrement: deltaSettle },
+            totalCommission: { decrement: deltaSettle },
           },
         });
-        reversedByUser.set(
-          log.toUserId,
-          round2((reversedByUser.get(log.toUserId) ?? 0) + deltaCny),
-        );
+        const prev = reversedByUser.get(log.toUserId);
+        reversedByUser.set(log.toUserId, {
+          amount: round2((prev?.amount ?? 0) + deltaSettle),
+          currency: log.settleCurrency,
+        });
       }
       touched += 1;
     }
@@ -520,10 +653,11 @@ export async function applyOrderReversal(
           select: { orderNumber: true },
         });
         void Promise.all(
-          [...reversedByUser.entries()].map(([userId, amountCny]) =>
+          [...reversedByUser.entries()].map(([userId, entry]) =>
             notifyCommissionReversed({
               userId,
-              amountCny,
+              amountCny: entry.amount,
+              settleCurrency: entry.currency,
               orderNumber: orderRow?.orderNumber,
               full: ratio >= 1,
             }).catch((err) => logger.error({ err, userId }, "分销：冲正通知失败（已忽略）")),
@@ -615,6 +749,9 @@ export async function listMyCommissions(
       ratio: Number(l.ratio),
       amount: Number(l.amount),
       amountCny: Number(l.amountCny),
+      /** 结算币种口径（账户入账金额；老数据回填后与 amountCny 相同币种语义） */
+      settleCurrency: l.settleCurrency,
+      amountSettle: Number(l.amountSettle),
       status: l.status as CommissionState,
       createdAt: l.createdAt.toISOString(),
       settledAt: l.settledAt?.toISOString() ?? null,
@@ -623,7 +760,7 @@ export async function listMyCommissions(
   };
 }
 
-/** 账户摘要：可提现 / 冻结 / 累计已结算 / 在途 */
+/** 账户摘要：可提现 / 冻结 / 累计已结算 / 在途（金额均按账户结算币种计价） */
 export async function getAccountSummary(userId: string): Promise<{
   termsAccepted: boolean;
   termsAcceptedAt: string | null;
@@ -632,27 +769,29 @@ export async function getAccountSummary(userId: string): Promise<{
   totalCommission: number;
   pendingCommission: number;
   settledCommission: number;
+  /** 账户结算币种（余额/冻结/累计金额的计价币种） */
+  settlementCurrency: string;
 }> {
   const [account, grouped, pendingAgg] = await Promise.all([
     prisma.distributorAccount.findUnique({ where: { userId } }),
-    // 聚合必须带 reversedCny：部分退款后流水仍是 PENDING/SETTLED，
-    // 只看 amountCny 会把已冲正的部分也算成收入（与 balance 口径矛盾）。
+    // 聚合必须带冲正列：部分退款后流水仍是 PENDING/SETTLED，
+    // 只看 amountSettle 会把已冲正的部分也算成收入（与 balance 口径矛盾）。
     prisma.commissionLog.groupBy({
       by: ["status"],
       where: { toUserId: userId },
-      _sum: { amountCny: true, reversedCny: true },
+      _sum: { amountSettle: true, reversedSettle: true },
     }),
     prisma.commissionLog.aggregate({
       where: { toUserId: userId, status: "PENDING" },
-      _sum: { amountCny: true, reversedCny: true },
+      _sum: { amountSettle: true, reversedSettle: true },
     }),
   ]);
 
   const sums = summariseCommission(
     grouped.map((g) => ({
       status: g.status,
-      amountCny: Number(g._sum.amountCny ?? 0),
-      reversedCny: Number(g._sum.reversedCny ?? 0),
+      amountCny: Number(g._sum.amountSettle ?? 0),
+      reversedCny: Number(g._sum.reversedSettle ?? 0),
     })),
   );
 
@@ -666,10 +805,11 @@ export async function getAccountSummary(userId: string): Promise<{
     pendingCommission: round2(
       Math.max(
         0,
-        Number(pendingAgg._sum.amountCny ?? 0) - Number(pendingAgg._sum.reversedCny ?? 0),
+        Number(pendingAgg._sum.amountSettle ?? 0) - Number(pendingAgg._sum.reversedSettle ?? 0),
       ),
     ),
     settledCommission: sums.settled,
+    settlementCurrency: account?.settlementCurrency ?? COMMISSION_CURRENCY,
   };
 }
 
@@ -704,6 +844,8 @@ export async function reverseCommissionManually(input: {
       fullReversed: boolean;
       toUserId: string | null;
       deltaCny: number;
+      deltaSettle: number;
+      settleCurrency: string;
     } | null;
   } = { value: null };
 
@@ -712,7 +854,7 @@ export async function reverseCommissionManually(input: {
     // 此前读事务外快照后回写 `log.status`，会把并发结算过的流水写成 PENDING
     // （下一轮结算再次入账 = 双重入账），并用旧 settledAt 漏扣余额。
     const rows = await tx.$queryRaw<LockedCommissionRow[]>`
-      SELECT id, "orderId", "toUserId", amount, "amountCny", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
+      SELECT id, "orderId", "toUserId", amount, "amountCny", "settleCurrency", "amountSettle", "reversedAmount", "reversedCny", "reversedSettle", "settledAt", status, "reversedAt"
       FROM "commission_logs"
       WHERE id = ${input.logId}
       FOR UPDATE
@@ -723,8 +865,10 @@ export async function reverseCommissionManually(input: {
 
     const amount = Number(log.amount);
     const amountCny = Number(log.amountCny);
+    const amountSettle = Number(log.amountSettle);
     const alreadyAmount = Number(log.reversedAmount);
     const alreadyCny = Number(log.reversedCny);
+    const alreadySettle = Number(log.reversedSettle);
     if (amount <= 0) throw badRequest("Invalid commission amount; cannot reverse");
 
     const targetAmount =
@@ -734,10 +878,12 @@ export async function reverseCommissionManually(input: {
       throw conflict(`Reversal amount exceeds the remaining reversible balance (available: ${round2(amount - alreadyAmount)})`);
     }
 
-    // 金额与人民币按同一比例推进，保证折算口径一致
+    // 金额/人民币/结算币种按同一比例推进，保证折算口径一致
     const ratio = targetAmount / amount;
     const targetCny = round2(amountCny * ratio);
+    const targetSettle = round2(amountSettle * ratio);
     const deltaCny = round2(targetCny - alreadyCny);
+    const deltaSettle = round2(targetSettle - alreadySettle);
     const fullReversed = targetAmount >= round2(amount) - 0.005;
 
     // 行已被 FOR UPDATE 锁定，无需 CAS 比对（也不会丢更新）
@@ -746,17 +892,18 @@ export async function reverseCommissionManually(input: {
       data: {
         reversedAmount: targetAmount,
         reversedCny: targetCny,
+        reversedSettle: targetSettle,
         status: fullReversed ? "REVERSED" : log.status,
         reversedAt: fullReversed ? new Date() : log.reversedAt,
         note: `人工冲正：${input.note}`,
       },
     });
 
-    if (log.settledAt && deltaCny > 0 && log.toUserId) {
+    if (log.settledAt && deltaSettle > 0 && log.toUserId) {
       await tx.distributorAccount.upsert({
         where: { userId: log.toUserId },
-        create: { userId: log.toUserId, balance: -deltaCny, totalCommission: -deltaCny },
-        update: { balance: { decrement: deltaCny }, totalCommission: { decrement: deltaCny } },
+        create: { userId: log.toUserId, balance: -deltaSettle, totalCommission: -deltaSettle },
+        update: { balance: { decrement: deltaSettle }, totalCommission: { decrement: deltaSettle } },
       });
     }
 
@@ -766,6 +913,8 @@ export async function reverseCommissionManually(input: {
       fullReversed,
       toUserId: log.toUserId,
       deltaCny,
+      deltaSettle,
+      settleCurrency: log.settleCurrency,
     };
   });
 
@@ -775,7 +924,8 @@ export async function reverseCommissionManually(input: {
   if (result.toUserId) {
     void notifyCommissionReversed({
       userId: result.toUserId,
-      amountCny: result.deltaCny,
+      amountCny: result.deltaSettle,
+      settleCurrency: result.settleCurrency,
       full: result.fullReversed,
     }).catch((err) => logger.error({ err }, "分销：人工冲正通知失败（已忽略）"));
   }

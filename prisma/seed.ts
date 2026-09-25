@@ -472,6 +472,35 @@ async function seedDistributionBaseline() {
   console.log("✓ 测试库分销启用基线已预置（2020-01-01，避免对账补归属被时间窗吞掉）");
 }
 
+/**
+ * 币种配置种子（2026-09-24 多币种结算）。
+ *
+ * 幂等：已存在的 code 不覆盖（后台改过的配置不会被 seed 冲掉），只补缺失的行 ——
+ * 这与运行时 ensureSeeded 同口径；seed 先跑的意义是开发/测试库首启即有完整可管理数据。
+ */
+async function seedCurrencyConfigs() {
+  const { CURRENCIES } = await import("../src/components/shop/currency");
+  const existing = await prisma.currencyConfig.findMany({ select: { code: true } });
+  const known = new Set(existing.map((r) => r.code));
+  const missing = CURRENCIES.filter((c) => !known.has(c.code));
+  if (missing.length === 0) return;
+  await prisma.currencyConfig.createMany({
+    data: missing.map((c, i) => ({
+      code: c.code,
+      name: c.name,
+      country: c.country,
+      symbol: c.symbol,
+      locale: c.locale,
+      flagCode: c.flagCode,
+      enabled: true,
+      payable: true,
+      sortOrder: existing.length + i,
+    })),
+    skipDuplicates: true,
+  });
+  console.log(`✓ 币种配置已播种（新增 ${missing.length} 个，内置清单共 ${CURRENCIES.length} 个）`);
+}
+
 async function main() {
   console.log("开始写入种子数据...");
   // 演示账号门控：生产环境默认跳过（admin@example.com 等已知口令绝不入生产库）。
@@ -492,6 +521,7 @@ async function main() {
   await seedSiteSettings();
   await seedFaqs();
   await seedPaymentChannels();
+  await seedCurrencyConfigs();
   await seedDistributionBaseline();
   console.log("种子数据全部完成 ✔");
   if (seedDemo) {

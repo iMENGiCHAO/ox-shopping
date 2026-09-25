@@ -574,6 +574,9 @@ export async function getAdminCommissionLogs(opts: {
     ratio: number;
     amount: number;
     amountCny: number;
+    /** 结算币种与按其折算的金额（账户入账口径；管理端列表展示用） */
+    settleCurrency: string;
+    amountSettle: number;
     currency: string;
     status: CommissionState;
     createdAt: string;
@@ -619,6 +622,8 @@ export async function getAdminCommissionLogs(opts: {
       ratio: Number(l.ratio),
       amount: Number(l.amount),
       amountCny: Number(l.amountCny),
+      settleCurrency: l.settleCurrency,
+      amountSettle: Number(l.amountSettle),
       currency: l.currency,
       status: l.status as CommissionState,
       createdAt: l.createdAt.toISOString(),

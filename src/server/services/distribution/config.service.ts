@@ -91,6 +91,8 @@ function coerce(raw: unknown): DistributionConfig {
       0,
       Math.trunc(num(r.withdrawCooldownHours, DEFAULT_DISTRIBUTION_CONFIG.withdrawCooldownHours)),
     ),
+    commissionBaseMode:
+      r.commissionBaseMode === "PROFIT" ? "PROFIT" : DEFAULT_DISTRIBUTION_CONFIG.commissionBaseMode,
   };
 }
 

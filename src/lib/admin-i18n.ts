@@ -1164,8 +1164,26 @@ const DICT: Dict = {
   绑定触发点: { zh: "绑定触发点" },
   结算: { zh: "结算" },
   "结算 / 冲正": { zh: "结算 / 冲正" },
+  "结算金额（入账币种）": {
+    zh: "结算金额（入账币种）",
+    en: "Settlement amount (accounting currency)",
+  },
+  结算币种: { zh: "结算币种", en: "Settlement currency" },
   结算到期佣金: { zh: "结算到期佣金" },
   结算失败: { zh: "结算失败" },
+  计佣基数口径: {
+    zh: "计佣基数口径",
+    en: "Commission base mode",
+  },
+  "销售额（实付小计）": { zh: "销售额（实付小计）", en: "Sales (paid subtotal)" },
+  "利润分成（实付 − 成本价）": {
+    zh: "利润分成（实付 − 成本价）",
+    en: "Profit share (paid − cost)",
+  },
+  "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。": {
+    zh: "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。",
+    en: "In profit-share mode the base is the sum of (paid allocation − cost × qty) per order line, in the order currency; lines without a cost snapshot are skipped (with an audit note), and orders with no computable profit accrue no commission.",
+  },
   统计天数: { zh: "统计天数" },
   "统计，最多展示 200 条；点「查看」可继续往下钻": {
     zh: "统计，最多展示 200 条；点「查看」可继续往下钻",

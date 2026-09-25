@@ -1882,6 +1882,15 @@ const DICT: Dict = {
     en: "No performance data for this period.",
     zh: "该时间段内还没有业绩数据。",
   },
+  /** 2026-09-24 多币种分销结算 */
+  "Settlement currency": { en: "Settlement currency", zh: "结算币种" },
+  "Commission and withdrawals are accounted in this currency. It can only be changed before you earn your first commission.": {
+    en: "Commission and withdrawals are accounted in this currency. It can only be changed before you earn your first commission.",
+    zh: "佣金入账与提现均按该币种计价；产生第一笔佣金前可自由变更，之后锁定（保证账本口径一致）。",
+  },
+  "Settlement amount": { en: "Settlement amount", zh: "结算金额" },
+  Saved: { en: "Saved", zh: "已保存" },
+  "Save failed": { en: "Save failed", zh: "保存失败" },
 };
 
 /** Translate a key for a given lang.

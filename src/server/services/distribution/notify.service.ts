@@ -6,7 +6,7 @@ import {
   createNotification,
   type NotificationType,
 } from "@/server/services/notification.service";
-import { cnyText } from "./format-server";
+import { moneyText } from "./format-server";
 
 /**
  * 分销通知（P1-7）：站内信 + 邮件双通道。
@@ -42,8 +42,10 @@ interface BaseNotice {
   userId: string;
   /** 站内信跳转 */
   link?: string;
-  /** 金额（CNY），用于文案 */
+  /** 金额（按结算币种计价的数字），用于文案 */
   amountCny?: number;
+  /** 结算币种（缺省 CNY —— 与历史口径兼容） */
+  settleCurrency?: string;
 }
 
 async function deliver(params: {
@@ -103,7 +105,7 @@ async function deliver(params: {
 
 /** 佣金已结算（可提现） */
 export async function notifyCommissionSettled(input: BaseNotice & { orderNumber?: string }) {
-  const amount = cnyText(input.amountCny ?? 0);
+  const amount = moneyText(input.amountCny ?? 0, input.settleCurrency);
   await deliver({
     userId: input.userId,
     type: "distribution",
@@ -114,7 +116,11 @@ export async function notifyCommissionSettled(input: BaseNotice & { orderNumber?
     link: "/distribution/commissions",
     ctaZh: "查看佣金明细",
     ctaEn: "View commissions",
-    meta: { event: "commission.settled", amountCny: input.amountCny },
+    meta: {
+      event: "commission.settled",
+      amount: input.amountCny,
+      settleCurrency: input.settleCurrency ?? "CNY",
+    },
   });
 }
 
@@ -122,7 +128,7 @@ export async function notifyCommissionSettled(input: BaseNotice & { orderNumber?
 export async function notifyCommissionReversed(
   input: BaseNotice & { orderNumber?: string; full?: boolean },
 ) {
-  const amount = cnyText(input.amountCny ?? 0);
+  const amount = moneyText(input.amountCny ?? 0, input.settleCurrency);
   await deliver({
     userId: input.userId,
     type: "distribution",
@@ -133,7 +139,12 @@ export async function notifyCommissionReversed(
     link: "/distribution/commissions",
     ctaZh: "查看佣金明细",
     ctaEn: "View commissions",
-    meta: { event: "commission.reversed", amountCny: input.amountCny, full: !!input.full },
+    meta: {
+      event: "commission.reversed",
+      amount: input.amountCny,
+      settleCurrency: input.settleCurrency ?? "CNY",
+      full: !!input.full,
+    },
   });
 }
 
@@ -141,10 +152,13 @@ export async function notifyCommissionReversed(
 export async function notifyWithdrawStatus(input: {
   userId: string;
   status: "PENDING" | "APPROVED" | "REJECTED" | "PAID";
+  /** 提现金额（账户结算币种计价） */
   amountCny: number;
+  /** 提现币种（账户结算币种快照；缺省 CNY） */
+  settleCurrency?: string;
   note?: string | null;
 }) {
-  const amount = cnyText(input.amountCny);
+  const amount = moneyText(input.amountCny, input.settleCurrency);
   const zh: Record<typeof input.status, { t: string; b: string }> = {
     PENDING: { t: "提现申请已提交", b: `你的 ${amount} 提现申请已提交，等待平台审核。` },
     APPROVED: { t: "提现审核已通过", b: `你的 ${amount} 提现已通过审核，平台将安排打款。` },
@@ -182,7 +196,11 @@ export async function notifyWithdrawStatus(input: {
     link: "/distribution/withdrawals",
     ctaZh: "查看提现记录",
     ctaEn: "View withdrawals",
-    meta: { event: `withdraw.${input.status.toLowerCase()}`, amountCny: input.amountCny },
+    meta: {
+      event: `withdraw.${input.status.toLowerCase()}`,
+      amount: input.amountCny,
+      settleCurrency: input.settleCurrency ?? "CNY",
+    },
   });
 }
 

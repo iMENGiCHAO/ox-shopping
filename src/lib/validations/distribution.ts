@@ -91,6 +91,13 @@ export const distributionConfigSchema = z.object({
   dailyWithdrawLimit: z.coerce.number().min(0).max(100_000_000).optional(),
   monthlyWithdrawLimit: z.coerce.number().min(0).max(1_000_000_000).optional(),
   withdrawCooldownHours: z.coerce.number().int().min(0).max(24 * 30).optional(),
+  /**
+   * 计佣基数口径（2026-09-24）：
+   *   · SALES  —— 销售额模式（默认）：基数 = 商品实付小计（subtotal − discount）
+   *   · PROFIT —— 利润分成模式：基数 = Σ(订单行实付分摊 − 成本价快照×数量)；
+   *               未填成本价的商品行跳过计佣（服务端在计提时留痕）
+   */
+  commissionBaseMode: z.enum(["SALES", "PROFIT"]).optional(),
 });
 
 /** 管理员解绑 */

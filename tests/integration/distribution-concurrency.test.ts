@@ -60,6 +60,9 @@ async function makePendingCommission(userId: string, orderNo: string) {
       ratio: 10,
       amount: 100,
       amountCny: 100,
+      // 结算币种口径（2026-09-24）：账户入账走 amountSettle；默认结算币种 CNY 下两者同值
+      settleCurrency: "CNY",
+      amountSettle: 100,
     },
   });
   return { order, log };

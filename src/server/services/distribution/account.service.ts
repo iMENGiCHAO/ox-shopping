@@ -8,6 +8,8 @@ import { badRequest, conflict, notFound } from "@/lib/errors";
 import { round2 } from "@/lib/distribution/rules";
 import { maskAccountInfo } from "@/lib/distribution/mask";
 import { getDistributionConfig } from "./config.service";
+import { currentUsdToCny } from "./commission.service";
+import { getRateSnapshot } from "@/components/shop/currency-server";
 import type { DistributionConfig, WithdrawState } from "@/lib/distribution/contract";
 
 /**
@@ -26,6 +28,8 @@ import type { DistributionConfig, WithdrawState } from "@/lib/distribution/contr
 export interface WithdrawRow {
   id: string;
   amount: number;
+  /** 提现币种（账户结算币种的申请时快照；金额按此币种计价） */
+  currency: string;
   status: string;
   accountInfo: string | null;
   /** KYC：收款人实名与收款方式（线下打款核对用） */
@@ -44,13 +48,16 @@ export interface WithdrawRow {
 /**
  * 账户一致性对账（P0-6）：校验「物化汇总」与「流水推导值」是否一致，可自动修复。
  *
- * 推导口径（每一条都能独立验证）：
- *   · 累计已结算 = Σ(已结算流水的 amountCny − reversedCny)
+ * 推导口径（每一条都能独立验证，金额均为**账户结算币种**）：
+ *   · 累计已结算 = Σ(已结算流水的 amountSettle − reversedSettle)
  *     —— 结算时入账的是扣除已冲正后的净额，之后的冲正再按增量扣回，
- *        因此「amountCny − reversedCny(当前)」正好等于该流水对账户的净贡献；
+ *        因此「amountSettle − reversedSettle(当前)」正好等于该流水对账户的净贡献；
  *   · 已打款提现 = Σ(PAID 提现单金额)（资金离开系统）
  *   · 在途冻结   = Σ(PENDING/APPROVED 提现单金额)
  *   · 应有余额   = 累计已结算 − 已打款 − 实际冻结
+ *
+ * 前提：同一账户的所有流水 settleCurrency 与账户 settlementCurrency 一致 ——
+ * 由 setSettlementCurrency 的「零余额才可改」约束保证。
  *
  * 允许余额为负（退款冲正可能把已入账佣金扣回成负值，属预期挂账）。
  */
@@ -73,7 +80,7 @@ async function expectedAccountFor(
   const [settled, withdrawals] = await Promise.all([
     client.commissionLog.aggregate({
       where: { toUserId: userId, settledAt: { not: null } },
-      _sum: { amountCny: true, reversedCny: true },
+      _sum: { amountSettle: true, reversedSettle: true },
     }),
     client.withdrawRecord.groupBy({
       by: ["status"],
@@ -82,9 +89,9 @@ async function expectedAccountFor(
     }),
   ]);
 
-  // 净额口径：已冲正的部分不算收入（与结算入账口径一致）
+  // 净额口径：已冲正的部分不算收入（与结算入账口径一致；金额=账户结算币种）
   const totalCommission = round2(
-    Number(settled._sum.amountCny ?? 0) - Number(settled._sum.reversedCny ?? 0),
+    Number(settled._sum.amountSettle ?? 0) - Number(settled._sum.reversedSettle ?? 0),
   );
   let paid = 0;
   let pending = 0;
@@ -108,7 +115,7 @@ export async function verifyAccountConsistency(options: { apply?: boolean } = {}
     prisma.commissionLog.groupBy({
       by: ["toUserId"],
       where: { settledAt: { not: null }, toUserId: { not: null } },
-      _sum: { amountCny: true, reversedCny: true },
+      _sum: { amountSettle: true, reversedSettle: true },
     }),
     prisma.withdrawRecord.groupBy({
       by: ["userId", "status"],
@@ -120,7 +127,7 @@ export async function verifyAccountConsistency(options: { apply?: boolean } = {}
   const settledMap = new Map(
     settled.map((r) => [
       r.toUserId!,
-      round2(Number(r._sum.amountCny ?? 0) - Number(r._sum.reversedCny ?? 0)),
+      round2(Number(r._sum.amountSettle ?? 0) - Number(r._sum.reversedSettle ?? 0)),
     ]),
   );
   const paidMap = new Map<string, number>();
@@ -225,6 +232,7 @@ async function assertWithdrawLimits(
   userId: string,
   amount: number,
   config: DistributionConfig,
+  settlementCurrency: string,
 ): Promise<void> {
   const counted: WithdrawState[] = ["PENDING", "APPROVED", "PAID"];
 
@@ -245,12 +253,20 @@ async function assertWithdrawLimits(
     }
   }
 
+  /* 额度折算（2026-09-24 多币种结算）：限额在后台按 CNY 心智配置（如日限 5000），
+     非人民币结算账户的提现金额需要折成 CNY 后再与限额比较 —— 否则 USD 账户
+     提 5000 USD ≈ 3.6 万人民币，风控形同虚设。汇率取当前站点快照（近似即可：
+     限额是风控粗粒度闸门，不要求分毫精确）。 */
+  const cnyPerUnit = await cnyRateFor(settlementCurrency);
+  const amountCny = round2(amount * cnyPerUnit);
+
   const sumSince = async (from: Date): Promise<number> => {
     const agg = await prisma.withdrawRecord.aggregate({
       where: { userId, status: { in: counted }, createdAt: { gte: from } },
       _sum: { amount: true },
     });
-    return Number(agg._sum.amount ?? 0);
+    // 历史提现与本次申请同为账户结算币种（币种锁定约束），同乘一个汇率即可
+    return round2(Number(agg._sum.amount ?? 0) * cnyPerUnit);
   };
 
   const now = new Date();
@@ -258,9 +274,9 @@ async function assertWithdrawLimits(
     const dayStart = new Date(now);
     dayStart.setHours(0, 0, 0, 0);
     const today = await sumSince(dayStart);
-    if (today + amount > config.dailyWithdrawLimit) {
+    if (today + amountCny > config.dailyWithdrawLimit) {
       throw badRequest(
-        `Daily withdrawal limit exceeded (limit ${config.dailyWithdrawLimit}, applied today ${today})`,
+        `Daily withdrawal limit exceeded (limit ${config.dailyWithdrawLimit} CNY-equivalent, applied today ${round2(today)})`,
       );
     }
   }
@@ -268,12 +284,33 @@ async function assertWithdrawLimits(
   if (config.monthlyWithdrawLimit > 0) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const thisMonth = await sumSince(monthStart);
-    if (thisMonth + amount > config.monthlyWithdrawLimit) {
+    if (thisMonth + amountCny > config.monthlyWithdrawLimit) {
       throw badRequest(
-        `Monthly withdrawal limit exceeded (limit ${config.monthlyWithdrawLimit}, applied this month ${thisMonth})`,
+        `Monthly withdrawal limit exceeded (limit ${config.monthlyWithdrawLimit} CNY-equivalent, applied this month ${round2(thisMonth)})`,
       );
     }
   }
+}
+
+/** 结算币种 → CNY 的换算率（1 单位该币种 = X CNY）。取当前站点汇率快照。 */
+async function cnyRateFor(currency: string): Promise<number> {
+  if (currency.toUpperCase() === "CNY") return 1;
+  try {
+    const [rates, usdToCny] = await Promise.all([getRateSnapshot(), currentUsdToCny()]);
+    const perUsd = Number(rates.rates[currency]);
+    if (Number.isFinite(perUsd) && perUsd > 0) return usdToCny / perUsd;
+  } catch {
+    /* 快照不可用：按 1 兜底（校验退化为数字比较，绝不阻塞提现主流程） */
+  }
+  return 1;
+}
+
+/**
+ * 把「CNY 口径的配置数字」换算成某账户结算币种下的等值数字（如最低提现额）。
+ * 给 API 层做展示换算用 —— 服务端与前端展示共用同一口径，不各算一套。
+ */
+export async function cnyRateForAccount(currency: string): Promise<number> {
+  return cnyRateFor(currency);
 }
 
 export async function applyWithdraw(input: {
@@ -284,18 +321,31 @@ export async function applyWithdraw(input: {
   payeeName?: string;
   payeeMethod?: "bank" | "alipay" | "wechat" | "other";
   req?: NextRequest;
-}): Promise<{ id: string; amount: number }> {
+}): Promise<{ id: string; amount: number; currency: string }> {
   const config = await getDistributionConfig();
   const amount = round2(Number(input.amount));
 
   if (!Number.isFinite(amount) || amount <= 0) throw badRequest("Invalid withdrawal amount");
-  if (amount < config.minWithdrawAmount) {
-    throw badRequest(`Minimum withdrawal amount is ${config.minWithdrawAmount}`);
+
+  // 账户结算币种：提现金额、最低额与风控限额全部以它计价
+  const account = await prisma.distributorAccount.findUnique({
+    where: { userId: input.userId },
+    select: { termsAcceptedAt: true, settlementCurrency: true },
+  });
+  const settlementCurrency = account?.settlementCurrency ?? "CNY";
+
+  // 最低提现额按结算币种折算（配置以 CNY 心智维护，如 100 → USD 账户约 14）
+  const cnyPerUnit = await cnyRateFor(settlementCurrency);
+  const minInCurrency = round2(config.minWithdrawAmount / (cnyPerUnit > 0 ? cnyPerUnit : 1));
+  if (amount < minInCurrency) {
+    throw badRequest(
+      `Minimum withdrawal amount is ${minInCurrency} ${settlementCurrency}`,
+    );
   }
 
   // 风控闸门（P0-5）：日/月累计上限 + 冷却期。放在"在途检查"之前 ——
   // 超额/冷却期是更硬的拒绝理由，先给用户最相关的那条提示。
-  await assertWithdrawLimits(input.userId, amount, config);
+  await assertWithdrawLimits(input.userId, amount, config, settlementCurrency);
 
   const inflight = await prisma.withdrawRecord.count({
     where: { userId: input.userId, status: { in: ["PENDING", "APPROVED"] } },
@@ -315,10 +365,6 @@ export async function applyWithdraw(input: {
   if (!payeeMethod) throw badRequest("Please choose a payout method");
 
   // 《分销规则》确认留痕：提现是产生资金往来的动作，必须留下确认时间
-  const account = await prisma.distributorAccount.findUnique({
-    where: { userId: input.userId },
-    select: { termsAcceptedAt: true },
-  });
   if (!account?.termsAcceptedAt) {
     await prisma.distributorAccount.upsert({
       where: { userId: input.userId },
@@ -359,6 +405,8 @@ export async function applyWithdraw(input: {
         data: {
           userId: input.userId,
           amount,
+          // 币种快照：账户结算币种变更不影响历史提现单的金额语义
+          currency: settlementCurrency,
           accountInfo: input.accountInfo?.trim() || null,
           remark: input.remark?.trim() || null,
           payeeName,
@@ -382,21 +430,27 @@ export async function applyWithdraw(input: {
   }
 
   // 旁路通知（不 await：邮件可能走真实 SMTP）
-  void notifyWithdrawStatus({ userId: input.userId, status: "PENDING", amountCny: amount }).catch(
-    () => undefined,
-  );
+  void notifyWithdrawStatus({
+    userId: input.userId,
+    status: "PENDING",
+    amountCny: amount,
+    settleCurrency: settlementCurrency,
+  }).catch(() => undefined);
 
   await audit({
     userId: input.userId,
     action: "DISTRIBUTION_WITHDRAW_APPLY",
     entity: "WithdrawRecord",
     entityId: record.id,
-    meta: { amount },
+    meta: { amount, currency: settlementCurrency },
     req: input.req,
   });
-  logger.info({ userId: input.userId, amount }, "分销：提现申请已提交");
+  logger.info(
+    { userId: input.userId, amount, currency: settlementCurrency },
+    "分销：提现申请已提交",
+  );
 
-  return { id: record.id, amount: Number(record.amount) };
+  return { id: record.id, amount: Number(record.amount), currency: settlementCurrency };
 }
 
 /**
@@ -483,6 +537,7 @@ export async function auditWithdraw(input: {
       userId: record.userId,
       status: fresh.status,
       amountCny: amount,
+      settleCurrency: record.currency,
       note: input.note ?? null,
     }).catch(() => undefined);
   }
@@ -492,7 +547,7 @@ export async function auditWithdraw(input: {
     action: `DISTRIBUTION_WITHDRAW_${input.action.toUpperCase()}`,
     entity: "WithdrawRecord",
     entityId: record.id,
-    meta: { targetUserId: record.userId, amount, note: input.note ?? "" },
+    meta: { targetUserId: record.userId, amount, currency: record.currency, note: input.note ?? "" },
     req: input.req,
   });
 
@@ -517,6 +572,7 @@ export async function listMyWithdrawals(
     rows: rows.map((r) => ({
       id: r.id,
       amount: Number(r.amount),
+      currency: r.currency,
       status: r.status,
       // 收款账户对本人也只回显尾号：分销后台页面本身可能被旁人看到
       accountInfo: r.accountInfo ? maskAccountInfo(r.accountInfo) : null,
@@ -559,6 +615,7 @@ export async function listWithdrawals(opts: {
     rows: rows.map((r) => ({
       id: r.id,
       amount: Number(r.amount),
+      currency: r.currency,
       status: r.status,
       accountInfo: r.accountInfo,
       // KYC 打款信息（后台核对用；用户注销后仍有 userEmail 快照可追溯）
@@ -576,4 +633,51 @@ export async function listWithdrawals(opts: {
     total,
     counts,
   };
+}
+
+/**
+ * 设置/变更账户结算币种（2026-09-24 多币种结算）。
+ *
+ * 硬约束：**余额、冻结均为 0 且没有任何佣金流水**时才允许变更。
+ * 为什么：账本余额按结算币种计价，历史流水 amountSettle 也是同一币种的快照；
+ * 中途换币种会让「Σ流水净额 = 账户余额」的对账口径断裂（旧币种流水
+ * 混入新币种余额）。有佣金进账后想换币种，只能先提空余额 —— 此时流水
+ * 与余额均为 0，换币种不破坏任何口径。
+ *
+ * 新开户（无任何流水）不受限，分销客可在产生第一笔佣金前自由选定。
+ */
+export async function setSettlementCurrency(input: {
+  userId: string;
+  currency: string;
+  req?: NextRequest;
+}): Promise<{ settlementCurrency: string }> {
+  const currency = input.currency.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(currency)) throw badRequest("结算币种必须是 3 位 ISO 4217 代码");
+
+  const [account, logCount] = await Promise.all([
+    prisma.distributorAccount.findUnique({ where: { userId: input.userId } }),
+    prisma.commissionLog.count({ where: { toUserId: input.userId } }),
+  ]);
+  const balance = Number(account?.balance ?? 0);
+  const frozen = Number(account?.frozen ?? 0);
+
+  if (account && (balance !== 0 || frozen !== 0 || logCount > 0)) {
+    if (account.settlementCurrency === currency) {
+      return { settlementCurrency: currency }; // 幂等：未变化直接返回
+    }
+    throw badRequest(
+      "账户已有佣金流水或余额，不能变更结算币种（请先提空余额；新账户才可自由选择）",
+    );
+  }
+
+  await prisma.distributorAccount.upsert({
+    where: { userId: input.userId },
+    create: { userId: input.userId, settlementCurrency: currency },
+    update: { settlementCurrency: currency },
+  });
+  logger.info(
+    { userId: input.userId, currency, hadAccount: !!account, logs: logCount },
+    "分销：结算币种已设置",
+  );
+  return { settlementCurrency: currency };
 }
