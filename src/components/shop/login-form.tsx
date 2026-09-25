@@ -99,6 +99,7 @@ export function LoginForm({ next }: { next: string }) {
                           type="email"
                           autoComplete="email"
                           placeholder={t("E-mail")}
+                          aria-label={t("E-mail")}
                           {...field}
                         />
                       </FormControl>
@@ -121,6 +122,7 @@ export function LoginForm({ next }: { next: string }) {
                             type="password"
                             autoComplete="current-password"
                             placeholder={t("Password")}
+                            aria-label={t("Password")}
                             className="pr-[168px]"
                             {...field}
                           />

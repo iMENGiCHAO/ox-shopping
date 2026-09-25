@@ -123,7 +123,12 @@ export default function RegisterPage() {
                 <FormItem>
                   {/* 原站形态：字段名是**框内 placeholder**，没有框外 label */}
                   <FormControl>
-                    <Input placeholder={t("First name")} autoComplete="given-name" {...field} />
+                    <Input
+                      placeholder={t("First name")}
+                      aria-label={t("First name")}
+                      autoComplete="given-name"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -135,7 +140,12 @@ export default function RegisterPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <Input placeholder={t("Last name")} autoComplete="family-name" {...field} />
+                    <Input
+                      placeholder={t("Last name")}
+                      aria-label={t("Last name")}
+                      autoComplete="family-name"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -147,7 +157,13 @@ export default function RegisterPage() {
               render={({ field }) => (
                 <FormItem>
                   <FormControl>
-                    <Input type="email" placeholder={t("E-mail")} autoComplete="email" {...field} />
+                    <Input
+                      type="email"
+                      placeholder={t("E-mail")}
+                      aria-label={t("E-mail")}
+                      autoComplete="email"
+                      {...field}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -162,6 +178,7 @@ export default function RegisterPage() {
                     <Input
                       type="password"
                       placeholder={t("Password")}
+                      aria-label={t("Password")}
                       autoComplete="new-password"
                       {...field}
                     />
