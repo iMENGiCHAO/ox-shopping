@@ -96,11 +96,8 @@ export function OrderActions({
         toast.info(t("Order is empty"));
         return;
       }
-      if (added > 0) {
-        toast.success(
-          t("Added {n} item(s) to cart", { n: added }),
-        );
-      }
+      // 只要存在无库存/不可加购商品，就只展示警告。
+      // 禁止同时弹出「已加入购物车」成功提示，避免让用户误以为售罄商品也进了购物车。
       if (skipped > 0) {
         const p = punct(lang);
         // 跳过原因是英文源串（服务端不写死中文，防英文站泄漏）——展示前按当前语言本地化
@@ -111,6 +108,8 @@ export function OrderActions({
         toast.warning(
           `${t("{n} item(s) not added to cart", { n: skipped })}${p.colon}${reasons}${res && res.skipped.length > 3 ? "…" : ""}`,
         );
+      } else if (added > 0) {
+        toast.success(t("Added {n} item(s) to cart", { n: added }));
       }
       router.refresh();
     });
