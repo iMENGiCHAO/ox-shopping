@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
@@ -561,12 +561,14 @@ export default function AdminProductsPage() {
                     <TableCell className="text-right font-medium tabular-nums">
                       {formatMoney(row.price, "USD")}
                     </TableCell>
-                    <TableCell>
+                    {/* relative 作浮层锚点：编辑面板 absolute 展开，不挤表格、不压相邻列 */}
+                    <TableCell className="relative">
                       {hasVariants(row) ? (
                         /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
                         specEditId === row.id ? (
-                          /* 编辑面板：实心背景 + 阴影浮层（避免与相邻「已售」列文字重叠透视） */
-                          <div className="relative z-10 min-w-56 space-y-2 rounded-md border bg-card p-2 shadow-popover">
+                          /* 编辑浮层：absolute 脱离文档流 —— 不撑单元格、完整实底+阴影盖住下层，
+                             杜绝「面板边缘切在相邻列数字中间」的半透叠字（大爷实测指出） */
+                          <div className="absolute left-0 top-1/2 z-30 min-w-56 -translate-y-1/2 space-y-2 rounded-md border bg-card p-2 shadow-popover">
                             {variantGroupsOf(row).map((g) => (
                               <div key={g.name} className="space-y-1">
                                 <div className="text-[11px] font-medium text-muted-foreground">
@@ -655,12 +657,13 @@ export default function AdminProductsPage() {
                         )
                       ) : /* 单品：直接改总库存数字 */
                       stockEditId === row.id ? (
-                        /* 实心背景浮层：避免编辑时与相邻「已售」列文字重叠 */
-                        <div className="relative z-10 flex items-center gap-1 rounded-md border bg-card p-1 shadow-popover">
+                        /* 编辑浮层：absolute 脱离文档流，实底+阴影完整盖住下层 ——
+                           按钮 icon 化收窄面板，避免边缘切进「已售」列数字造成叠字 */
+                        <div className="absolute left-0 top-1/2 z-30 flex -translate-y-1/2 items-center gap-0.5 rounded-md border bg-card p-1 shadow-popover">
                           <Input
                             value={stockValue}
                             onChange={(e) => setStockValue(e.target.value)}
-                            className="h-7 w-16 border-input px-1 text-sm tabular-nums"
+                            className="h-7 w-14 border-input px-1 text-sm tabular-nums"
                             autoFocus
                             onKeyDown={(e) => {
                               if (e.key === "Enter") void saveStock(row);
@@ -670,18 +673,22 @@ export default function AdminProductsPage() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 px-1.5 text-xs"
+                            className="h-7 w-7 p-0 text-primary"
+                            title="保存（Enter）"
+                            aria-label="保存"
                             onClick={() => void saveStock(row)}
                           >
-                            保存
+                            <Check className="h-4 w-4" />
                           </Button>
                           <Button
                             size="sm"
                             variant="ghost"
-                            className="h-7 px-1.5 text-xs"
+                            className="h-7 w-7 p-0 text-muted-foreground"
+                            title="取消（Esc）"
+                            aria-label="取消"
                             onClick={() => setStockEditId(null)}
                           >
-                            取消
+                            <X className="h-4 w-4" />
                           </Button>
                         </div>
                       ) : (
