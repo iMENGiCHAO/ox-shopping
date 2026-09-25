@@ -69,6 +69,16 @@ enum RefundOutboxStatus {
   COMPLETED
 }
 
+/// 事务邮件发件 outbox（P1：订单确认/发货/退款邮件此前 fire-and-forget，
+/// Resend/SMTP 抖动即永久丢信且无人知晓）。queueMail 先落库再立即试发，
+/// 失败按指数退避由 scheduler 自动重试；到重试上限置 FAILED 终态。
+enum MailOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+}
+
 enum WebhookEventStatus {
   PROCESSING
   PROCESSED
@@ -518,6 +528,34 @@ model RefundOutbox {
 
   @@index([status, nextAttemptAt])
   @@map("refund_outbox")
+}
+
+/// 事务邮件发件队列（at-least-once）：`data` 原样存储调用方 payload，
+/// 重放时重新走 sendMail 渲染（siteUrl/siteName/品牌名渲染时注入，
+/// 后台改配置后重试的邮件用**新**配置，而非快照旧值）。
+/// console 通道 `delivered=false` 同样进入重试（与到货提醒 draft 语义一致：
+/// 落盘 ≠ 送达），生产 MAIL_PROVIDER 守卫保证 resend/smtp。
+model MailOutbox {
+  id            String           @id @default(cuid())
+  to            String
+  /// 模板 key（MailData 的 key，见 src/lib/mail/index.ts registry）
+  template      String
+  /// 调用方 payload；lang 字段包含在其中（sendMail 从 data.lang 读取）
+  data          Json
+  status        MailOutboxStatus @default(PENDING)
+  attempts      Int              @default(0)
+  /// 重试上限；到限置 FAILED 终态（默认 8 次 ≈ 指数退避累计约 2 小时）
+  maxAttempts   Int              @default(8)
+  nextAttemptAt DateTime         @default(now())
+  claimedAt     DateTime?
+  lastError     String?          @db.Text
+  sentAt        DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+  @@map("mail_outbox")
 }
 
 /// Provider webhook 持久幂等账本。签名验证后才允许 claim；lease 让失败/崩溃事件可重试。

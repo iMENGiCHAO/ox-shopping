@@ -10,7 +10,7 @@ import { ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
 import { generateOrderNumber, toCents, formatMoney } from "@/lib/utils";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
 import { assertTransition, canTransition } from "@/lib/order-status";
-import { sendMail } from "@/lib/mail";
+import { queueMail } from "@/server/services/mail-outbox.service";
 import { audit } from "@/lib/audit";
 import { createNotification, notifyAdmins } from "@/server/services/notification.service";
 import { distributionBridge } from "@/server/services/distribution/bridge";
@@ -643,7 +643,7 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     const mailTo = contactEmail ?? user?.email ?? null;
     const due = Number(order.total) + (order.codFee == null ? 0 : Number(order.codFee));
     if (mailTo) {
-      void sendMail({
+      void queueMail({
         to: mailTo,
         template: "order-confirmed",
         data: {
@@ -865,19 +865,9 @@ export async function markOrderPaid(
   if (order.status !== "PENDING_PAYMENT") return order;
 
   // 原子认领：并发场景只有一个调用方能把状态推进到 PAID。
-  // 已支付但未终结的订单若收到同一网关交易号重复回调，不改状态；不同交易号
-  // 绝不覆盖原 paymentId，否则后续退款可能退到错误 PaymentIntent。
-  if (order.status !== "PENDING_PAYMENT") {
-    if (
-      paymentId &&
-      order.paymentId &&
-      order.paymentId !== paymentId &&
-      ["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)
-    ) {
-      throw new ApiError(400, "CONFLICT", "Order already has a different payment transaction");
-    }
-    return order;
-  }
+  // 上方幂等出口已处理所有「已支付/已取消」的重复回调（原样返回，不重发副作用）；
+  // 认领条件的 OR 分支保证「不同交易号」的重复回调抢不到锁（claimed=0 → 只回读），
+  // 原 paymentId 绝不会被改写，后续退款不会退到错误的 PaymentIntent。
   const claimed = await prisma.order.updateMany({
     where: {
       id: order.id,
@@ -911,7 +901,7 @@ export async function markOrderPaid(
   const user = order.userId ? await prisma.user.findUnique({ where: { id: order.userId } }) : null;
   const mailTo = order.contactEmail ?? user?.email ?? null;
   if (mailTo) {
-    void sendMail({
+    void queueMail({
       to: mailTo,
       template: "order-confirmed",
       data: {
@@ -1204,7 +1194,7 @@ export async function updateOrderStatus(
       : null;
     const shippedMailTo = order.contactEmail ?? user?.email ?? null;
     if (shippedMailTo) {
-      void sendMail({
+      void queueMail({
         to: shippedMailTo,
         template: "order-shipped",
         data: {

@@ -6,8 +6,14 @@ import { effectivePaymentMode } from "@/lib/env";
 import { retrieveCheckoutSession } from "@/lib/payment/stripe";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { str } from "@/lib/payment/provider";
-import { cancelOrder, expireStaleOrders, markOrderPaid } from "@/server/services/order.service";
+import {
+  cancelOrder,
+  expireStaleOrders,
+  markOrderPaid,
+  processRefundOutboxItem,
+} from "@/server/services/order.service";
 import { distributionBridge } from "@/server/services/distribution/bridge";
+import { drainMailOutbox } from "@/server/services/mail-outbox.service";
 
 /**
  * 进程内定时任务（Next instrumentation 启动，无需外部 cron）。
@@ -55,6 +61,16 @@ const RECONCILE_REQUEST_TIMEOUT_MS = 8_000;
  * 预算用尽即中断本轮，剩余订单下一轮心跳继续 —— 对账是幂等的，中断是安全的。
  */
 const RECONCILE_BUDGET_MS = 120_000;
+
+/**
+ * 退款 outbox 自动重试（P1：此前退款只在管理员「批准」时同步执行一次，
+ * 网关失败/未确认的 RETRY 项永远无人认领 → 退款静默卡死，只能人工反复重批）。
+ * `processRefundOutboxItem` 自带「认领租约 + 5 分钟过期抢占」，幂等且并发安全，
+ * 这里只负责扫描到期项。网关调用发生在持锁事务内（同 Stripe 对账的已知取舍），
+ * 因此同样需要批大小 + 时间预算双上界，保证事务时长有确定边界。
+ */
+const REFUND_OUTBOX_BATCH = 10;
+const REFUND_OUTBOX_BUDGET_MS = 90_000;
 
 /** 每个心跳周期执行的全部任务（咨询锁保证多实例只有一个真正执行） */
 export async function runScheduledJobs(): Promise<void> {
@@ -121,6 +137,20 @@ async function runAllJobs(): Promise<void> {
     if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前 Webhook 幂等记录已清理");
   } catch (err) {
     logger.error({ err }, "[cron] webhookEvent 清理失败");
+  }
+
+  // 2d. 邮件 outbox 终态清理：SENT/FAILED 90 天滚动删除（FAILED 保留 lastError
+  //     供排查，到 90 天同样回收，与 webhookEvent 的保留窗口一致）。
+  try {
+    const n = await prisma.mailOutbox.deleteMany({
+      where: {
+        status: { in: ["SENT", "FAILED"] },
+        updatedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
+      },
+    });
+    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前邮件 outbox 终态记录已清理");
+  } catch (err) {
+    logger.error({ err }, "[cron] mailOutbox 清理失败");
   }
 
   // 3. 掉单对账（仅 Stripe 模式有网关状态可查；mock 支付同步完成无此需求）
@@ -223,6 +253,56 @@ async function runAllJobs(): Promise<void> {
     } catch (err) {
       logger.error({ err }, "[cron] Stripe 对账失败");
     }
+  }
+
+  // 3b. 退款 outbox 自动重试：approveRefund 只同步执行一次，此后全靠这里兜底。
+  //     扫描条件与 processRefundOutboxItem 的认领条件完全一致（到期 RETRY/PENDING
+  //     + 崩溃遗留的过期 PROCESSING 租约），认领失败/异常都不影响本轮其它任务。
+  try {
+    const started = Date.now();
+    const due = await prisma.refundOutbox.findMany({
+      where: {
+        OR: [
+          { status: { in: ["PENDING", "RETRY"] }, nextAttemptAt: { lte: new Date() } },
+          { status: "PROCESSING", claimedAt: { lt: new Date(Date.now() - 5 * 60_000) } },
+        ],
+      },
+      orderBy: { nextAttemptAt: "asc" },
+      select: { refundId: true },
+      take: REFUND_OUTBOX_BATCH,
+    });
+    for (const row of due) {
+      if (Date.now() - started > REFUND_OUTBOX_BUDGET_MS) {
+        logger.warn(
+          { batch: due.length },
+          "[cron] 退款 outbox 本轮时间预算用尽，剩余下一轮继续（重试幂等，中断安全）",
+        );
+        break;
+      }
+      try {
+        const result = await processRefundOutboxItem(row.refundId);
+        if (result.state === "FAILED") {
+          logger.warn(
+            { refundId: row.refundId, error: result.error },
+            "[cron] 退款 outbox 重试仍失败，等待下一轮",
+          );
+        }
+      } catch (err) {
+        logger.error({ err, refundId: row.refundId }, "[cron] 退款 outbox 重试异常");
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, "[cron] 退款 outbox 扫描失败");
+  }
+
+  // 3c. 邮件 outbox 自动重试（P1：订单确认/发货/退款邮件此前 fire-and-forget，
+  //     网关抖动即永久丢信）。queueMail 落库后立即试发一次，此后靠这里退避重试；
+  //     网络发送在持锁事务内（同 Stripe 对账取舍），drain 自带批大小 + 时间预算上界。
+  try {
+    const n = await drainMailOutbox();
+    if (n > 0) logger.info({ count: n }, "[cron] 邮件 outbox 已处理");
+  } catch (err) {
+    logger.error({ err }, "[cron] 邮件 outbox 扫描失败");
   }
 
   // 4. 分销对账补偿（隔离模块）：补归属 / 补佣金 / 冲正退款单 / 到期结算。
