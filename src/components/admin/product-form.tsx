@@ -233,6 +233,24 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   const [chart, setChart] = React.useState<{ headers: string[]; rows: string[][] }>(
     () => initial?.sizeChart ?? { headers: ["尺码"], rows: [] },
   );
+
+  /** 规格库存实时汇总（与提交口径完全一致：min(各组之和)）。
+   *  有规格的商品「总库存」不再是可编辑输入 —— 它只是规格库存的派生只读值，
+   *  直接填写总库存无法回答「加到哪个规格头上」的业务问题（大爷 2026-09-24 指出）。 */
+  const hasSpecGroups = selectableGroups.length > 0;
+  const specSum = React.useMemo(() => {
+    if (!hasSpecGroups) return null;
+    const sums: number[] = [];
+    for (const g of selectableGroups) {
+      const entries = Object.entries(specMaps[g.name] ?? {}).filter(([, v]) => v !== "");
+      if (entries.length === 0) return null; // 某组还没填任何值 → 视为尚未追踪
+      sums.push(entries.reduce((acc, [, v]) => acc + (Number(v) || 0), 0));
+    }
+    return sums.length > 0 ? Math.min(...sums) : null;
+  }, [hasSpecGroups, selectableGroups, specMaps]);
+  React.useEffect(() => {
+    if (specSum != null) form.setValue("stock", String(specSum), { shouldDirty: true });
+  }, [specSum, form]);
   const handleSubmit = form.handleSubmit((values) => {
     const attributes = values.attributes
       .map((a) => ({
@@ -392,9 +410,25 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="pf-stock">{t("Stock")} *</Label>
-          <Input id="pf-stock" type="number" min="0" placeholder="0" {...form.register("stock")} />
-          {form.formState.errors.stock ? (
+          <Label htmlFor="pf-stock">
+            {t("Stock")}
+            {hasSpecGroups ? "（自动汇总）" : " *"}
+          </Label>
+          <Input
+            id="pf-stock"
+            type="number"
+            min="0"
+            placeholder={hasSpecGroups ? "在下方「规格库存」填写后自动汇总" : "0"}
+            readOnly={hasSpecGroups}
+            className={cn(hasSpecGroups && "bg-muted text-muted-foreground")}
+            {...form.register("stock")}
+          />
+          {hasSpecGroups ? (
+            <p className="text-xs text-muted-foreground">
+              该商品有可选规格：总库存由各规格库存自动汇总（各组之和取最小值），
+              请在下方「规格库存」逐规格填写。
+            </p>
+          ) : form.formState.errors.stock ? (
             <p className="text-xs text-destructive">{form.formState.errors.stock.message}</p>
           ) : null}
         </div>
