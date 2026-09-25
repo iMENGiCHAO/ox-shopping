@@ -64,13 +64,17 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "picsum.photos" },
       { protocol: "https", hostname: "images.unsplash.com" },
-      { protocol: "https", hostname: "**.amazonaws.com" },
+      // AWS S3 直连的两种形态。此前是 `**.amazonaws.com` 全域通配（P1）：
+      // 放行了任意 AWS 主机，优化器可被用作代理；项目本身并不引用 amazonaws 图源，
+      // 仅为 S3 兼容部署预留。Cloudflare R2 / MinIO 自定义域名请按需追加
+      // S3_PUBLIC_URL 所在主机。
+      { protocol: "https", hostname: "**.s3.amazonaws.com" },
+      { protocol: "https", hostname: "**.s3.**.amazonaws.com" },
       { protocol: "http", hostname: "localhost" },
       { protocol: "http", hostname: "127.0.0.1" },
       { protocol: "http", hostname: "minio" },
-      // shop.x.com 真实商品图片（Shopify CDN）
-      { protocol: "https", hostname: "shop.x.com" },
-      { protocol: "https", hostname: "cdn.shopify.com" },
+      // 商品图已全部本地化（public/images/**）——不再热链 shop.x.com /
+      // cdn.shopify.com：第三方 CDN 随时防盗链/下架，会造成整站商品图裂图。
     ],
   },
   async headers() {

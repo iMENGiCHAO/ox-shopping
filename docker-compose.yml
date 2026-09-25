@@ -24,6 +24,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # 日志轮转（P1）：local 驱动默认无限增长，磁盘会被容器日志打满
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
 
   redis:
     image: redis:7-alpine
@@ -51,6 +57,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
 
   app:
     build:
@@ -126,6 +137,31 @@ services:
       TRUST_PROXY: "true"
       # 生产默认不执行种子；本地演示叠加 compose.local 时置 true
       SEED_ON_START: ${SEED_ON_START:-false}
+      # ------------------------------------------------------------------
+      # 以下为此前 compose 漏传、但 env.ts / 业务代码会读取的变量（P1 修复）：
+      # compose environment 不会自动带入未列出的 .env 变量，漏传意味着
+      # 运维在 .env 修改这些项**完全不生效**。
+      # ------------------------------------------------------------------
+      # 四道生产 fail-fast 守卫总开关：默认开启；确有豁免需求时在 .env 显式写 false
+      REQUIRE_STRONG_SECRETS: ${REQUIRE_STRONG_SECRETS:-true}
+      ALLOW_MOCK_PAYMENT_IN_PROD: ${ALLOW_MOCK_PAYMENT_IN_PROD:-false}
+      ALLOW_PASSWORDLESS_REDIS_IN_PROD: ${ALLOW_PASSWORDLESS_REDIS_IN_PROD:-false}
+      # bcrypt 成本因子（生产低于 10 拒绝启动，见 src/lib/auth/password.ts）
+      BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+      # 会话 Cookie 域（如 .example.com；空 = 当前域）
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      # 进程内定时任务（订单超时取消 / 令牌清理 / 掉单对账 / 退款 outbox 重试）
+      CRON_ENABLED: ${CRON_ENABLED:-true}
+      CRON_INTERVAL_SECONDS: ${CRON_INTERVAL_SECONDS:-60}
+      # 分销模块总开关（false = API 全 404、入口隐藏、钩子零调用）
+      DISTRIBUTION_ENABLED: ${DISTRIBUTION_ENABLED:-true}
+      # 客服联系方式兜底（后台「站点设置」未填写时使用）
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      SUPPORT_PHONE: ${SUPPORT_PHONE:-}
+      # 发票 PDF 内嵌中文字体路径（留空用 public/fonts 内置字体）
+      INVOICE_FONT_PATH: ${INVOICE_FONT_PATH:-}
+      # console 邮件驱动落盘目录（生产 MAIL_PROVIDER 必须是 resend/smtp，此项仅兜底）
+      MAIL_OUT_DIR: ${MAIL_OUT_DIR:-}
     ports:
       # ⚠️ 仅绑定 loopback（安全基线）：应用只允许宿主机上的可信反代访问。
       # 若直接对外发布 3000，客户端可自带 X-Forwarded-For 伪造来源 IP，
@@ -138,7 +174,67 @@ services:
       timeout: 5s
       retries: 10
       start_period: 40s
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "5"
+
+  # ------------------------------------------------------------------
+  # 每日自动备份侧车（P1：此前备份只能靠宿主机手工 cron 跑 scripts/backup-db.sh，
+  # 漏装 = 数据丢失不可恢复）。镜像与 postgres 同源，pg_dump 客户端版本必然匹配。
+  # 输出到命名卷 dbbackups，格式/命名与 scripts/backup-db.sh 完全一致
+  # （pg_dump 自定义格式 + gzip + SHA-256），scripts/restore-db.sh 可直接恢复。
+  # 卷内容仍需每日同步到异地对象存储（见 docs/PRODUCTION_CHECKLIST.md §三）。
+  # ------------------------------------------------------------------
+  db-backup:
+    image: postgres:16-alpine
+    container_name: ecommerce-db-backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ecommerce
+      PGDATABASE: ecommerce
+      # 与 postgres 服务同源取值；密码只存在于容器环境（与 postgres 服务同暴露面）
+      PGPASSWORD: ${POSTGRES_PASSWORD:?请在 .env 配置 POSTGRES_PASSWORD}
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+    volumes:
+      - dbbackups:/backups
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        echo "[db-backup] 启动：每日备份一次（pg_dump 自定义格式 + gzip + SHA-256），保留 $${BACKUP_RETAIN_DAYS:-14} 天"
+        while true; do
+          ts=$$(date -u +%Y%m%dT%H%M%SZ)
+          tmp=/backups/ecommerce-$$ts.dump.tmp
+          out=/backups/ecommerce-$$ts.dump.gz
+          if pg_dump --format=custom --no-owner --no-privileges --file="$$tmp"; then
+            if gzip -c "$$tmp" > "$$out.partial" && [ -s "$$out.partial" ]; then
+              mv "$$out.partial" "$$out"
+              sha256sum "$$out" > "$$out.sha256"
+              echo "[db-backup] ✓ $$out"
+            else
+              echo "[db-backup] ✗ gzip/落盘失败，丢弃本轮备份"
+              rm -f "$$out.partial"
+            fi
+          else
+            echo "[db-backup] ✗ pg_dump 失败（下一轮自动重试）"
+          fi
+          rm -f "$$tmp"
+          find /backups -type f \( -name 'ecommerce-*.dump.gz' -o -name 'ecommerce-*.dump.gz.sha256' -o -name 'ecommerce-*.dump.gz.partial' -o -name 'ecommerce-*.dump.tmp' \) -mtime "+$${BACKUP_RETAIN_DAYS:-14}" -delete
+          sleep 86400
+        done
 
 volumes:
   pgdata:
   redisdata:
+  dbbackups:

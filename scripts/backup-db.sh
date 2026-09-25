@@ -51,9 +51,15 @@ gzip -c "$PARTIAL" > "$GZ_TMP"
 [[ -s "$GZ_TMP" ]] || { echo "✗ gzip 输出为空，备份未生成" >&2; exit 1; }
 mv "$GZ_TMP" "$FINAL"
 rm -f "$PARTIAL"
-SHA256_CMD="sha256sum"
-command -v sha256sum >/dev/null 2>&1 || SHA_CMD="shasum"
-[[ -n "$SHA_CMD" ]] || { echo "✗ 找不到 sha256sum 或 shasum" >&2; exit 1; }
+# 校验和工具：默认 sha256sum（Linux）；缺失时回退 shasum（macOS）。
+# 约定：SHA_CMD 非空 ⇔ 走 shasum 分支（下方 if 与末尾提示行均按此约定）。
+# 旧实现误把默认值赋给 SHA256_CMD（变量名 typo）→ sha256sum 存在时 SHA_CMD
+# 永不赋值，set -u 下直接 unbound 退出：校验和不生成、保留策略永不执行。
+SHA_CMD=""
+if ! command -v sha256sum >/dev/null 2>&1; then
+  command -v shasum >/dev/null 2>&1 || { echo "✗ 找不到 sha256sum 或 shasum" >&2; exit 1; }
+  SHA_CMD="shasum"
+fi
 (
   cd "$BACKUP_DIR"
   if [[ -n "$SHA_CMD" ]]; then

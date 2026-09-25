@@ -82,7 +82,7 @@
 
 - 平台必须有 HTTPS，否则 `Secure` Cookie 不会写入
 - 生产模式 `sameSite=lax` + `secure: true` 已硬编码，无需改
-- 如走 Cloudflare/CloudFront，确认 `X-Forwarded-Proto`/`X-Forwarded-Host` 透传（`next.config.js` 中 `trustHostHeader: true`）
+- 如走 Cloudflare/CloudFront，确认 `X-Forwarded-Proto`/`X-Forwarded-Host` 透传，且反代覆盖写入 `X-Forwarded-For`（`TRUST_PROXY=true` 的部署契约；Next 16 无需、也不存在 `next.config.js` 的 `trustHostHeader` 字段——构建产物恒为 false）
 
 ## 三、数据库
 
@@ -92,7 +92,7 @@ npm run db:deploy       # 生产迁移（不是 db:push）
 npm run admin:create -- admin@yourdomain.com 'StrongPass!2026'   # 生产首个管理员（勿用 seed 的演示账号）
 ```
 
-- 启用每日逻辑备份 + 异地对象存储副本；备份文件必须有 SHA-256
+- 每日逻辑备份已由 compose 的 `db-backup` 侧车自动执行（pg_dump → gzip → SHA-256，保留 `BACKUP_RETAIN_DAYS` 天，卷 `dbbackups`）；**仍需**把卷内容每日同步到异地对象存储，并配置备份失败告警（宿主机 cron 方案可用 `scripts/backup-db.sh`）
 - 每季度在**空临时库**运行 `scripts/restore-db.sh` 恢复演练，记录 RPO/RTO；禁止以生产库做首次恢复
 - `AuditLog` 写得比较频（每小时千行级），建议 90 天滚动归档；归档与备份策略必须一并演练
 - 慢查询：开启 `log_min_duration_statement = 500ms` 观察一周
@@ -172,7 +172,7 @@ stripe listen --forward-to https://shop.example.com/api/webhooks/stripe
 - **会话刷新**：单 IP 10 次/分钟（另含 refresh token 重放检测与 60s 并发宽限）
 - CSRF double-submit、JWT Refresh 重放检测、bcrypt cost 默认 12（`BCRYPT_ROUNDS` 可调，**生产低于 10 拒绝启动**）
 - **强制改密门控**：临时密码首登被 `pwd_change_required` cookie + `requireUser()` 双重限制（见 §〇之二）
-- CSP、X-Frame-Options=DENY、X-Content-Type-Options=nosniff
+- CSP、X-Frame-Options=SAMEORIGIN（`next.config.js` 与 `deploy/nginx.conf` 均为 SAMEORIGIN，如需 DENY 两处必须同改）、X-Content-Type-Options=nosniff
 
 ## 十、性能预算（已实测）
 
