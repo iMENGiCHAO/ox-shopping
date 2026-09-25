@@ -35,7 +35,7 @@ async function AccountShell({ children }: { children: React.ReactNode }) {
   const NAV = buildAccountNav(t);
 
   // data-apple-area：订单页与 /account 共用同一套账户外壳，内容区域同步换成
-  // Apple 风格令牌（灰底圆角面板 + 白卡大圆角），顶栏/底栏保持 shop.x.com 不变。
+  // Apple 风格令牌（灰底圆角面板 + 白卡大圆角），顶栏/底栏保持 上游参考站 不变。
   return (
     <div className="container my-6 p-4 md:my-8 md:p-6" data-apple-area>
       {/* 顶部：账户标题（小屏紧凑） */}

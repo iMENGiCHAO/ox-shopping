@@ -30,7 +30,7 @@ export function ImageWithFallback({ src, alt, onError, ...props }: ImageWithFall
   // src 缺失或加载失败 → 使用内置占位图
   const resolvedSrc = failed || !src ? FALLBACK_DATA_URI : src;
 
-  /* 本地静态图自动加 blur 占位(Grok 规格书 P1：懒加载 + blur placeholder)；
+  /* 本地静态图自动加 blur 占位(性能规格 P1：懒加载 + blur placeholder)；
      data:/svg: 源不支持 blur，跳过 */
   const blurProps =
     !props.placeholder && typeof resolvedSrc === "string" && resolvedSrc.startsWith("/")

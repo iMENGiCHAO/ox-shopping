@@ -22,7 +22,7 @@ export default async function AccountLayout({ children }: { children: React.Reac
 
   // data-apple-area：账户区中间内容（导航 + 正文）整体换成 Apple 风格令牌
   // （#F5F5F7 灰底圆角面板 + 白卡大圆角 + Apple 蓝主色），顶栏/底栏保持
-  // shop.x.com 黑白方角不变（见 globals.css 作用域注释）。
+  // 上游参考站 黑白方角不变（见 globals.css 作用域注释）。
   return (
     <div className="container my-6 p-4 md:my-8 md:p-6" data-apple-area>
       <div className="mb-4 md:mb-6">

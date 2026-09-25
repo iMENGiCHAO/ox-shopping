@@ -5,10 +5,10 @@ import { getLang, getT } from "@/lib/shop-i18n-server";
 import { listCategoryTree } from "@/server/services/product.service";
 
 /**
- * 集合索引（All collections）—— shop.x.com `/products` 与 `/collections` **同构渲染**。
+ * 集合索引（All collections）—— 上游参考站 `/products` 与 `/collections` **同构渲染**。
  *
  * 原站实测（2026-09-20 Playwright）：两个 URL 都返回 200 且 h1 都是 `All collections`，
- * 并列 4 张正方形集合卡片（Mens · SpaceXAI Collection · Womens · X Collection），
+ * 并列 4 张正方形集合卡片（Mens · Ox Essentials Collection · Womens · Ox Collection），
  * 卡片链接形如 `/collections/<slug>`。本组件由 `/products` 与 `/collections` 共用，
  * 保证两处逐像素一致。
  *
@@ -41,7 +41,7 @@ export async function CollectionsIndex() {
                 className="group relative block aspect-square overflow-hidden bg-ink"
               >
                 <ImageWithFallback
-                  src={c.cardImage || c.image || "/images/xcom2/banner-x.jpg"}
+                  src={c.cardImage || c.image || "/images/demo/banner-ox.jpg"}
                   alt={name}
                   fill
                   // 只有 4 张集合卡：eager 加载（原站同样立即渲染），避免慢卷下

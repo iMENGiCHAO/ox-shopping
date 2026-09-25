@@ -25,9 +25,9 @@ export interface ListProductsParams {
 /**
  * 集合归属条件 —— **「主分类命中」∪「product_collections 成员行」**。
  *
- * 原站 shop.x.com 的 collection 与 product_type 是两个概念，且同一件商品可同属多个
- * 集合（实测 `/collections/mens` 里既有 X 线的 `The Core Tee`，也有 xAI 线的
- * `Grok Logo Tee`）。`Product.categoryId` 只存一个归属，附加归属落
+ * 原站 上游参考站 的 collection 与 product_type 是两个概念，且同一件商品可同属多个
+ * 集合（实测 `/collections/mens` 里既有签名线的 `Ox Core Tee`，也有基础线的
+ * `Ox Graphic Logo Tee`）。`Product.categoryId` 只存一个归属，附加归属落
  * `ProductCollection`，所以列表页 / 集合页 / 计数**都必须走这个并集口径**，
  * 只看 `categoryId` 会漏掉一半商品。
  */
@@ -53,7 +53,7 @@ export async function listProducts(params: ListProductsParams) {
   let where: Prisma.ProductWhereInput = { status: "ACTIVE" };
 
   if (params.search) {
-    // 只匹配商品名（name 中文 / nameEn 英文）——对齐 shop.x.com 搜索体验：
+    // 只匹配商品名（name 中文 / nameEn 英文）——对齐 上游参考站 搜索体验：
     // description/sku 命中会把描述里带词的无关商品都搜出来（实测 q=stainless/logo/black）。
     where.OR = [
       { name: { contains: params.search, mode: "insensitive" } },

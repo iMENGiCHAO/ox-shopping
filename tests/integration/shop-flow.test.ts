@@ -51,7 +51,7 @@ describe("商品列表 API", () => {
     const { GET } = await import("@/app/api/products/route");
     // 官方镜像目录的两个分类之一
     const res = await callApi(GET, {
-      headers: { "x-test-url": "/api/products?category=x-collection" },
+      headers: { "x-test-url": "/api/products?category=ox-collection" },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: unknown[] };

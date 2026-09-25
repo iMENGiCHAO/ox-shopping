@@ -1,5 +1,5 @@
 /**
- * 多币种显示模块(shop.x.com 式货币选择功能)
+ * 多币种显示模块(上游参考站 式货币选择功能)
  * - 基础货币为 USD(与官方商店一致，系统内金额单位为美元)
  * - 汇率优先来自公开 API，离线时回退到内置参考汇率
  */
@@ -202,10 +202,10 @@ export function allocateLineAmounts(
   return cents.map((c) => c / 100);
 }
 
-/** 用 Intl 输出币种金额；未知币种回退符号拼接；欧元对齐 shop.x.com 格式 €58,95 */
+/** 用 Intl 输出币种金额；未知币种回退符号拼接；欧元对齐 上游参考站 格式 €58,95 */
 export function formatAmount(amount: number, code: string): string {
   const def = getCurrencyDef(code);
-  // shop.x.com 欧元格式：符号在前 + 逗号小数（€58,95）
+  // 上游参考站 欧元格式：符号在前 + 逗号小数（€58,95）
   if (code === "EUR") {
     return `€${amount.toFixed(2).replace(".", ",")}`;
   }

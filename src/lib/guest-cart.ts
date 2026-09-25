@@ -3,7 +3,7 @@
 /**
  * 游客（未登录）购物车公共模块。
  *
- * 原站 shop.x.com 结账页是 Shopify checkout：**不登录也能加购并下单**。
+ * 原站 上游参考站 结账页是 Shopify checkout：**不登录也能加购并下单**。
  * 本项目游客车存放在 localStorage('guest_cart')，商品信息用公开接口
  * `/api/cart/preview` 批量补全——由购物袋 Context（cart-provider）与本模块共用，
  * 避免结账页重复实现（结账页在独立的 (checkout) 路由组，不挂 CartProvider）。

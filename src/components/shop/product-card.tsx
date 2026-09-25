@@ -31,7 +31,7 @@ export interface ProductCardProps {
 }
 
 /**
- * Product card — shop.x.com 同款：
+ * Product card — 上游参考站 同款：
  * 正方形商品图、白底透明媒体、居中常规字重信息（标题与价格**同为 12px**，
  * 仅颜色不同：标题 #1C1C1C / 价格约 rgb(112,112,112)）、hover 切换到第二张图。
  *
@@ -62,12 +62,12 @@ export async function ProductCard({ product, priority, className }: ProductCardP
      2026-09-19 用 WebFetch 直读原站复核（此前审计文档断言「原站不显示角标」是错的）：
 
        · `GET /collections/all` → 全站仅 `Sold out` 出现 2 次，分别对应
-         `The Retro Tee` 与 `xAI Logo Tee`；
+         `Ox Retro Tee` 与 `Ox Logo Tee`；
        · `GET /products.json` → 这两个商品的**全部变体** `available: false`，
          其余商品至少一个变体可售 → 角标判定条件 = **所有变体均不可售**；
        · `The Retro Crewneck` 同为预售品（handle 带 `-pre-sale`）但有 2 个变体可售，
          原站**没有任何角标** ⇒ 原站**不存在 `Pre-order` 角标**；
-       · `The Retro Tee`（预售 + 全线缺货）显示 `Sold out`
+       · `Ox Retro Tee`（预售 + 全线缺货）显示 `Sold out`
          ⇒ **售罄优先于预售**。
 
      因此这里只保留 `Sold out`，且不再用 `!isPresale` 抑制它。

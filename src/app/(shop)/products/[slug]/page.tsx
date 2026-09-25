@@ -93,7 +93,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
   // 官方相关推荐共 10 个商品（Shopify recommendations 实测）
   let related = await getRelatedProducts(product.id, product.categoryId, 10);
 
-  // 相关推荐不足 4 个时，用热销商品补位(对齐 shop.x.com 的 You may also like)
+  // 相关推荐不足 4 个时，用热销商品补位(对齐 上游参考站 的 You may also like)
   if (related.length < 4) {
     const extra = await listProducts({
       page: 1,
@@ -153,7 +153,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
       ? (product.sizeChart as { headers: string[]; rows: string[][] })
       : null;
   const sizeChart = dbChart ?? getSizeChart(product.slug);
-  // 原网站 shop.x.com 无 NEW/HOT/Sold out 标签，保持一致 — badges 已移除
+  // 原网站 上游参考站 无 NEW/HOT/Sold out 标签，保持一致 — badges 已移除
   // 商品描述以纯文本保存与渲染(React 自动转义，天然防 XSS)，保留换行
   // 实际展示文本已通过上面的 productDesc + lang 选择
 
@@ -185,7 +185,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
       <div className="shell pdp-shell space-y-14 pb-12 pt-12">
         {/* Main section — 官方 PDP 栅格 7fr / 80px / 3fr（见 .pdp-grid）
             断点用 min-[1000px] 而不是 lg:(1024px)：原站 PDP 的两栏断点是 1000px，
-            实测见 globals.css 的 .pdp-grid 注释与 scripts/qa/qa-upstream-pdp-vs-header.mjs */}
+            实测见 globals.css 的 .pdp-grid 注释与 历史取证（取证脚本已移除） */}
         <div className="pdp-grid">
           <div className="pdp-media flex flex-col min-[1000px]:col-start-1 min-[1000px]:row-start-1">
             {/* 大图画廊 + 官方位置：Size Chart 参数表在大图下方（后台配置了的商品才显示） */}
@@ -243,7 +243,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
         </div>
       </div>
 
-      {/* Related recommendations — shop.x.com 横向滑动轮播（一屏 4 张，左右箭头，可滑动浏览更多） */}
+      {/* Related recommendations — 上游参考站 横向滑动轮播（一屏 4 张，左右箭头，可滑动浏览更多） */}
       {related.length > 0 ? (
         <section className="border-t border-border pb-12 pt-12 min-[1000px]:pt-14">
           <h2 className="mb-12 text-center text-[28px] font-normal leading-tight text-foreground">

@@ -7,7 +7,7 @@ import { brandFallback } from "@/lib/env";
 /**
  * 结账路由组的独立布局。
  *
- * 为什么结账页不套用 (shop) 布局：原站 shop.x.com 的结账页是 Shopify checkout，
+ * 为什么结账页不套用 (shop) 布局：原站 上游参考站 的结账页是 Shopify checkout，
  * 页面**没有**店铺的页头（无 Logo 导航、无购物袋图标、无币种/语言切换）与页脚
  * （无 7 条链接），只有：
  *   - 左栏顶部一个 X 标志（点击回店铺首页）

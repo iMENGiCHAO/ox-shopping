@@ -202,7 +202,7 @@ try {
   const buyerLogin = await loginAs(page, mail("buyer"), PASSWORD);
   ok("买家重新登录", buyerLogin.status === 200);
   const buyerAddr = await createAddress(page);
-  // 必须挑**有库存**的商品：历史 E2E 会把某些商品买到 0 库存（如 xAI Multi Tumbler），
+  // 必须挑**有库存**的商品：历史 E2E 会把某些商品买到 0 库存（如 Ox Multi Tumbler），
   // 固定取第一件会偶发"缺货"假失败
   const products = await api(page, "/api/products?pageSize=50");
   const candidates = products.json?.data ?? [];

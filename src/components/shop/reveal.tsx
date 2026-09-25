@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { cn } from "@/lib/utils";
 
 /**
- * Reveal — fade-up on first scroll into view (shop.x.com section reveal).
+ * Reveal — fade-up on first scroll into view (上游参考站 section reveal).
  * Pure IntersectionObserver + CSS transition; respects prefers-reduced-motion
  * via the global stylesheet override.
  *

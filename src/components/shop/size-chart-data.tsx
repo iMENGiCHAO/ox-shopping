@@ -1,6 +1,6 @@
 
 /**
- * Size Chart — shop.x.com 官方同构。
+ * Size Chart — 上游参考站 官方同构。
  * 官方为后台逐品配置（Shopify metafield）：仅配置了的商品显示，位置在 PDP 左列大图下方；
  * toggle 为 CSS 绘制的加号 "animated-plus"，展开时旋转 45° 呈关闭态；
  * 表格 15px、行 hairline #DDD、英寸值。以下数据全部抓取自官方线上页面。
@@ -13,111 +13,111 @@ export interface SizeChartTable {
 const ADULT_XS_3XL = ["Size", "XS", "S", "M", "L", "XL", "2XL", "3XL"];
 const KIDS = ["Size", "2T", "4T", "6", "8", "10", "12"];
 
-/** 抓取自 shop.x.com 线上（后台逐品配置的镜像） */
+/** 抓取自 上游参考站 线上（后台逐品配置的镜像） */
 const SIZE_CHARTS: Record<string, SizeChartTable> = {
-  /* The Core Tee（/products/x-icon-t-shirt）—— 2026-09-21 从原站 PDP 取回。
+  /* The Core Tee（/products/ox-core-tee）—— 2026-09-21 从原站 PDP 取回。
      此前注册表里没有它，而 DB 的 sizeChart 也为空 ⇒ `sizeChart` 解析成 null ⇒
      **整个 Size Chart 区块不渲染**（原站在加购按钮下方有一行 `Size Chart` + 折叠区，
      375 下占 1037..1178 ≈ 141px，正是本地 PDP 页高比原站少的量）。 */
-  "x-icon-t-shirt": {
+  "ox-core-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "the-xai-hoodie": {
+  "ox-classic-hoodie": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `44"`, `46"`, `48"`, `50"`, `52"`, `54"`, `56"`],
       ["Sleeve Length", `22.5"`, `23.5"`, `24.5"`, `25.5"`, `26.5"`, `27.5"`, `28.5"`],
     ],
   },
-  "the-grok-hoodie": {
+  "ox-hoodie": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `44"`, `46"`, `48"`, `50"`, `52"`, `54"`, `56"`],
       ["Sleeve Length", `22.5"`, `23.5"`, `24.5"`, `25.5"`, `26.5"`, `27.5"`, `28.5"`],
     ],
   },
-  "unisex-3d-x-logo-hoodie": {
+  "ox-core-hoodie": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `44"`, `46"`, `48"`, `50"`, `52"`, `54"`, `56"`],
       ["Sleeve Length", `22.5"`, `23.5"`, `24.5"`, `25.5"`, `26.5"`, `27.5"`, `28.5"`],
     ],
   },
-  "the-core-x-crewneck": {
+  "ox-core-crewneck": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `45"`, `47"`, `49"`, `51"`, `53"`, `55"`, `57"`],
       ["Sleeve Length", `22"`, `23"`, `24"`, `25"`, `26"`, `27"`, `28"`],
     ],
   },
-  "unisex-retro-x-com-crewneck-pre-sale": {
+  "ox-retro-crewneck-presale": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `45"`, `47"`, `49"`, `51"`, `53"`, `55"`, `57"`],
       ["Sleeve Length", `22"`, `23"`, `24"`, `25"`, `26"`, `27"`, `28"`],
     ],
   },
-  "hardcore-grok-reflective-tee": {
+  "ox-reflective-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `39"`, `41"`, `43"`, `45"`, `47"`, `49"`, `51"`],
       ["Sleeve Length", `7.8"`, `8"`, `8.3"`, `8.5"`, `8.8"`, `9"`, `9.3"`],
     ],
   },
-  "grok-logo-tee": {
+  "ox-graphic-logo-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "grok-logo-tee-copy": {
+  "ox-constellation-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "grok-logo-tee-copy-1": {
+  "ox-logo-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "xai-dark-ani-tee": {
+  "ox-midnight-graphic-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "xai-human-connection-tee": {
+  "ox-human-connection-tee": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `40"`, `41"`, `43.4"`, `44.9"`, `47.2"`, `48.8"`, `51.2"`],
       ["Sleeve Length", `7.8"`, `7.8"`, `8.2"`, `8.6"`, `8.6"`, `8.6"`, `9.4"`],
     ],
   },
-  "unisex-retro-x-com-short-sleeve-tee-pre-sale": {
+  "ox-retro-tee-presale": {
     headers: ADULT_XS_3XL,
     rows: [
       ["Chest", `39"`, `41"`, `43"`, `45"`, `47"`, `49"`, `51"`],
       ["Sleeve Length", `7.8"`, `8"`, `8.3"`, `8.5"`, `8.8"`, `9"`, `9.3"`],
     ],
   },
-  "kids-grok-to-understand-tee": {
+  "ox-kids-constellation-tee": {
     headers: KIDS,
     rows: [
       ["Chest", `22.8"`, `25.2"`, `27.5"`, `28.75"`, `29.9"`, `31.1"`],
       ["Sleeve Length", `4.5"`, `4.9"`, `5.3"`, `5.5"`, `5.7"`, `5.9"`],
     ],
   },
-  "kids-grok-to-understand-tee-copy": {
+  "ox-kids-constellation-hoodie": {
     headers: KIDS,
     rows: [
       ["Chest", `31.5"`, `32.25"`, `33"`, `33.75"`, `34.5"`, `35.5"`],

@@ -29,7 +29,7 @@ import {
 /**
  * 结账流程（客户端）。
  *
- * 形态对齐原站 shop.x.com 结账页（Shopify checkout）：
+ * 形态对齐原站 上游参考站 结账页（Shopify checkout）：
  *   - **两栏**：左栏 = 表单（面包屑 → 分步表单 → Return to cart / 主按钮）；右栏 = 订单摘要
  *     （明细 → 折扣码 → Subtotal / Shipping / Total），右栏底色 rgb(245,245,245) 且铺满视口高。
  *   - **四步**：Cart › Information › Shipping › Payment › Review，面包屑可点回退。
@@ -365,7 +365,7 @@ export function CheckoutFlow({
   const freeOver = currentMethod?.freeOver ?? 0;
   // ⚠️ 口径必须与服务端 shipping.service 一致：按**折前** subtotal 判断免邮
   const freeShippingByThreshold = freeOver > 0 && subtotal >= freeOver;
-  // ⚠️ 税费口径：当前 TAX_RATE=0（价格含税，对齐 shop.x.com 欧盟站），故不显示 Tax 行。
+  // ⚠️ 税费口径：当前 TAX_RATE=0（价格含税，对齐 上游参考站 欧盟站），故不显示 Tax 行。
   // 与服务端 order.service 的 tax 计算对应；若启用 TAX_RATE>0 需同步在此补 Tax 行。
   const shippingFee = freeShippingByThreshold ? 0 : baseShipping;
   const discountUsd = applied?.discountUsd ?? 0;

@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Product grid —— 2 列（<700px）/ 3 列（≥700px），列间距 48px、行间距 64px。
- * 间距全部来自 `.plp-grid` 令牌（globals.css），取自 shop.x.com /collections/all 实测值：
+ * 间距全部来自 `.plp-grid` 令牌（globals.css），取自 上游参考站 /collections/all 实测值：
  * 内容宽 1120 → (1120 − 2×48) / 3 = 341px 卡片，与原站 341×341 完全吻合。
  */
 export function ProductGrid({

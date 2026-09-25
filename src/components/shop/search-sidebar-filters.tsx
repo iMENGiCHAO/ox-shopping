@@ -18,12 +18,12 @@ import {
 } from "@/lib/constants";
 
 /**
- * Search sidebar filters — shop.x.com 桌面端左侧栏：
+ * Search sidebar filters — 上游参考站 桌面端左侧栏：
  * - Availability（手风琴，**默认折叠** —— 原站实测，此前注释写成「默认展开」是错的）：
  *   In stock only 开关
  * - Price（手风琴，**默认折叠**）：价格滑块 + <symbol>min to <symbol>max 输入框
  *
- * 移动端隐藏（shop.x.com 移动端筛选在顶部弹出菜单）。
+ * 移动端隐藏（上游参考站 移动端筛选在顶部弹出菜单）。
  * 货币符号取自当前展示币种（useCurrency().def.symbol），不再写死。
  * 标签文案走 i18n 词典（英文源串），不写死英文。
  */

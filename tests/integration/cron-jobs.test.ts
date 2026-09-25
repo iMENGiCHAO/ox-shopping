@@ -202,12 +202,12 @@ describe("定时任务 · 数据清理", () => {
       },
     });
 
-    // 造一条 100 天前的审计日志（保留窗口是 90 天）
+    // 造一条 3 年零 10 天前的审计日志（保留窗口是 3 年 / 1095 天）
     const oldLog = await prisma.auditLog.create({
       data: {
         action: "qa.cron.cleanup",
         userId,
-        createdAt: new Date(Date.now() - 100 * 86_400_000),
+        createdAt: new Date(Date.now() - (3 * 365 + 10) * 86_400_000),
       },
     });
 

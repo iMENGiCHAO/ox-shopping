@@ -44,7 +44,7 @@ describe("数据库连通性", () => {
     ]);
     expect(users).toBeGreaterThanOrEqual(3);
     expect(products).toBeGreaterThanOrEqual(20);
-    // 官方镜像目录为 2 个分类（X Collection / SpaceXAI Collection）
+    // 官方镜像目录为 2 个分类（Ox Collection / Ox Essentials Collection）
     expect(categories).toBeGreaterThanOrEqual(2);
   });
 

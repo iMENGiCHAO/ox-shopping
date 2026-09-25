@@ -6,7 +6,7 @@ import { CURRENCIES } from "@/components/shop/currency";
 import { useCurrency } from "@/components/shop/currency-provider";
 import { cn } from "@/lib/utils";
 
-/** 头部币种选择器(shop.x.com 式下拉，如 USD $ → 选国家/币种) */
+/** 头部币种选择器(上游参考站 式下拉，如 USD $ → 选国家/币种) */
 export function CurrencySelect({
   withFlag = true,
   showCountry = false,

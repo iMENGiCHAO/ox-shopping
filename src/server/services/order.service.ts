@@ -150,7 +150,7 @@ export interface OrderAmountBreakdown {
  * 必须走同一个函数。此前两边各自手写一遍公式，一旦改动只改一处就会出现
  * 「结算页一个价、实际扣款另一个价」——这是最伤客诉的一类缺陷。
  *
- * 税费口径：TAX_RATE=0 表示「价格含税（VAT included，对齐 shop.x.com 欧盟站）」，
+ * 税费口径：TAX_RATE=0 表示「价格含税（VAT included，对齐 上游参考站 欧盟站）」，
  * 此时 tax 恒为 0，前端结算页也不显示 Tax 行，前后端一致。
  * ⚠️ 若未来启用 TAX_RATE>0，必须同步给结算页补充 Tax 行。
  */

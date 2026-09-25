@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 /**
  * 吸顶导航外壳：
- * - 向下滚动隐藏、向上滚动显示(shop.x.com 式)
+ * - 向下滚动隐藏、向上滚动显示(上游参考站 式)
  * - 透明顶栏：仅首页主 hero 可声明 [data-transparent-header] 且未滚动时透明叠在
  *   hero 上；其余页面（分类/商品/搜索等）顶栏始终实心黑。
  */
@@ -48,7 +48,7 @@ export function HeaderShell({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {/* 收起态：鼠标移到视口顶栏区域即显现（shop.x.com 式 hover-reveal） */}
+      {/* 收起态：鼠标移到视口顶栏区域即显现（上游参考站 式 hover-reveal） */}
       {hidden ? (
         <div
           aria-hidden

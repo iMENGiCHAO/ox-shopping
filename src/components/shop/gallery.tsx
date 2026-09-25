@@ -12,7 +12,7 @@ export interface GalleryProps {
   className?: string;
 }
 
-/* 放大镜自定义光标(shop.x.com 同款观感) — 白色小圆 + 中间加号
+/* 放大镜自定义光标(上游参考站 同款观感) — 白色小圆 + 中间加号
    （白色：黑色/深色商品图与纯黑灯箱底上依然清晰可见，黑线会"黑图压黑线"看不见） */
 const CURSOR_ZOOM_IN =
   "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
@@ -38,7 +38,7 @@ interface FlyFrom {
 }
 
 /**
- * Product gallery — shop.x.com（Impact 主题内嵌 PhotoSwipe）逐项对齐：
+ * Product gallery — 上游参考站（Impact 主题内嵌 PhotoSwipe）逐项对齐：
  * 1. 主图滑动轨道（大爷需求①）：点缩略图/圆点 → 大图左右平滑滑动切换（~500ms 官方缓动），
  *    不再是原图直接硬切；
  * 2. 灯箱滑动条（大爷需求②）：适配态/一级放大态按住左键横向拖拽 → 整条跟手移动，
@@ -273,7 +273,7 @@ export function Gallery({ images, alt, className }: GalleryProps) {
         );
       })();
     if (!inside) return close();
-    // 官方语义：适配态→一级；一级→二级；二级→关闭（与 shop.x.com 点击缩放循环一致）
+    // 官方语义：适配态→一级；一级→二级；二级→关闭（与 上游参考站 点击缩放循环一致）
     if (zoomLevelRef.current === 2) return close();
     changeStage(zoomLevelRef.current === 0 ? 1 : 2);
     offsetRef.current = { x: 0, y: 0 };
@@ -420,7 +420,7 @@ export function Gallery({ images, alt, className }: GalleryProps) {
             className="relative aspect-square w-full overflow-hidden bg-ground"
             style={{ cursor: CURSOR_ZOOM_IN }}
           >
-            {/* 原网站 shop.x.com 无 NEW/HOT 标签，保持一致 — badges 已移除 */}
+            {/* 原网站 上游参考站 无 NEW/HOT 标签，保持一致 — badges 已移除 */}
             <button
               type="button"
               className="absolute inset-0 z-10"
@@ -498,7 +498,7 @@ export function Gallery({ images, alt, className }: GalleryProps) {
         </div>
       </div>
 
-      {/* PhotoSwipe 式灯箱 — 白色背景 + 黑色细描边按钮（与 shop.x.com 同款） */}
+      {/* PhotoSwipe 式灯箱 — 白色背景 + 黑色细描边按钮（与 上游参考站 同款） */}
       {open && current ? (
         <div
           className="fixed inset-0 z-[70] bg-white duration-200 animate-in fade-in"

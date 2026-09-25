@@ -95,7 +95,7 @@ function isColorGroup(name: string, values: string[]): boolean {
 }
 
 /**
- * Buy panel — shop.x.com replica:
+ * Buy panel — 上游参考站 replica:
  * color groups render as 56px round swatches (black ring when active);
  * other groups render as a square full-width select; quantity stepper;
  * stacked black 46px CTAs.

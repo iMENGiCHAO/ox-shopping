@@ -3,7 +3,7 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /** Card family — 圆角/阴影走 CSS 变量：
- *  - 前台 :root 下 --radius=0 / --shadow-card=透明 → 保持 shop.x.com 方角无阴影
+ *  - 前台 :root 下 --radius=0 / --shadow-card=透明 → 保持 上游参考站 方角无阴影
  *  - 后台 .admin-theme 下 → 8px 圆角 + 柔和分层阴影（现代 SaaS 卡片）
  */
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(

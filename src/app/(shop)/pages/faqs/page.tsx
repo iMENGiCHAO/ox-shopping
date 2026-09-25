@@ -74,7 +74,7 @@ async function loadContact() {
  * FAQ 答案里的 `{supportEmail}` 占位符 → 渲染文案的唯一解析口。
  *
  * 原站原文：“For general questions regarding merchandise, you can email us at
- * merch@shop.x.com or fill out [this form](/pages/contact).”
+ * merch@上游参考站 or fill out [this form](/pages/contact).”
  * 原站把「联系表单」作为补充渠道；该公开留言功能已整体下线（无商业价值
  * 且是灌水攻击面），因此 `{contactForm}` 占位符与对应站内链接一并撤掉，
  * 只保留「客服邮箱」这一条联系渠道 —— 文案里仍不写死邮箱，
@@ -85,7 +85,7 @@ function resolveFaqText(text: string, supportEmail: string): string {
 }
 
 /**
- * /pages/faqs —— 与 shop.x.com 同构（1200 视口逐像素实测）：
+ * /pages/faqs —— 与 上游参考站 同构（1200 视口逐像素实测）：
  *   - `<h1>FAQs</h1>` 28px **居中**，字形顶 y=138
  *   - 正文列 **679px**（容器 720px + 20px 内边距）
  *   - 内容形态为「**加粗问题段 + 散文答案段**」交替，**无手风琴、无联系卡片**

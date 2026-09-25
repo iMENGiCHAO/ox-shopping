@@ -166,7 +166,7 @@ prisma db push --skip-generate --accept-data-loss
 - 订单号 6 位随机且无 P2002 重试。
 - README 环境表仍写默认 CNY，代码/.env 是 USD；“可商用/完整跑通/零缺陷”与支付/退货/IP 事实不匹配。
 - `package.json` 允许 Node >=18.17，但 Next 16.3.3 实际要求 Node >=20.9；CI/Docker 用 Node 20 掩盖了声明错误。
-- 根目录缺 LICENSE/NOTICE，若 shop.x.com 风格或商品素材并非自有，商业授权链是外部阻断。
+- 根目录缺 LICENSE/NOTICE，若 上游参考站 风格或商品素材并非自有，商业授权链是外部阻断。
 
 ## 6. 验证结果与证据边界
 

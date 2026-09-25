@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 const ALL_SIZE = 100;
 
 /**
- * Homepage — faithful shop.x.com replica:
+ * Homepage — faithful 上游参考站 replica:
  * two edge-to-edge half-width collection banners ([ Name ] top-left,
  * Shop All bottom-left, slow zoom) → centered "All Products" heading →
  * 3-column product grid.
@@ -33,8 +33,8 @@ export default async function HomePage() {
   ]);
   /* 首页横幅只取显式标记了 homeSortOrder 的集合，按其值排序后取前两块。
      不能用「前两个分类」—— /collections 的陈列顺序是
-     `Mens · SpaceXAI Collection · Womens · X Collection`，
-     而原站首页横幅是 `[ X Collection ]` + `[ SpaceXAI Collection ]`，两者顺序不同。 */
+     `Mens · Ox Essentials Collection · Womens · Ox Collection`，
+     而原站首页横幅是 `[ Ox Collection ]` + `[ Ox Essentials Collection ]`，两者顺序不同。 */
   const featured = categories
     .filter((c) => c.homeSortOrder != null)
     .sort((a, b) => (a.homeSortOrder ?? 0) - (b.homeSortOrder ?? 0))
@@ -97,7 +97,7 @@ export default async function HomePage() {
                 {/* [ Name ] + Shop All — 左上角纵向排列：分类名称在上、按钮在名称下方，与原网站一致。
                     实测基准（原站 1200 视口截图 B-vp1200.png，y 轴 1:1 未裁切）：
                       header 高 65 → 横幅顶 y=65
-                      `[ X Collection ]` 字形带 y 119..134（h=16 → 22px 字号），x 从 50
+                      `[ Ox Collection ]` 字形带 y 119..134（h=16 → 22px 字号），x 从 50
                       `Shop All` 按钮盒 y 169..214（h=46），x 48..156（宽 108）
                     → 文案容器距横幅顶 49px、名称与按钮间距 27.5px。
                     此前写 `sm:top-7`(28px) + `gap-6`(24px)，实测整体偏高 19~24px，已校正。 */}
@@ -115,7 +115,7 @@ export default async function HomePage() {
         </section>
       ) : null}
 
-      {/* ── All products — centered heading + static product grid (shop.x.com 首页为静态网格，非轮播) ── */}
+      {/* ── All products — centered heading + static product grid (上游参考站 首页为静态网格，非轮播) ── */}
       <section className="pt-[var(--home-head-pt)]">
         <Reveal>
           <h2 className="text-center text-[length:var(--home-title-size)] font-normal leading-tight text-foreground">

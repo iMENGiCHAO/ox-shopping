@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { OFFICIAL_LISTING_EXCLUDE_SLUGS } from "@/lib/catalog";
 
 /**
- * 集合商品列表 —— shop.x.com collection 落地页同构。
+ * 集合商品列表 —— 上游参考站 collection 落地页同构。
  *
  * 原站形态（Playwright 实测）：`/collections/<slug>` 顶部是全宽 hero 大横幅
  * （图内无文字），下方商品网格；单页全部展示，**无分页 / 筛选 / 排序**。
@@ -64,7 +64,7 @@ export async function CollectionListing({ categorySlug }: { categorySlug: string
             loading="eager"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/45 via-black/10 to-transparent" />
-          {/* 原网站 shop.x.com 分类内页横幅无任何文字，只有图片，保持一致 */}
+          {/* 原网站 上游参考站 分类内页横幅无任何文字，只有图片，保持一致 */}
         </section>
       ) : null}
 

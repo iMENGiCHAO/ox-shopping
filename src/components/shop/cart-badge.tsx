@@ -8,7 +8,7 @@ import { ShoppingBag } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 /**
- * Cart link — shop.x.com style: plain text "Cart (n)", faded on black,
+ * Cart link — 上游参考站 style: plain text "Cart (n)", faded on black,
  * opens the slide-in drawer.
  *
  * 数据打通：有未读通知时在购物车图标右上角显示红点（头部无 UserMenu，

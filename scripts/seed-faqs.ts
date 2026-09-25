@@ -7,7 +7,7 @@
  * 默认**仅在 faqs 表为空时**写入 —— 避免覆盖运营在后台已经改过的问答。
  * 加 `--force` 会清空并重灌（用于演示/重置环境）。
  *
- * 数据源：src/lib/faq-defaults.ts（覆盖 shop.x.com /pages/faqs 实测的 10 个主题）。
+ * 数据源：src/lib/faq-defaults.ts（与上游参考站 faqs 页同源实测的 10 个主题）。
  */
 import "dotenv/config";
 import { PrismaClient } from "@prisma/client";

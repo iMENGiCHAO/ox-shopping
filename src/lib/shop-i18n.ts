@@ -110,9 +110,9 @@ const DICT: Dict = {
   "No results found.": { en: "No results found.", zh: "没有找到相关结果。" },
   Suggestions: { en: "Suggestions", zh: "搜索建议" },
   "View all results": { en: "View all results", zh: "查看所有结果" },
-  /* 搜索浮层空态的两个集合入口（原站实测固定为这两条，与集合名一致） */
-  "X Collection": { en: "X Collection", zh: "X Collection" },
-  "SpaceXAI Collection": { en: "SpaceXAI Collection", zh: "SpaceXAI Collection" },
+  /* 搜索浮层空态的两个集合入口（与集合名一致） */
+  "Ox Collection": { en: "Ox Collection", zh: "Ox Collection" },
+  "Ox Essentials Collection": { en: "Ox Essentials Collection", zh: "Ox Essentials Collection" },
   "Sign Out": { en: "Sign Out", zh: "退出登录" },
   "Create Account": { en: "Create Account", zh: "创建账户" },
   "My Orders": { en: "My Orders", zh: "我的订单" },
@@ -1238,7 +1238,7 @@ const DICT: Dict = {
     zh: "我们已向你的邮箱发送了查看此订单的安全链接。",
   },
 
-  /* ── 结账流程（对齐 shop.x.com 结账页：Cart › Information › Shipping › Payment › Review）──
+  /* ── 结账流程（对齐 上游参考站 结账页：Cart › Information › Shipping › Payment › Review）──
      这些标签此前只有 t() 调用、DICT 里没有词条，中文界面会静默漏出英文。 */
   Information: { en: "Information", zh: "信息" },
   Payment: { en: "Payment", zh: "支付" },

@@ -4,14 +4,14 @@
 > 它是关键约束速查：技术栈版本、启动步骤、环境坑、前后台规范、上线清单。
 > 接手的工程师 / 下一个会话的梦哥，开工前务必读完本文。
 >
-> **本文档已同步至 2026-09-20（含 Phase 12 注销闭环、Phase 13 shop.x.com 照搬、B-2 原站式找回密码）。**
+> **本文档已同步至 2026-09-20（含 Phase 12 注销闭环、Phase 13 上游参考站 照搬、B-2 原站式找回密码）。**
 
 ---
 
 ## 0. 项目身份
 
 - **名称**：Ox Shopping（前后台统一品牌）
-- **目标**：商业可交付电商系统（参考 shop.x.com 风格 + 中国运营后台）
+- **目标**：商业可交付电商系统（参考 上游参考站 风格 + 中国运营后台）
 - **用户画像**：中国运营（大爷）面向海外消费者
 - **核心定位**：前台英文为主（选 CNY 才切中文）+ 后台统一中文
 
@@ -39,7 +39,7 @@ ecommerce/
 │   ├── QUICKSTART_2026-09.md      # ← 你正在读的
 │   ├── PRODUCTION_CHECKLIST.md    # 上线清单
 │   ├── PRODUCTION_DEPLOY_2026.md  # 生产部署操作手册
-│   ├── DESIGN.md                  # 设计规范（shop.x.com 对齐）
+│   ├── DESIGN.md                  # 设计规范（上游参考站 对齐）
 │   └── payment-channels.md        # 支付渠道技术说明
 ├── prisma/
 │   ├── schema.prisma              # DB schema
@@ -276,7 +276,7 @@ bash scripts/restart-dev.sh
 - **高度**：65px
 - **LOGO**：w-[78px]（height 78:18 ratio → h ≈ 52px）+ `.header-logo { padding: 6px 0 }` → 上下各 6px 留白
 - **横栏对齐**：header 桌面 padding `0 48px` → 首页 banner Shop All 按钮 `sm:left-12`
-- **参考**：shop.x.com 实测 48px 留白
+- **参考**：上游参考站 实测 48px 留白
 
 ## 10. 已知技术债
 
@@ -316,7 +316,7 @@ bash scripts/restart-dev.sh
 按时间倒序，只列**接手必须知道**的结构性变更；细节见 `CHANGELOG.md` 与 `PROJECT_DEVELOPMENT.md`。
 
 - **B-2 原站式找回密码（未提交工作区）**：用户 `POST /api/auth/forgot-password` 提交申请（防枚举 + 单 IP 3/min + 单邮箱 3/h）→ 落库 `PasswordResetRequest` + 通知管理员 → 后台 `/admin/password-resets` 批准/驳回 → 批准生成 14 位强随机临时密码（`src/lib/auth/temp-password.ts`）、邮件下发、账号置 `mustChangePassword`、吊销全部旧会话 → **首登被强制钉在 `/auth/change-password`**（`proxy.ts` cookie `pwd_change_required` + `requireUser()` DB 兜底）→ 改密走 `PUT /api/user/password`。**`MAIL_PROVIDER=console` 时邮件不投递，只能管理员在弹窗里转达；生产必须配 resend/smtp。**
-- **Phase 13 shop.x.com 照搬（2026-09-20）**：页脚 6 条/checkout 3 条；`/pages/terms-and-conditions`；`/products` 与 `/collections` 同为 All collections 索引 + 新增 `/collections/[slug]` + 旧 `/products?category=x` 由 proxy 307 迁移；游客结账（`src/lib/guest-cart.ts` + `GET /api/cart/preview`）与 `orderToken` 随 paymentUrl 传递；商品批量删除、上传按用途归档 `uploads/{purpose}/年/月/`、视觉基线重拍。
+- **Phase 13 上游参考站 照搬（2026-09-20）**：页脚 6 条/checkout 3 条；`/pages/terms-and-conditions`；`/products` 与 `/collections` 同为 All collections 索引 + 新增 `/collections/[slug]` + 旧 `/products?category=x` 由 proxy 307 迁移；游客结账（`src/lib/guest-cart.ts` + `GET /api/cart/preview`）与 `orderToken` 随 paymentUrl 传递；商品批量删除、上传按用途归档 `uploads/{purpose}/年/月/`、视觉基线重拍。
 - **Phase 14 分销 / 多级佣金（2026-09-20，隔离模块）**：闭包表无限级关系 + 客户归属绑定（首次绑定定终身、复购自动归属、**不可抢绑**、自然流量不分佣）+ 推广成功自动成为分销商 + 按真实订单逐级分佣（默认三级 10/5/2、总比例封顶、退款冲正、确认收货结算）+ 提现申请/审核/线下打款 + 分销商后台与平台后台 + 行级权限与脱敏。**与商城只通过 `src/server/services/distribution/bridge.ts` 一个接口面交互**（动态 import + try/catch），总开关 `DISTRIBUTION_ENABLED=false` 可整体下线且商城行为不变；佣金正确性由调度器分钟级 `reconcileDistribution()` 兜底（漏记/漏冲正会被扫平）。入口：**账户个人资料页的一张分享小卡片**（主打不占主站导航）→ 成功推广后从卡片进入**独立页面** `/distribution`；后台「分销」。
 - **Phase 12 注销闭环（2026-09-18）**：`User.deletionRequestedAt` + `POST/DELETE /api/user/deletion-request` + `POST /api/admin/users/[id]/deletion`（approve=匿名化删除 `deleted-{id}@invalid.local` + 停用 + 吊销全部会话；reject=清空 + 邮件告知）；后台 `/admin/users` 筛选/徽标/处理块；B-1 另有 `DELETE /api/admin/users/[id]` 直接删除。
 - **Phase 11 六项整改（2026-09-17）**：法务双语关联、注册防灌水（蜜罐 + 全局 100/h）、币种结算（渠道×币种 + 仪表盘各币种汇总）、客户管理细化（累计消费/最近下单/未验证筛选）、到货提醒商品卡。

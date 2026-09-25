@@ -195,7 +195,7 @@ export function CartDrawer() {
           </div>
         ) : null}
 
-        {/* 数据打通：账户中心入口（头部对齐 shop.x.com 无 UserMenu，在此提供账户/通知访问）
+        {/* 数据打通：账户中心入口（头部对齐 上游参考站 无 UserMenu，在此提供账户/通知访问）
             仅登录用户显示，消除"有账户页面但无入口"的信息孤岛 */}
         {isLoggedIn ? (
           <div className="border-t border-border px-5 py-3">

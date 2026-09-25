@@ -115,12 +115,14 @@ async function runAllJobs(): Promise<void> {
     logger.error({ err }, "[cron] refreshToken 清理失败");
   }
 
-  // 2b. AuditLog 滚动归档：只保留最近 90 天（createdAt 有索引，删除代价可控）
+  // 2b. AuditLog 滚动清理：默认保留 3 年（1095 天）——金融/电商审计留存
+  //     常要求 1-3 年，此前 90 天对商业交付偏短（createdAt 有索引，删除代价可控）。
+  //     有更严格合规要求的市场，按当地法务调整窗口（或改为归档导出而非删除）。
   try {
     const n = await prisma.auditLog.deleteMany({
-      where: { createdAt: { lt: new Date(Date.now() - 90 * 86_400_000) } },
+      where: { createdAt: { lt: new Date(Date.now() - 3 * 365 * 86_400_000) } },
     });
-    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前审计日志已清理");
+    if (n.count > 0) logger.info({ count: n.count }, "[cron] 3 年前审计日志已清理");
   } catch (err) {
     logger.error({ err }, "[cron] auditLog 清理失败");
   }

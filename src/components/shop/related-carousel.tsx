@@ -4,7 +4,7 @@ import { Children, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 /**
- * 官方同款 "You may also like" 轮播（shop.x.com 实测）：
+ * 官方同款 "You may also like" 轮播（上游参考站 实测）：
  * - 每张卡包一层定宽容器，宽度 = calc((容器宽 - 列距×(N-1)) / N)：
  *   小屏 2 张（gap-5=20px → 50%-10px）/ md 3 张（33.333%-13.34px）/ lg 4 张（gap 60px → 25%-45px）。
  *   任何视口宽度下一屏恒为整数张，绝不露半截（露一点）。
@@ -64,7 +64,7 @@ export function RelatedCarousel({ children }: { children: ReactNode }) {
         ))}
       </div>
       {/* 官方 prev-next-button：白圆钮、内缩 24px、垂直居中于图区
-          默认隐藏，hover 时显示（与 shop.x.com floating-controls-container--on-hover 一致）
+          默认隐藏，hover 时显示（与 上游参考站 floating-controls-container--on-hover 一致）
           不能滚动时完全隐藏（不显示变灰箭头） */}
       {canL && (
         <button

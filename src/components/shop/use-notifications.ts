@@ -11,7 +11,7 @@ function hasLoggedInCookie(): boolean {
 
 /**
  * 全局通知轮询 hook — 数据打通：admin 发送通知后用户能实时感知。
- * 头部对齐 shop.x.com 无 UserMenu，因此通过购物车图标红点提示未读通知。
+ * 头部对齐 上游参考站 无 UserMenu，因此通过购物车图标红点提示未读通知。
  * 30 秒轮询一次 /api/notifications，仅登录用户有效。
  */
 export function useNotifications() {

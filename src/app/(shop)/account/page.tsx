@@ -89,7 +89,7 @@ export default async function AccountIndexPage() {
 
   return (
     // data-modern-cards：本页是"面板型"界面，用现代圆角 + 柔和阴影（只作用于本容器，
-    // 商城前台其它页面仍是 shop.x.com 的方角无阴影）
+    // 商城前台其它页面仍是 上游参考站 的方角无阴影）
     <div className="space-y-6" data-modern-cards>
       {/* 一览：四张小卡（与商城同一套 Card/hairline 风格，不做仪表盘） */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

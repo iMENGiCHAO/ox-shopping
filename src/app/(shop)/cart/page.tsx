@@ -27,7 +27,7 @@ interface ShippingMethodLite {
 }
 
 /**
- * /cart — shop.x.com 官方同构（2026-09-20 用 Playwright 直连原站实测）：
+ * /cart — 上游参考站 官方同构（2026-09-20 用 Playwright 直连原站实测）：
  * - 空态：H1 "Cart" 18px 居中(y329) + "Your cart is empty" + 实心黑 Continue shopping(175×46)
  * - 填充态：H1 "Cart" **26.5639px**（原站 `h2` 档，与搜索页/内容页同一档；此前写 28px）
  *   居中(y129，用 pt-16 让行盒顶落在 65+64) → 表头 Product|Quantity|Total(12px, y214) →

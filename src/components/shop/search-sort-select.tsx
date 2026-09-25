@@ -17,7 +17,7 @@ const SORT_OPTIONS = [
 ] as const;
 
 /**
- * Search sort select — shop.x.com 搜索页右侧 `Sort by` 下拉。
+ * Search sort select — 上游参考站 搜索页右侧 `Sort by` 下拉。
  *
  * 原站形态（2026-09-20 用 Playwright 直连实测，1216×900/dsf1）：
  * - 它是工具栏里的一个**按钮**（`collection-toolbar__button`）：

@@ -2,7 +2,7 @@ import * as React from "react";
 
 import { cn } from "@/lib/utils";
 
-/** Input — square, hairline border, black focus ring (shop.x.com) */
+/** Input — square, hairline border, black focus ring (上游参考站) */
 export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
 
 const Input = React.forwardRef<HTMLInputElement, InputProps>(

@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 /**
  * /coupons —— 领券中心。
  *
- * 这是**自建增强页**：原站 shop.x.com 只在结账页提供「Discount code + Apply」，
+ * 这是**自建增强页**：原站 上游参考站 只在结账页提供「Discount code + Apply」，
  * 全站没有领券中心（`/pages/coupons` 与原站 404 页字节数完全一致，确认无此页）。
  * 因此本页不改变任何原站页面的形态，只是把「运营配置的公开券」集中露出，
  * 券码仍与结账页共用同一套校验与核销逻辑（见 coupon.service）。

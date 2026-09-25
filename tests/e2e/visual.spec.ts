@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
  * 此后 UI 改动以「基线差异」为验收输入，替代主观目测。
  *
  * 注意：
- *  - 基线锁定**英文（无前缀，canonical）**页面，对应 shop.x.com 黑白极简参考。
+ *  - 基线锁定**英文（无前缀，canonical）**页面，对应上游参考站的黑白极简风格。
  *  - 用 base @playwright/test（不带 zh cookie），确保截到英文版。
  *  - 固定视口 1440×900（与 docs/SESSION_SUMMARY.md §2.1 实测基准一致）。
  *  - 等待网络空闲 + 图片加载完成后再截图，避免首屏竞态导致基线抖动。
@@ -122,7 +122,7 @@ test.describe("视觉回归基线", () => {
 
   test("商品列表 PLP", async ({ page }) => {
     // 商品网格在原站形态的集合页（`/products` 已改为 All collections 索引页）
-    await page.goto("/collections/spacexai-collection");
+    await page.goto("/collections/ox-essentials-collection");
     await settle(page);
     await expect(page).toHaveScreenshot("plp.png", { fullPage: true });
   });
@@ -130,7 +130,7 @@ test.describe("视觉回归基线", () => {
   test("商品详情 PDP", async ({ page }) => {
     // 固定商品（不再用"PLP 第一张卡"——shop.spec 全量购买会让第一张卡易主，
     // PDP 基线整页漂移；固定一个 E2E 不购买、库存稳定的商品）
-    await page.goto("/products/xai-thermal-beanie");
+    await page.goto("/products/ox-thermal-beanie");
     // PDP 就绪标志：加购按钮出现（英文站默认语言）
     await page.getByRole("button", { name: /Add to bag|Add to cart/i }).waitFor({
       timeout: 30_000,

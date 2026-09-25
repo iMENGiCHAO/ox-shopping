@@ -5,7 +5,7 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 /**
- * Button — shop.x.com system: square corners, regular weight.
+ * Button — 上游参考站 system: square corners, regular weight.
  * - default:   near-black fill, white text, subtle hover step
  * - outline:   hairline black border, white ground, black sweeps in on hover
  * - secondary: pale gray fill

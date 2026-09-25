@@ -9,13 +9,13 @@ import { CurrencySelect } from "@/components/shop/currency-select";
 import { UserMenu } from "@/components/shop/user-menu";
 
 /**
- * Site header — faithful shop.x.com replica:
+ * Site header — faithful 上游参考站 replica:
  * pure-black bar (59px <700px / 65px ≥700px), wordmark centered <1000px, left-aligned ≥1000px.
  *
  * 响应式三段式（原站实测，断点 700 / 1000）：
  * - <700px    ：仅 Search + Cart 两个图标（空间有限，币种在页脚，登录在结账流程触发）
  * - 700–999px ：Account + Search + Cart 三个图标（仍无币种/文字）
- * - ≥1000px   ：币种(🇺🇸USD ▾) → Login/Account → Search → Cart (n)（全文字，shop.x.com 顺序）
+ * - ≥1000px   ：币种(🇺🇸USD ▾) → Login/Account → Search → Cart (n)（全文字，上游参考站 顺序）
  *
  * 显隐全部由 globals.css 的 `.header-*` 类控制，组件里不再写断点，
  * 保证"顶栏高度 / LOGO 对齐 / 右侧项数"三者始终同步。
@@ -47,7 +47,7 @@ export async function Header() {
         </Link>
 
         {/* Right utilities — 三段式显隐由 CSS 类控制。
-            顺序对齐 shop.x.com：币种 → 登录/账户 → 搜索 → 购物车。 */}
+            顺序对齐 上游参考站：币种 → 登录/账户 → 搜索 → 购物车。 */}
         <div className="header-utils text-sm">
           <span className="header-util-desktop">
             <CurrencySelect withFlag direction="down" />

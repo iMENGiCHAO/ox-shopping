@@ -11,7 +11,7 @@ const LINK_CLASS =
   "footer-link opacity-65 outline-none transition-opacity hover:opacity-100 focus-visible:underline focus-visible:underline-offset-4 focus-visible:[box-shadow:none] focus-visible:[outline:none]";
 
 /**
- * Site footer —— shop.x.com 同构，**两行**结构（1200 视口逐像素实测）：
+ * Site footer —— 上游参考站 同构，**两行**结构（1200 视口逐像素实测）：
  *   行 1：链接行（居中、水平间距 24px、字号 15px）
  *   行 2：国家/币种选择器 + 版权（**品牌在前**，如 `Ox Shopping © 2026`）
  *

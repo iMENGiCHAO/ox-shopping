@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 /* ⚠️ 本路由段**刻意没有** `loading.tsx`（2026-09-22 大爷反馈后移除，勿加回）。
  *
  * 现象：打开/刷新店铺页时，先看到「黑色顶栏 + 黑色页脚挤在顶部、下方一整屏白」，
- * 而原站 shop.x.com 打开就直接呈现内容。
+ * 而原站 上游参考站 打开就直接呈现内容。
  *
  * 根因：只要存在 `loading.tsx`，Next 就据其在 children 外包一层 Suspense 边界。
  * 当时 `(shop)/loading.tsx` 导出 `null` 当兜底 → 服务端先流式下发「外壳 + 空 fallback」，

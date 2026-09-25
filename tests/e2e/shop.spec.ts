@@ -31,12 +31,12 @@ test.describe("购物全链路", () => {
     // 注意：`/products` 与原站一致是 All collections 索引页（无商品卡），
     // 商品网格在集合页 `/collections/<slug>`；中文界面下内部链接带 /zh 前缀，
     // 因此用 href*= 而不是 href^=。
-    await page.goto("/collections/spacexai-collection");
+    await page.goto("/collections/ox-essentials-collection");
     await expect(page.locator("a[href*='/products/']").first()).toBeVisible({ timeout: 30_000 });
 
     // 打开固定的测试商品（不再用"第一张卡"——E2E 反复购买会把它买到售罄，
     // 使 PLP 第一张卡易主、PDP 视觉基线整页漂移；固定商品 + 跑完还原库存，数据零侵蚀）
-    const testCard = page.locator("a[href*='/products/kids-grok-to-understand-tee']").first();
+    const testCard = page.locator("a[href*='/products/ox-kids-constellation-tee']").first();
     await testCard.waitFor({ timeout: 30_000 });
     await testCard.click();
     // 允许 /zh 语言前缀
@@ -108,7 +108,7 @@ test.describe("购物全链路", () => {
       const list = (await fetch("/api/admin/products?page=1&pageSize=50").then((r) =>
         r.json(),
       )) as { data?: { id: string; slug: string }[] };
-      const target = (list?.data ?? []).find((p) => p.slug === "kids-grok-to-understand-tee");
+      const target = (list?.data ?? []).find((p) => p.slug === "ox-kids-constellation-tee");
       if (target) {
         await fetch(`/api/admin/products/${target.id}/stock`, {
           method: "PATCH",
@@ -134,7 +134,7 @@ test.describe("购物全链路", () => {
         data?: Array<{ id: string; slug?: string; attributes?: unknown[] }>;
       };
       const product = productsBody.data?.find(
-        (item) => item.slug === "macrohard-remove-before-flight-keychain",
+        (item) => item.slug === "ox-remove-before-flight-keychain",
       );
       if (!product || (product.attributes?.length ?? 0) > 0) {
         throw new Error("guest-order E2E fixture product unavailable");

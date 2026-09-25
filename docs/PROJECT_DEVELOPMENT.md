@@ -2,9 +2,9 @@
 
 > 最后更新：2026-09-20 · 覆盖范围：**整个会话窗口**（早期历史见 §2.0，近期迭代 §2.1–2.14）
 > 近期迭代 commit 范围：`e620d1c` → `1a83385`（Phase 13 收口；B-2 找回密码尚在工作区未提交）
-> 定位：面向欧美客户的跨境电商独立站，1:1 复刻 shop.x.com 视觉与交互的 SpaceXAI Shop 演进版（现品牌为 **Ox Shopping / 牛来购物**）。
+> 定位：面向欧美客户的跨境电商独立站，1:1 复刻 上游参考站 视觉与交互的 Ox Shop 演进版（现品牌为 **Ox Shopping / 牛来购物**）。
 >
-> **本文档已同步至 2026-09-20（含 Phase 12 账户注销闭环、Phase 13 shop.x.com 照搬、B-2 原站式找回密码）。**
+> **本文档已同步至 2026-09-20（含 Phase 12 账户注销闭环、Phase 13 上游参考站 照搬、B-2 原站式找回密码）。**
 
 ---
 
@@ -112,7 +112,7 @@ docs/                      本文档及速查/部署/清单/设计文档
 | 规格下拉 | 原生 select → **Radix Select**：`position="popper"` + `w-[var(--radix-select-trigger-width)]`，与触发器**同宽、正下方紧贴**（实测 dx=0、宽 320=320）；售罄项 disabled |
 | footer 法务链接 | 移除焦点方框（`focus-visible:[outline:none]` 等），保留键盘下划线 |
 | footer 货币下拉 | 新增 `direction="up"`，黑底页脚**向上展开**，杜绝向下露白 |
-| PDP 顶部间距 | json-ld `<script>` 从 `space-y-14` 容器内移出（消除 56px 隐性 margin）；最终按**官方实测 48px**（shop.x.com 1440px 视口：header 65px、首图距 header 48px）定为 `pt-12` |
+| PDP 顶部间距 | json-ld `<script>` 从 `space-y-14` 容器内移出（消除 56px 隐性 margin）；最终按**官方实测 48px**（上游参考站 1440px 视口：header 65px、首图距 header 48px）定为 `pt-12` |
 
 ### 2.6 搜索页对齐官方
 
@@ -128,7 +128,7 @@ docs/                      本文档及速查/部署/清单/设计文档
   - `logo-header.png` — **透明底白色图案**（Canvas 逐像素反色 `RGB=255-v`、alpha 原样保留；实测 luminance 254 适配黑底，反色前后不透明像素数一致无损失），header 直出 h=34px；
   - `favicon.png` — **透明底黑色图案**（原始图，luminance 0 适配浅色标签栏），`layout.tsx` icons/icon+apple 指向；
   - `logo.png` — 原始全尺寸备份。
-- **品牌字眼全量替换**：`SpaceXAI Shop / SpaceXAI / MENG Shop / MENG` → **Ox Shopping**（14 个源码文件 + DB：layout metadata、邮件标题、发票、MAIL_FROM、i18n 键值、admin login）；分类 `spacexai-collection` 显示名 → **Ox Collection**，首页右横幅标题同步；`xAI`（商品名）按产品语义保留。站名：`牛来购物 / Ox Shopping`。
+- **品牌字眼全量替换**：`Ox Shop / SpaceXAI / MENG Shop / MENG` → **Ox Shopping**（14 个源码文件 + DB：layout metadata、邮件标题、发票、MAIL_FROM、i18n 键值、admin login）；分类 `spacexai-collection` 显示名 → **Ox Collection**，首页右横幅标题同步；`xAI`（商品名）按产品语义保留。站名：`牛来购物 / Ox Shopping`。
 
 ### 2.8 支付接口预留（/admin/payments）— 已被 Phase 10 渠道化取代
 
@@ -169,9 +169,9 @@ docs/                      本文档及速查/部署/清单/设计文档
 - **后台列表**：`/admin/users` 新增「注销申请中」筛选 + 行内红徽标 + 详情申请日期 + 处理动作块（驳回备注 Textarea + 确认/驳回双按钮）。
 - **B-1 后台直接删除**（2026-09-20 补）：`DELETE /api/admin/users/[id]` 复用 approve 的匿名化语义（发信→匿名化→停用→吊销会话→审计 `ADMIN_USER_DELETE`），护栏为不能删自己、不能删最后一个 ADMIN、已注销账号幂等拒绝。
 
-### 2.12 Phase 13：shop.x.com 样式与功能完整照搬（2026-09-20）
+### 2.12 Phase 13：上游参考站 样式与功能完整照搬（2026-09-20）
 
-方法：Playwright 直连 shop.x.com 取真实几何/计算样式，与本机同视口逐项对比，差异一律以**原站实测值**为准。以下只列结构性变更，纯视觉微调见 CHANGELOG 2026-09-20。
+方法：Playwright 直连 上游参考站 取真实几何/计算样式，与本机同视口逐项对比，差异一律以**原站实测值**为准。以下只列结构性变更，纯视觉微调见 CHANGELOG 2026-09-20。
 
 - **页脚**：店铺页脚 7 条（含 `Your Privacy Choices` → `/pages/data-sharing-opt-out`、`Terms` 走 `/pages/terms-and-conditions`、`Cookie Consent` 改「重新唤起同意横幅」语义）；checkout 页脚 3 条（Refund policy · Privacy policy · Cookies）。新建 `/pages/terms-and-conditions`（内容取后台可编辑法务）。
   > 2026-09-20 修正：曾以「原站只有 6 条」为由删掉 `Your Privacy Choices`。该结论来自

@@ -6,7 +6,7 @@ import { getLang, getT } from "@/lib/shop-i18n-server";
 import { POLICY_TITLES } from "@/lib/policy-defaults";
 
 /**
- * 服务条款页 —— 路径逐字对齐原站 shop.x.com 实测：
+ * 服务条款页 —— 路径逐字对齐原站 上游参考站 实测：
  * 原站 `/pages/terms-and-conditions` 返回 200，而 `/policies/terms` 是 404。
  * 页脚「Terms and Conditions」入口由此路径承载（内容仍取自后台可编辑的
  * SiteSetting.policies.terms，中英双语）。

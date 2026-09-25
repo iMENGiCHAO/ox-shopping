@@ -9,7 +9,7 @@ import "./globals.css";
 /*
  * Typography: system Helvetica/Arial stack (see tailwind.config.ts).
  * No webfont download — zero render-blocking, zero build-time network
- * dependency, and it is exactly the shop.x.com look (regular weight).
+ * dependency, and it is exactly the 上游参考站 look (regular weight).
  */
 
 // SEO 兜底：仅在后台「站点设置」未填写时生效。品牌名统一取 brandFallback，
@@ -70,7 +70,7 @@ export async function generateMetadata(): Promise<Metadata> {
          `/collections/all` → `Products`、`/pages/faqs` → `FAQs`、`/cart` → `Your Shopping Cart`、
          `/collections` → `Collections`。
          此前这里是 `%s | ${siteName}`，会给每个子页面标题追加 `| 品牌名`，与原站不符。
-         `default` 仍取站点名（原站首页标题就是店名，如 `Official SpaceXAI Shop`），
+         `default` 仍取站点名（原站首页标题就是店名，如 `Official Ox Shop`），
          只是**不再给子页面追加后缀**。 */
       template: "%s",
     },

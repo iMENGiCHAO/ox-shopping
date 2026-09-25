@@ -8,26 +8,26 @@ const baseProps = {
   siteUrl: "https://shop.example.com",
   siteName: "Ox Shopping",
   name: "张三",
-  productName: "Grok Dad Hat",
+  productName: "Ox Dad Hat",
   variantText: "Color: Black / Size: M",
-  image: "https://shop.example.com/img/grok-dad-hat.jpg",
+  image: "https://shop.example.com/img/ox-dad-hat.jpg",
   excerpt: "限定款刺绣棒球帽，做工扎实。",
   priceText: "$35.00",
   compareAtText: "$49.00",
-  productUrl: "https://shop.example.com/products/grok-dad-hat",
+  productUrl: "https://shop.example.com/products/ox-dad-hat",
 };
 
 describe("到货提醒邮件（商品卡）", () => {
   it("中文邮件包含完整商品卡：图/名/规格/价格/划线价/紧迫提示/CTA", async () => {
     const html = await render(h(RestockEmail, { ...baseProps, lang: "zh" }));
-    expect(html).toContain("Grok Dad Hat");
-    expect(html).toContain(`alt="Grok Dad Hat"`);
+    expect(html).toContain("Ox Dad Hat");
+    expect(html).toContain(`alt="Ox Dad Hat"`);
     expect(html).toContain("Color: Black / Size: M");
     expect(html).toContain("$35.00");
     expect(html).toContain("$49.00");
     expect(html).toContain("库存有限，售完即止");
     expect(html).toContain("立即购买");
-    expect(html).toContain('href="https://shop.example.com/products/grok-dad-hat"');
+    expect(html).toContain('href="https://shop.example.com/products/ox-dad-hat"');
     // 合规尾注（一对一、可忽略）
     expect(html).toContain("您曾登记的到货通知");
   });

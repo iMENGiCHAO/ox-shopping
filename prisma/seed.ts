@@ -4,14 +4,14 @@
  * 幂等设计：重复执行不会产生重复数据（upsert）。
  * 运行：npm run db:seed
  *
- * 商品与分类目录 = shop.x.com 官方商店的完整镜像（prisma/xcom-catalog.ts，
- * 由 scripts/gen-xcom-seed.cjs 从官方 /products.json 生成）。
+ * 商品与分类目录 = prisma/demo-catalog.ts（中性虚构品牌 Ox Essentials，
+ * 演示图由 scripts/gen-demo-images.mjs 生成 —— 无任何第三方商标，可安全用于演示）。
  */
 import "dotenv/config";
 import { PrismaClient, Prisma, Role, ProductStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { xcomCategories, xcomProducts } from "./xcom-catalog";
-import { xcomCollections } from "./xcom-collections";
+import { demoCategories, demoProducts } from "./demo-catalog";
+import { demoCollections } from "./demo-collections";
 import { FAQ_DEFAULTS } from "../src/lib/faq-defaults";
 
 const prisma = new PrismaClient();
@@ -82,23 +82,22 @@ async function seedUsers() {
 }
 
 async function seedCategories() {
-  // 一致性守卫：`xcom-catalog.ts` 由官方 /products.json 自动生成，
-  // `xcom-collections.ts` 是手写集合清单。若自动目录里出现手写清单未收录的分类，
-  // 说明官方新增了集合而清单没跟上 —— 直接报错，避免静默漏掉集合。
-  const missing = xcomCategories.filter((c) => !xcomCollections.some((k) => k.slug === c.slug));
+  // 一致性守卫：`demo-catalog.ts` 是商品主目录，
+  // `demo-collections.ts` 是手写集合清单。若目录里出现手写清单未收录的分类，
+  // 说明目录新增了分类而清单没跟上 —— 直接报错，避免静默漏掉集合。
+  const missing = demoCategories.filter((c) => !demoCollections.some((k) => k.slug === c.slug));
   if (missing.length > 0) {
     throw new Error(
-      `prisma/xcom-collections.ts 缺少分类定义：${missing.map((c) => c.slug).join(", ")}` +
-        `（官方目录新增了分类，请同步手写集合清单）`,
+      `prisma/demo-collections.ts 缺少分类定义：${missing.map((c) => c.slug).join(", ")}` +
+        `（目录新增了分类，请同步手写集合清单）`,
     );
   }
 
   const map = new Map<string, string>();
-  for (const cat of xcomCollections) {
-    /* 这 4 个集合是**导航结构**（= 原站 /collections 的镜像），
-       seed 视 `xcom-collections.ts` 为权威并同步名称/顺序/图片 ——
-       否则历史改名（如 spacexai-collection 曾被改成「Ox Collection」）
-       会让 /collections 与原站不一致，且换机器重新部署无法复现。
+  for (const cat of demoCollections) {
+    /* 这 4 个集合是**导航结构**，
+       seed 视 `demo-collections.ts` 为权威并同步名称/顺序/图片 ——
+       否则历史改名会让 /collections 与目录不一致，且换机器重新部署无法复现。
        运营若要自定义，请**新增**集合而不是改这 4 个。
        唯一保留的运营字段：`isActive`（下架集合）与 `parentId`。 */
     const row = await prisma.category.upsert({
@@ -125,7 +124,7 @@ async function seedCategories() {
     });
     map.set(cat.slug, row.id);
   }
-  console.log(`✓ 分类创建完成（${xcomCollections.length} 个）`);
+  console.log(`✓ 分类创建完成（${demoCollections.length} 个）`);
   return map;
 }
 
@@ -136,14 +135,14 @@ async function seedCategories() {
  * 因此「附加归属」落 `product_collections`：
  *   - `productSlugs` 非空的集合（Mens / Womens）→ 逐条 upsert 成员行，
  *     `sortOrder` 取数组下标（= 原站陈列顺序）；
- *   - `productSlugs` 为空的集合（SpaceXAI / X Collection）→ 成员由主分类决定，
+ *   - `productSlugs` 为空的集合（Ox Essentials / Ox Collection）→ 成员由主分类决定，
  *     无需成员行；此处顺手清理历史遗留的冗余行，避免双写。
  *
  * 只补不删商品：缺失的 slug 记 warning 而不抛错（目录可能被运营下架过）。
  */
 async function seedCollectionMembers(categoryMap: Map<string, string>) {
   let created = 0;
-  for (const col of xcomCollections) {
+  for (const col of demoCollections) {
     const categoryId = categoryMap.get(col.slug);
     if (!categoryId) continue;
 
@@ -193,38 +192,38 @@ async function seedProducts(categoryMap: Map<string, string>) {
     console.log("⚠️ FORCE_RESEED=true：清空并重建商品目录（仅限开发环境使用！）");
     await prisma.product.deleteMany({});
   }
-  // 官方首页陈列顺序（2026-08 实测 /shop.x.com frontpage）
+  // 演示首页陈列顺序（沿用中性目录上线时的排序）
   const HOME_ORDER = [
-    "xai-multi-tumbler",
-    "xai-vessel",
-    "hardcore-grok-reflective-tee",
-    "kids-grok-to-understand-tee",
-    "kids-grok-to-understand-tee-copy",
-    "xai-thermal-beanie",
-    "x-the-everything-mug",
-    "xai-human-connection-tee",
-    "xai-dark-ani-tee",
-    "grok-logo-tee-copy",
-    "grok-logo-tee",
-    "grok-logo-tee-copy-1",
-    "xai-trucker-hat",
-    "the-xai-hoodie",
-    "xai-dad-hat",
-    "grok-trucker-hat",
-    "the-grok-hoodie",
-    "xai-dad-hat-copy",
-    "unisex-retro-x-com-short-sleeve-tee-pre-sale",
-    "unisex-retro-x-com-crewneck-pre-sale",
-    "the-core-x-crewneck",
-    "x-beanie",
-    "x-signature-crew-sock-set",
-    "x-embroidery-trucker-cap",
-    "x-icon-t-shirt",
-    "unisex-3d-x-logo-hoodie",
-    "unisex-3d-logo-dad-hat",
+    "ox-multi-tumbler",
+    "ox-hydration-vessel",
+    "ox-reflective-tee",
+    "ox-kids-constellation-tee",
+    "ox-kids-constellation-hoodie",
+    "ox-thermal-beanie",
+    "ox-everything-mug",
+    "ox-human-connection-tee",
+    "ox-midnight-graphic-tee",
+    "ox-constellation-tee",
+    "ox-graphic-logo-tee",
+    "ox-logo-tee",
+    "ox-classic-trucker-hat",
+    "ox-classic-hoodie",
+    "ox-classic-dad-hat",
+    "ox-trucker-hat",
+    "ox-hoodie",
+    "ox-dad-hat",
+    "ox-retro-tee-presale",
+    "ox-retro-crewneck-presale",
+    "ox-core-crewneck",
+    "ox-ribbed-beanie",
+    "ox-signature-crew-sock-set",
+    "ox-core-trucker-hat",
+    "ox-core-tee",
+    "ox-core-hoodie",
+    "ox-core-dad-hat",
   ];
   let created = 0;
-  for (const p of xcomProducts) {
+  for (const p of demoProducts) {
     const categoryId = categoryMap.get(p.categorySlug);
     if (!categoryId) throw new Error(`分类不存在：${p.categorySlug}`);
     // createdAt 编码官方首页陈列顺序（sort=newest 还原）；未上列表页的商品排最后
@@ -259,7 +258,7 @@ async function seedProducts(categoryMap: Map<string, string>) {
   }
 
   console.log(
-    `✓ 商品创建完成（新建 ${created} 个 / 目录 ${xcomProducts.length} 个，既有数据未覆盖）`,
+    `✓ 商品创建完成（新建 ${created} 个 / 目录 ${demoProducts.length} 个，既有数据未覆盖）`,
   );
 }
 
@@ -326,7 +325,7 @@ async function seedSiteSettings() {
     contactEmail: process.env.SUPPORT_EMAIL ?? "",
     contactPhone: process.env.SUPPORT_PHONE ?? "",
     icp: "",
-    seoKeywords: "Ox Shopping,Grok,X,shop,apparel",
+    seoKeywords: "Ox Shopping,Ox,shop,apparel",
   };
   for (const [key, value] of Object.entries(defaults)) {
     await prisma.siteSetting.upsert({

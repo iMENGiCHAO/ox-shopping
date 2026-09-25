@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 100;
 
-/** 官方 Sort by 弹层选项（shop.x.com/search 实测） */
+/** 官方 Sort by 弹层选项（上游参考站/search 实测） */
 const SORT_OPTIONS = [
   { value: "relevance", label: "Relevance" },
   { value: "price-ascending", label: "Price, low to high" },

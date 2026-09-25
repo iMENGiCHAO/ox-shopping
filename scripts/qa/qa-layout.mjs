@@ -310,7 +310,7 @@ const browser = await chromium.launch();
     check("PDP 缩略图盒左缘 48px", t0 ? `${t0.left}px` : "(未找到)", !!t0 && Math.abs(t0.left - 50) <= 3, "≈50px(盒 48 + 居中偏移 2)");
 
     // ── PDP 两栏断点必须正好在 1000px ──
-    // 原站取证（scripts/qa/qa-upstream-pdp-vs-header.mjs）：用同一条截图通道同时看
+    // 历史取证（2026-09 上游对齐阶段，取证脚本已移除）：用同一条截图通道同时看
     // 「页头 Logo 是否左对齐」与「PDP 是否两栏」，两者在**同一请求宽**翻转；
     // 页头断点已独立实测为 1000px ⇒ PDP 断点同为 1000px。
     // 本地此前用 lg:(1024px)，在 1000~1023px 显示单栏 —— 已修，此处锁死。

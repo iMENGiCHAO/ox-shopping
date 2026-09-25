@@ -2,7 +2,7 @@
 
 > 本文档作为本店从「开发完成」到「正式商用」的最后一道闸门。
 > 由顶级架构师审查后整理，2026-08-22 版本（2026-08-25 安全加固修订，2026-09-18 去硬编码修订，
-> **2026-09-20 补 Phase 12 注销闭环 / Phase 13 shop.x.com 照搬 / B-2 找回密码**）。
+> **2026-09-20 补 Phase 12 注销闭环 / Phase 13 上游参考站 照搬 / B-2 找回密码**）。
 > 所有项逐一过一遍再放量。
 >
 > 品牌名不在此文档写死：全站品牌来自 `SITE_NAME` 环境变量（运行时可由后台「站点设置」
@@ -42,7 +42,7 @@
   （`POST /api/admin/users/[id]/deletion`：approve=匿名化 `deleted-{id}@invalid.local` + 停用 + 吊销全部会话；reject=清空 + 邮件告知）。
   另有 `DELETE /api/admin/users/[id]` 后台直接删除（不能删自己 / 不能删最后一个管理员 / 已注销幂等）。
   **匿名化软删保留订单等财务合规数据。**
-- **Phase 13 shop.x.com 照搬**：`/products` 与 `/collections` 同为 All collections 索引 + 新增 `/collections/[slug]`，
+- **Phase 13 上游参考站 照搬**：`/products` 与 `/collections` 同为 All collections 索引 + 新增 `/collections/[slug]`，
   旧链接 `/products?category=x` 由 `src/proxy.ts` 307 迁移；店铺页脚 6 条 / checkout 页脚 3 条；`/pages/terms-and-conditions` 新路径；
   **游客免登录结账**（`src/lib/guest-cart.ts` + `GET /api/cart/preview` + `orderToken` 随 paymentUrl 传递）。
 - **Phase 14 分销 / 多级佣金（隔离模块）**：闭包表无限级关系 + 客户归属绑定（首次绑定定终身、复购自动归属、
@@ -94,7 +94,7 @@ npm run admin:create -- admin@yourdomain.com 'StrongPass!2026'   # 生产首个�
 
 - 每日逻辑备份已由 compose 的 `db-backup` 侧车自动执行（pg_dump → gzip → SHA-256，保留 `BACKUP_RETAIN_DAYS` 天，卷 `dbbackups`）；**仍需**把卷内容每日同步到异地对象存储，并配置备份失败告警（宿主机 cron 方案可用 `scripts/backup-db.sh`）
 - 每季度在**空临时库**运行 `scripts/restore-db.sh` 恢复演练，记录 RPO/RTO；禁止以生产库做首次恢复
-- `AuditLog` 写得比较频（每小时千行级），建议 90 天滚动归档；归档与备份策略必须一并演练
+- `AuditLog` 写得比较频（每小时千行级），scheduler 默认保留 3 年（1095 天）后清理；更严格合规市场按当地法务上调窗口或改为归档导出，归档与备份策略必须一并演练
 - 慢查询：开启 `log_min_duration_statement = 500ms` 观察一周
 - [ ] `/api/healthz`（livez）返回 200 且不依赖 DB；`/healthz`（readyz）真实查询 DB，故障时返回 503
 

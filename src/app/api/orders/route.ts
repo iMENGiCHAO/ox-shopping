@@ -73,7 +73,7 @@ export const GET = apiHandler(async (req) => {
 /**
  * POST /api/orders — 创建订单并生成支付链接。
  *
- * 登录态为**可选**（对齐 shop.x.com 结账页的 `Contact + Sign in` 形态）：
+ * 登录态为**可选**（对齐 上游参考站 结账页的 `Contact + Sign in` 形态）：
  *   - 已登录：按 addressId 取本人地址；也可改传 shippingAddress 用一次性新地址
  *   - 未登录：必须提供 contactEmail + shippingAddress，订单记 userId=null
  *     并下发 accessToken，凭 `/orders/[orderNumber]?token=…` 免登录查单

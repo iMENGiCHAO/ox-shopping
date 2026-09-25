@@ -1,4 +1,4 @@
-/* Shared seed item types (imported by xcom-catalog.ts and seed.ts) */
+/* Shared seed item types (imported by demo-catalog.ts and seed.ts) */
 export interface CategorySeedX {
   name: string;
   nameEn: string;

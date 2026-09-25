@@ -1,7 +1,7 @@
 /**
  * 页脚链接 —— 单一事实来源（sitemap / 页脚 / 无障碍导航共用）。
  *
- * 标签、顺序与 `href` 逐字对齐 shop.x.com 页脚实测：`FAQs · Search ·
+ * 标签、顺序与 `href` 逐字对齐 上游参考站 页脚实测：`FAQs · Search ·
  * Accessibility Statement · Privacy Policy · Terms and Conditions ·
  * Cookie Consent · Your Privacy Choices` —— **共 7 条**。
  *
@@ -15,7 +15,7 @@
  *
  * 其它实测差异（一律以原站为准）：
  * - 隐私政策按大爷要求走**站内可编辑页**（原站是外链 x.com，此处刻意不同）。
- * - 原站 `Cookie Consent` 指向 `https://shop.x.com/?preview_privacy_banner=1`，
+ * - 原站 `Cookie Consent` 指向 `原站取证链接（已移除）`，
  *   即**重新唤起 cookie 同意横幅**，不是站内政策页。
  * - 原站 `Terms and Conditions` 路径是 `/pages/terms-and-conditions`。
  * - 原站页脚**没有** `Refund Policy`（本项目的 `/policies/refund` 页面保留，
