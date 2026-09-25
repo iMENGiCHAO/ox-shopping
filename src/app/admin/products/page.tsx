@@ -264,30 +264,44 @@ export default function AdminProductsPage() {
   };
 
   // ── 多规格商品：规格明细库存（颜色/尺码逐项）──
-  const hasSpecStock = (product: AdminProduct) =>
-    !!product.specStock &&
-    typeof product.specStock === "object" &&
-    Object.keys(product.specStock as object).length > 0;
-
-  /** 解析规格组：以 specStock 的组为准，值优先取 attributes 里的完整值列表 */
-  const specGroupsOf = (product: AdminProduct): { name: string; values: string[] }[] => {
+  // 判定口径（2026-09-24 修正）：以**商品是否有可选规格组**（attributes.selectable）
+  // 为准，而不是 specStock 是否已填 —— 有规格组但还没填过库存的商品同样必须
+  // 走规格明细编辑，绝不允许直接改总库存（总库存加了不知道给哪个规格，大爷指出）。
+  // selectable 未显式标注时多值组默认可选，与 product-form / 店面 parseAttributes 同口径。
+  const variantGroupsOf = (product: AdminProduct): { name: string; values: string[] }[] => {
     const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
-    if (!spec || typeof spec !== "object") return [];
-    const attrMap = new Map<string, string[]>();
-    for (const a of product.attributes ?? []) {
-      if (a.name && Array.isArray(a.values)) attrMap.set(a.name, a.values);
-    }
-    return Object.entries(spec)
-      .map(([name, m]) => ({ name, values: attrMap.get(name) ?? Object.keys(m ?? {}) }))
-      .filter((g) => g.values.length > 0);
+    return (product.attributes ?? [])
+      .map((a) => {
+        const selectable =
+          a.selectable === true
+            ? true
+            : a.selectable === false
+              ? false
+              : Array.isArray(a.values) && a.values.length > 1;
+        return { name: (a.name ?? "").trim(), values: a.values ?? [], selectable };
+      })
+      .filter((g) => g.selectable && g.name && g.values.length > 0)
+      .map((g) => {
+        // 已填过的规格值必须能编辑：并集 = attributes 完整值 ∪ specStock 已有键
+        const extra = Object.keys(spec?.[g.name] ?? {}).filter((v) => !g.values.includes(v));
+        return { name: g.name, values: [...g.values, ...extra] };
+      });
+  };
+
+  /** 有可选规格组的商品：一律走规格明细编辑（单规格商品才允许直改总库存） */
+  const hasVariants = (product: AdminProduct) => variantGroupsOf(product).length > 0;
+
+  /** 各规格当前库存数字（从 specStock 取；未填 = 0） */
+  const specQtyOf = (product: AdminProduct, gName: string, value: string): number => {
+    const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
+    return spec?.[gName]?.[value] ?? 0;
   };
 
   const startSpecEdit = (product: AdminProduct) => {
-    const spec = product.specStock as Record<string, Record<string, number>> | null;
     const init: Record<string, Record<string, string>> = {};
-    for (const g of specGroupsOf(product)) {
+    for (const g of variantGroupsOf(product)) {
       init[g.name] = {};
-      for (const v of g.values) init[g.name]![v] = String(spec?.[g.name]?.[v] ?? 0);
+      for (const v of g.values) init[g.name]![v] = String(specQtyOf(product, g.name, v));
     }
     setSpecEditValue(init);
     setSpecEditId(product.id);
@@ -548,12 +562,12 @@ export default function AdminProductsPage() {
                       {formatMoney(row.price, "USD")}
                     </TableCell>
                     <TableCell>
-                      {hasSpecStock(row) ? (
+                      {hasVariants(row) ? (
                         /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
                         specEditId === row.id ? (
                           /* 编辑面板：实心背景 + 阴影浮层（避免与相邻「已售」列文字重叠透视） */
                           <div className="relative z-10 min-w-56 space-y-2 rounded-md border bg-card p-2 shadow-popover">
-                            {specGroupsOf(row).map((g) => (
+                            {variantGroupsOf(row).map((g) => (
                               <div key={g.name} className="space-y-1">
                                 <div className="text-[11px] font-medium text-muted-foreground">
                                   {g.name}
@@ -616,14 +630,13 @@ export default function AdminProductsPage() {
                             aria-label="编辑规格库存"
                             onClick={() => startSpecEdit(row)}
                             title={
-                              specGroupsOf(row)
-                                .map((g) => {
-                                  const m =
-                                    (
-                                      row.specStock as Record<string, Record<string, number>> | null
-                                    )?.[g.name] ?? {};
-                                  return `${g.name}：${g.values.map((v) => `${v} ${m[v] ?? 0}`).join("、")}`;
-                                })
+                              variantGroupsOf(row)
+                                .map(
+                                  (g) =>
+                                    `${g.name}：${g.values
+                                      .map((v) => `${v} ${specQtyOf(row, g.name, v)}`)
+                                      .join("、")}`,
+                                )
                                 .join("；") + "（点击编辑各规格库存）"
                             }
                             className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
