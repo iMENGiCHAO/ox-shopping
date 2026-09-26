@@ -34,6 +34,9 @@ export type ApiErrorCode =
   | "PAYMENT_ERROR"
   | "REFUND_FAILED"
   | "PAYMENT_GATEWAY_ERROR"
+  /* 汇率等关键外部服务不可用（钱路径熔断）：前端应提示稍后再试。
+     单独成码（而非塞进 INTERNAL_ERROR）：这是可重试的暂时性错误，不是程序缺陷。 */
+  | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 /** 统一 API 错误：抛出后由 apiHandler 捕获并序列化 */
@@ -71,6 +74,11 @@ export function conflict(message: string): ApiError {
 
 export function rateLimited(message = "Too many requests, please try again later"): ApiError {
   return new ApiError(429, "RATE_LIMITED", message);
+}
+
+/** 钱路径外部依赖（如汇率源）不可用：503 + 可重试语义 */
+export function serviceUnavailable(message: string): ApiError {
+  return new ApiError(503, "SERVICE_UNAVAILABLE", message);
 }
 
 /**

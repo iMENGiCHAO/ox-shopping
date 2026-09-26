@@ -3,12 +3,14 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { notifyWithdrawStatus } from "./notify.service";
 import { logger } from "@/lib/logger";
+import { captureMessage } from "@/lib/monitoring";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import { round2 } from "@/lib/distribution/rules";
 import { maskAccountInfo } from "@/lib/distribution/mask";
 import { getDistributionConfig } from "./config.service";
 import { currentUsdToCny } from "./commission.service";
+import { FALLBACK_RATES } from "@/components/shop/currency";
 import { getRateSnapshot } from "@/components/shop/currency-server";
 import type { DistributionConfig, WithdrawState } from "@/lib/distribution/contract";
 
@@ -107,6 +109,8 @@ export async function verifyAccountConsistency(options: { apply?: boolean } = {}
   accounts: number;
   drifted: AccountDrift[];
   repaired: number;
+  /** 流水币种与账户币种不一致的历史竞态残留（只能人工裁决，不自动修） */
+  currencyMismatches: { userId: string; accountCurrency: string; logCurrency: string; logs: number }[];
 }> {
   const [accounts, settled, withdrawals] = await Promise.all([
     prisma.distributorAccount.findMany({
@@ -207,13 +211,56 @@ export async function verifyAccountConsistency(options: { apply?: boolean } = {}
     }
   }
 
+  // 商用审计修复（高危）：币种漂移独立检测 —— 结算币种变更竞态的历史残留
+  // 会把「CNY 面额」的流水记在外币账户上，**数字校验完全失明**（72 CNY 与
+  // 72 EUR 数字一致）。这里扫「流水 settleCurrency ≠ 账户 settlementCurrency」，
+  // 命中即单独上报（不入 apply 自动修复名单 —— 币种错配只能人工裁决，自动改
+  // 数字反而会把错账「坐实」）。
+  const accountCurrencyOf = new Map(accounts.map((a) => [a.userId, a.settlementCurrency]));
+  const currencyMismatches: {
+    userId: string;
+    accountCurrency: string;
+    logCurrency: string;
+    logs: number;
+  }[] = [];
+  const mismatchGroups = await prisma.commissionLog.groupBy({
+    by: ["toUserId", "settleCurrency"],
+    where: {
+      toUserId: { in: accounts.map((a) => a.userId) },
+      status: { in: ["PENDING", "SETTLED"] },
+    },
+    _count: { _all: true },
+  });
+  for (const g of mismatchGroups) {
+    if (!g.toUserId) continue;
+    const accountCurrency = accountCurrencyOf.get(g.toUserId);
+    if (accountCurrency && g.settleCurrency !== accountCurrency) {
+      currencyMismatches.push({
+        userId: g.toUserId,
+        accountCurrency,
+        logCurrency: g.settleCurrency,
+        logs: g._count._all,
+      });
+    }
+  }
+  if (currencyMismatches.length > 0) {
+    captureMessage(
+      `[distribution] 发现 ${currencyMismatches.length} 个账户存在结算币种错配（流水币种≠账户币种），需人工裁决`,
+      "error",
+    );
+  }
+
   if (drifted.length > 0) {
     logger.warn(
       { count: drifted.length, repaired, apply: !!options.apply },
       "分销：账户与流水对账发现不一致",
     );
+    captureMessage(
+      `[distribution] 账户对账发现 ${drifted.length} 处不一致（修复模式=${options.apply ? "apply" : "dry-run"}），请管理员核查`,
+      "warning",
+    );
   }
-  return { accounts: accounts.length, drifted, repaired };
+  return { accounts: accounts.length, drifted, repaired, currencyMismatches };
 }
 
 /**
@@ -294,15 +341,32 @@ async function assertWithdrawLimits(
 
 /** 结算币种 → CNY 的换算率（1 单位该币种 = X CNY）。取当前站点汇率快照。 */
 async function cnyRateFor(currency: string): Promise<number> {
-  if (currency.toUpperCase() === "CNY") return 1;
+  const code = currency.toUpperCase();
+  if (code === "CNY") return 1;
   try {
     const [rates, usdToCny] = await Promise.all([getRateSnapshot(), currentUsdToCny()]);
-    const perUsd = Number(rates.rates[currency]);
+    const perUsd = Number(rates.rates[code]);
     if (Number.isFinite(perUsd) && perUsd > 0) return usdToCny / perUsd;
   } catch {
-    /* 快照不可用：按 1 兜底（校验退化为数字比较，绝不阻塞提现主流程） */
+    /* 快照不可用：落入下方内置参考兜底 */
   }
-  return 1;
+  // 商用审计修复：绝不静默按 1 兜底 —— USD 账户的「日限 5000 CNY」会被
+  // 实际放行成 5000 USD（≈¥3.6 万，风控限额放大 ~7 倍）。快照不可用时退
+  // 内置参考汇率（近似但方向保守）；参考表也没有该币种（白名单外的伪代码）
+  // 则直接拒绝提现 —— 风控宁严勿松。
+  const fallbackPerUsd = Number(FALLBACK_RATES[code]);
+  const fallbackCny = Number(FALLBACK_RATES.CNY);
+  if (
+    Number.isFinite(fallbackPerUsd) &&
+    fallbackPerUsd > 0 &&
+    Number.isFinite(fallbackCny) &&
+    fallbackCny > 0
+  ) {
+    return fallbackCny / fallbackPerUsd;
+  }
+  throw badRequest(
+    `结算币种 ${code} 的汇率不可用，暂时无法核算提现限额，请稍后再试或联系客服`,
+  );
 }
 
 /**
@@ -654,30 +718,49 @@ export async function setSettlementCurrency(input: {
   const currency = input.currency.trim().toUpperCase();
   if (!/^[A-Z]{3}$/.test(currency)) throw badRequest("结算币种必须是 3 位 ISO 4217 代码");
 
-  const [account, logCount] = await Promise.all([
-    prisma.distributorAccount.findUnique({ where: { userId: input.userId } }),
-    prisma.commissionLog.count({ where: { toUserId: input.userId } }),
-  ]);
-  const balance = Number(account?.balance ?? 0);
-  const frozen = Number(account?.frozen ?? 0);
-
-  if (account && (balance !== 0 || frozen !== 0 || logCount > 0)) {
-    if (account.settlementCurrency === currency) {
-      return { settlementCurrency: currency }; // 幂等：未变化直接返回
-    }
-    throw badRequest(
-      "账户已有佣金流水或余额，不能变更结算币种（请先提空余额；新账户才可自由选择）",
-    );
+  // 商用审计修复（高危）：只接受系统已启用（CurrencyConfig.enabled）的币种。
+  // 此前任意 /^[A-Z]{3}$/ 伪代码都能设进账户 —— "XXX" 这类码会让该受益人的
+  // 佣金折算永远失败而被跳过，且「部分受益人已落库」会让整单永不再计提
+  // （already>0 短路），该级佣金永久丢失且 reconcile 不再扫。
+  const cfg = await prisma.currencyConfig.findUnique({ where: { code: currency } });
+  if (!cfg?.enabled) {
+    throw badRequest(`结算币种 ${currency} 未启用或不支持，请从可用币种列表中选择`);
   }
 
-  await prisma.distributorAccount.upsert({
-    where: { userId: input.userId },
-    create: { userId: input.userId, settlementCurrency: currency },
-    update: { settlementCurrency: currency },
+  // 商用审计修复（高危）：守卫必须与计提的账户读取在同一把锁下串行。
+  // 此前是「无事务的 count + upsert」：分销商在支付回调触发 accrueForOrder
+  // 读币种的瞬间并发改币种，计提会把 CNY 面额固化进 EUR 账户的流水（≈8 倍
+  // 放大入账）。锁账户行 + 锁内查流水数，改币种与首笔计提只能串行发生。
+  const account = await prisma.$transaction(async (tx) => {
+    // 行锁账户（无行则锁 userId 对应的空账户不存在 —— 用 upsert 后的行锁）
+    await tx.$queryRaw`
+      SELECT id FROM distributor_accounts WHERE "userId" = ${input.userId} FOR UPDATE
+    `;
+    const [lockedAccount, logCount] = await Promise.all([
+      tx.distributorAccount.findUnique({ where: { userId: input.userId } }),
+      tx.commissionLog.count({ where: { toUserId: input.userId } }),
+    ]);
+    const balance = Number(lockedAccount?.balance ?? 0);
+    const frozen = Number(lockedAccount?.frozen ?? 0);
+
+    if (lockedAccount && (balance !== 0 || frozen !== 0 || logCount > 0)) {
+      if (lockedAccount.settlementCurrency === currency) {
+        return lockedAccount; // 幂等：未变化直接返回
+      }
+      throw badRequest(
+        "账户已有佣金流水或余额，不能变更结算币种（请先提空余额；新账户才可自由选择）",
+      );
+    }
+
+    return tx.distributorAccount.upsert({
+      where: { userId: input.userId },
+      create: { userId: input.userId, settlementCurrency: currency },
+      update: { settlementCurrency: currency },
+    });
   });
   logger.info(
-    { userId: input.userId, currency, hadAccount: !!account, logs: logCount },
+    { userId: input.userId, currency },
     "分销：结算币种已设置",
   );
-  return { settlementCurrency: currency };
+  return { settlementCurrency: account.settlementCurrency };
 }

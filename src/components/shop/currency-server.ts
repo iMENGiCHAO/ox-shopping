@@ -28,6 +28,13 @@ import {
 const RATE_API = "https://open.er-api.com/v6/latest/USD";
 const FRESH_TTL_MS = 6 * 60 * 60 * 1000; // 上游免费源每日更新，6h 足够新鲜
 const FETCH_TIMEOUT_MS = 5000;
+/**
+ * 钱路径（下单收款/佣金计提）的汇率陈旧度熔断阈值（2026-09-26 商用审计）：
+ * 库内回退值超过 72h 视为「不可用于结算」—— 宁可拒单/跳过计提（对账补偿稍后补），
+ * 也不按一周前的旧汇率收钱、入账。管理员存在锁价覆盖时豁免（显式锁价=商业决策）。
+ */
+export const STALE_MAX_HOURS = 72;
+const STALE_MAX_MS = STALE_MAX_HOURS * 3_600_000;
 
 // Node ≥17 默认 IPv6 优先，在仅有 IPv4 出口的机器(macOS/部分容器)上会连不上汇率源；
 // 仅影响本进程的 DNS 解析顺序。
@@ -91,7 +98,19 @@ async function loadPersistedRates(): Promise<RateSnapshot | null> {
     const ratesRow = rows.find((r) => r.key === DB_KEY_RATES);
     if (!ratesRow || !ratesRow.value || typeof ratesRow.value !== "object") return null;
     const atRow = rows.find((r) => r.key === DB_KEY_RATES_AT);
-    const at = typeof atRow?.value === "number" ? atRow.value : Date.now();
+    // 台账时间戳解析（商用审计修复）：兼容 number（persistRates 现行口径）与
+    // ISO 字符串（历史数据）。**两者都解析不出时返回 null**—— 此前静默用
+    // Date.now() 顶替，会把「时间不可知的陈旧台账」洗白成新鲜值绕过钱路径
+    // 熔断。台账时间不可知 = 陈旧度不可判 = 不可用于资金结算（fail-closed）。
+    const rawAt = atRow?.value;
+    let at: number | null = null;
+    if (typeof rawAt === "number" && Number.isFinite(rawAt) && rawAt > 0) {
+      at = rawAt;
+    } else if (typeof rawAt === "string") {
+      const parsed = Date.parse(rawAt);
+      if (Number.isFinite(parsed)) at = parsed;
+    }
+    if (at === null) return null;
     return {
       rates: { ...FALLBACK_RATES, ...(ratesRow.value as Record<string, number>) },
       at,
@@ -119,9 +138,12 @@ async function refresh(): Promise<RateSnapshot> {
   if (persisted) {
     const ageH = Math.round(((Date.now() - persisted.at) / 3_600_000) * 10) / 10;
     logger.warn({ ageHours: ageH }, "[fx] 实时汇率不可用，回退库内最后已知汇率");
-    captureMessage(`[fx] 实时汇率不可用，已回退库内汇率(滞后 ${ageH}h)`, "warning");
-    cache = persisted;
-    return persisted;
+    captureMessage(`[fx] 实时汇率不可用，已回退库内汇率(滞后 ${ageH}h)`, ageH > STALE_MAX_HOURS ? "error" : "warning");
+    // 修复（2026-09-26 商用审计）：库内回退必须同样套用管理员锁价 ——
+    // 否则外网一抖动，管理员设的覆盖汇率就静默失效，钱路径按旧价结算。
+    const rates = applyOv(persisted.rates);
+    cache = { ...persisted, rates };
+    return cache;
   }
   logger.warn("[fx] 实时与库内汇率均不可用，使用内置参考汇率(请检查外网连通性)");
   captureMessage("[fx] 汇率已退化为内置参考值，展示价格可能失真", "error");
@@ -194,6 +216,43 @@ export async function getRateSnapshot(): Promise<RateSnapshot> {
 /** 获取 1 USD 兑各币种汇率（兼容旧调用方） */
 export async function getExchangeRates(): Promise<Record<string, number>> {
   return (await getRateSnapshot()).rates;
+}
+
+/**
+ * 钱路径熔断（2026-09-26 商用审计新增）：
+ * 下单收款、佣金计提这类「算错就是真金白银」的调用方，取到快照后必须过这道闸。
+ *
+ * 口径：
+ *   · live            → 放行（上游当日价）
+ *   · db 且滞后 ≤72h  → 放行（容忍上游短暂故障）
+ *   · db 且滞后 >72h  → 有管理员锁价放行，否则拒绝
+ *   · static（内置参考值）→ 有管理员锁价放行，否则拒绝 —— 拍脑袋数字绝不能入账
+ *
+ * 拒绝时抛 503 语义错误：下单侧给用户「稍后再试」，计提侧留痕跳过（对账补偿稍后补提）。
+ */
+export async function assertRatesUsableForMoney(): Promise<RateSnapshot> {
+  const snap = await getRateSnapshot();
+  const fresh = snap.source === "live" || (snap.source === "db" && Date.now() - snap.at <= STALE_MAX_MS);
+  if (fresh) return snap;
+  const overrides = await loadOverrides();
+  const hasOverride = Object.keys(overrides).length > 0;
+  if (hasOverride) {
+    logger.warn({ source: snap.source }, "[fx] 汇率快照陈旧，但存在管理员锁价 —— 按锁价口径放行钱路径");
+    return snap;
+  }
+  const ageH = Math.round(((Date.now() - snap.at) / 3_600_000) * 10) / 10;
+  const msg = `汇率服务不可用（快照来源 ${snap.source}，滞后 ${ageH}h），已拒绝按该汇率进行资金结算`;
+  logger.error({ source: snap.source, ageHours: ageH }, `[fx] ${msg}`);
+  captureMessage(`[fx] ${msg}`, "error");
+  throw new RateUnavailableError(msg);
+}
+
+/** 钱路径熔断专用错误（调用方按 503 语义处理，不与业务 4xx 混淆） */
+export class RateUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RateUnavailableError";
+  }
 }
 
 /** 服务端读取当前币种(来自 cookie) */

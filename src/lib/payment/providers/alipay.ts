@@ -94,6 +94,15 @@ export const alipayProvider: PaymentProvider = {
     const transactionId = params["trade_no"] ?? "";
     const amount = Number(params["total_amount"] ?? "0");
     if (!orderNumber) return null;
+    // 商用审计修复：验签通过 ≠ 交易成功。TRADE_CLOSED（超时关单）/
+    // WAIT_BUYER_PAY 等「非成功」通知同样带合法签名且金额一致 ——
+    // 不校验状态就会把未付款订单标 PAID 发货。
+    if (
+      params["trade_status"] !== "TRADE_SUCCESS" &&
+      params["trade_status"] !== "TRADE_FINISHED"
+    ) {
+      return null;
+    }
     return { orderNumber, transactionId, amount };
   },
 

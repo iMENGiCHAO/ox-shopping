@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { apiHandler, json, readJson } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
+import { rateLimited } from "@/lib/errors";
+import { rateLimit } from "@/lib/rate-limit";
 import { assertDistributionEnabled } from "@/server/services/distribution/http";
 import {
   getAccountSummary,
@@ -47,6 +49,14 @@ const setCurrencySchema = z.object({
 export const PUT = apiHandler(async (req) => {
   assertDistributionEnabled();
   const user = await requireUser();
+  // 商用审计修复：该路由此前无限流 —— 并发喷射 PUT 可与首笔计提竞态
+  // （服务层已加行锁串行化，这里再压一层并发窗口）
+  const rl = await rateLimit({
+    key: `dist-settle-currency:${user.id}`,
+    limit: 5,
+    windowSeconds: 60,
+  });
+  if (!rl.ok) throw rateLimited();
   const input = await readJson(req, setCurrencySchema);
   const result = await setSettlementCurrency({
     userId: user.id,

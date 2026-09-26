@@ -3,9 +3,14 @@ import type { NextRequest } from "next/server";
 import type { CommissionStatus, OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
+import { captureMessage } from "@/lib/monitoring";
 import { audit } from "@/lib/audit";
 import { badRequest, conflict, notFound } from "@/lib/errors";
-import { getRateSnapshot } from "@/components/shop/currency-server";
+import {
+  assertRatesUsableForMoney,
+  getRateSnapshot,
+  RateUnavailableError,
+} from "@/components/shop/currency-server";
 import {
   COMMISSION_CURRENCY,
   type CommissionRow,
@@ -58,6 +63,9 @@ export function toCny(
  * 路径：订单币种 → USD（用订单的 exchangeRate 快照，1 USD = rate 订单币种）
  *       → 结算币种（用计提时点的站点汇率快照）。金额在计提时固化到
  * `amountSettle`，之后汇率波动不影响已计提的账。
+ *
+ * 结算币种在快照里**无可用汇率时返回 NaN**（调用方必须跳过该行计提并留痕）——
+ * 绝不能静默按 USD 基准兜底入账：那等于用 1:1 的假汇率给外币账户记钱（商用审计修复）。
  */
 export function toSettle(
   amount: number,
@@ -72,7 +80,7 @@ export function toSettle(
   const lookup: number | undefined =
     settleCurrency === "USD" ? 1 : usdRates[settleCurrency];
   const target = lookup ?? Number.NaN;
-  if (!Number.isFinite(target) || target <= 0) return round2(usd);
+  if (!Number.isFinite(target) || target <= 0) return Number.NaN;
   return round2(usd * target);
 }
 
@@ -84,15 +92,6 @@ export async function currentUsdToCny(): Promise<number> {
     return Number.isFinite(rate) && rate > 0 ? rate : 7.2;
   } catch {
     return 7.2;
-  }
-}
-
-/** 计提时点的 USD 基准汇率表（结算币种折算用；故障时退化为仅 USD 可折） */
-async function currentUsdRates(): Promise<Record<string, number>> {
-  try {
-    return (await getRateSnapshot()).rates;
-  } catch {
-    return {};
   }
 }
 
@@ -187,7 +186,7 @@ function parseRelationPathSnapshot(raw: unknown): AncestorNode[] | null {
 export async function accrueForOrder(
   orderId: string,
   req?: NextRequest,
-): Promise<{ count: number; skipped?: string }> {
+): Promise<{ count: number; skipped?: string; detail?: string[] }> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     select: {
@@ -217,8 +216,15 @@ export async function accrueForOrder(
   });
   if (!attribution?.distributorId) return { count: 0, skipped: "NATURAL" };
 
-  const already = await prisma.commissionLog.count({ where: { orderId } });
-  if (already > 0) return { count: 0, skipped: "ALREADY_ACCRUED" };
+  // 幂等判定（商用审计修复）：按 (toUserId, level) 差集而非整单计数。
+  // 此前 `already > 0` 整单短路 —— 多级链中若某受益人因结算币种不可折算被
+  // 跳过（其余受益人已落库），该级佣金**永久丢失**且 reconcile 的
+  // `commissions:{none:{}}` 扫描也永不覆盖。差集口径下，缺谁补谁。
+  const existingKeys = await prisma.commissionLog.findMany({
+    where: { orderId },
+    select: { toUserId: true, level: true },
+  });
+  const existingSet = new Set(existingKeys.map((r) => `${r.toUserId}:${r.level}`));
 
   const config = await getDistributionConfig();
   // 计佣基数（2026-09-24）：SALES=商品实付小计（历史口径）；
@@ -328,19 +334,47 @@ export async function accrueForOrder(
   });
   if (planned.length === 0) return { count: 0, skipped: "NO_PLAN" };
 
-  const usdToCny = await currentUsdToCny();
-  const usdRates = await currentUsdRates();
+  // 差集幂等：只补「尚未落库」的受益人级别（修复部分折算失败后的永久丢佣）
+  const fresh = planned.filter(
+    (p) => !existingSet.has(`${p.userId}:${p.level}`),
+  );
+  if (fresh.length === 0) return { count: 0, skipped: "ALREADY_ACCRUED" };
+
+  // 钱路径熔断（2026-09-26 商用审计）：汇率快照退化为静态参考/库内值滞后超限时
+  // 拒绝计提 —— 跳过留痕，对账补偿稍后会用恢复后的汇率补提，绝不按假汇率入账。
+  let rateSnap;
+  try {
+    rateSnap = await assertRatesUsableForMoney();
+  } catch (err) {
+    if (err instanceof RateUnavailableError) {
+      logger.warn({ orderId }, "[commission] 站点汇率不可用，跳过本单计提（对账补偿稍后补提）");
+      return { count: 0, skipped: "RATE_UNAVAILABLE" };
+    }
+    throw err;
+  }
+  const usdToCny = Number(rateSnap.rates["CNY"]);
+  const usdRates = rateSnap.rates;
   const exchangeRate = Number(order.exchangeRate);
   // 受益人各自的结算币种（账户级；还没开户的受益人按默认 CNY）
   const payeeAccounts = await prisma.distributorAccount.findMany({
-    where: { userId: { in: planned.map((p) => p.userId) } },
+    where: { userId: { in: fresh.map((p) => p.userId) } },
     select: { userId: true, settlementCurrency: true },
   });
   const settleCurrencyOf = new Map(payeeAccounts.map((a) => [a.userId, a.settlementCurrency]));
-  const rows = planned.map((p) => {
+  // 结算币种无法折算（快照缺该币种）的受益人跳过计佣并留痕 —— 宁可不付，不按假汇率入账
+  const settleSkipped: string[] = [];
+  const rows = fresh.flatMap((p) => {
     const settleCurrency = settleCurrencyOf.get(p.userId) ?? COMMISSION_CURRENCY;
     const amountCny = toCny(p.amount, order.currency, exchangeRate, usdToCny);
-    return {
+    const amountSettle =
+      settleCurrency === "CNY"
+        ? amountCny
+        : toSettle(p.amount, order.currency, exchangeRate, settleCurrency, usdRates);
+    if (!Number.isFinite(amountSettle) || amountSettle < 0) {
+      settleSkipped.push(`${p.userId}(settle:${settleCurrency})`);
+      return [];
+    }
+    return [{
       orderId,
       fromUserId: order.userId,
       toUserId: p.userId,
@@ -350,20 +384,25 @@ export async function accrueForOrder(
       amountCny,
       settleCurrency,
       // 计提时点按汇率快照固化结算币种金额 —— 之后汇率波动不影响这笔账
-      amountSettle:
-        settleCurrency === "CNY"
-          ? amountCny
-          : toSettle(p.amount, order.currency, exchangeRate, settleCurrency, usdRates),
+      amountSettle,
       currency: order.currency,
       baseAmount,
       status: "PENDING" as const,
       ...(baseNote ? { note: baseNote } : {}),
-    };
+    }];
   });
+  if (rows.length === 0) {
+    logger.warn({ orderId, settleSkipped }, "[commission] 结算币种汇率不可用，整单跳过计提（对账补偿会重试）");
+    captureMessage(
+      `[commission] 订单 ${orderId} 计提被跳过：受益人结算币种汇率不可用（${settleSkipped.join(", ")}）—— 对账补偿将在汇率恢复后重试`,
+      "warning",
+    );
+    return { count: 0, skipped: "SETTLE_RATE_UNAVAILABLE", detail: settleSkipped };
+  }
 
   // 受益人快照：用户注销/删除后（toUserId 置 NULL）仍能对账与客服追溯
   const payees = await prisma.user.findMany({
-    where: { id: { in: planned.map((p) => p.userId) } },
+    where: { id: { in: fresh.map((p) => p.userId) } },
     select: { id: true, name: true, email: true },
   });
   const payeeMap = new Map(payees.map((u) => [u.id, u]));
@@ -386,7 +425,7 @@ export async function accrueForOrder(
         orderNumber: order.orderNumber,
         baseAmount,
         currency: order.currency,
-        levels: planned.map((p) => p.level),
+        levels: fresh.map((p) => p.level),
         count: res.count,
       },
       req,
@@ -440,6 +479,7 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
       SELECT id, "toUserId", "amountCny", "reversedCny", "settleCurrency", "amountSettle", "reversedSettle"
       FROM "commission_logs"
       WHERE "orderId" = ${orderId} AND status = 'PENDING'
+      ORDER BY id
       FOR UPDATE
     `;
 
@@ -462,6 +502,30 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
       // 受益人已注销（toUserId 为 NULL）：流水照常推进，只是没有账户可入账
       if (!log.toUserId) {
         settled += 1;
+        continue;
+      }
+      // 商用审计修复（高危）：入账前断言流水币种 == 账户币种。
+      // 结算币种变更与首笔计提的竞态一旦漏网，CNY 面额会被当 EUR 记进账户
+      //（≈8 倍放大）。这里拒绝入账并告警，该流水停留在 SETTLED-but-未入账
+      // 状态由对账/人工跟进，绝不静默按错币种记账。
+      const payeeAccount = await tx.distributorAccount.findUnique({
+        where: { userId: log.toUserId },
+        select: { settlementCurrency: true },
+      });
+      if (payeeAccount && payeeAccount.settlementCurrency !== log.settleCurrency) {
+        captureMessage(
+          `[commission] 结算币种不一致：流水 ${log.id}（${log.settleCurrency}）≠ 账户 ${log.toUserId}（${payeeAccount.settlementCurrency}），已拒绝入账，需人工处理`,
+          "error",
+        );
+        logger.error(
+          { logId: log.id, logCurrency: log.settleCurrency, accountCurrency: payeeAccount.settlementCurrency },
+          "[commission] 结算币种不一致，拒绝入账",
+        );
+        // 回滚该行的 SETTLED 认领，保持 PENDING 供人工处置
+        await tx.commissionLog.update({
+          where: { id: log.id },
+          data: { status: "PENDING", settledAt: null },
+        });
         continue;
       }
       await tx.distributorAccount.upsert({
@@ -595,6 +659,7 @@ export async function applyOrderReversal(
       SELECT id, "toUserId", amount, "amountCny", "settleCurrency", "amountSettle", "reversedSettle", "reversedAmount", "reversedCny", "settledAt", status, "reversedAt"
       FROM "commission_logs"
       WHERE "orderId" = ${orderId} AND status <> 'REVERSED'
+      ORDER BY id
       FOR UPDATE
     `;
 

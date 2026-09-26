@@ -32,13 +32,15 @@ export const POST = apiHandler(async (req, ctx) => {
   const cleanReason = (await sanitizePlainText(input.reason)).trim().slice(0, 500);
   if (cleanReason.length < 5) throw badRequest("Refund reason must be at least 5 characters");
 
-  // 事务：行锁订单 + 累计所有「生效中」退款（REQUESTED/APPROVED/REFUNDED 均计入可退占用）
+  // 事务：行锁订单 + 累计所有「生效中」退款计入可退占用。
+  // FAILED 也必须计入（商用审计修复）：网关超时时本地置 FAILED，但 Stripe 侧可能
+  // 已扣款且 outbox 会重试复活——不计入则用户/管理员可按剩余额度再申请，累计超实付。
   const refund = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
     const sumResult = await tx.refund.aggregate({
       where: {
         orderId: order.id,
-        status: { in: ["REQUESTED", "APPROVED", "REFUNDED"] },
+        status: { in: ["REQUESTED", "APPROVED", "REFUNDED", "FAILED"] },
       },
       _sum: { amount: true },
     });

@@ -14,7 +14,7 @@ import { markOrderPaid, markOrderRefundedByGateway } from "@/server/services/ord
 import { distributionBridge } from "@/server/services/distribution/bridge";
 import { audit } from "@/lib/audit";
 import { logError } from "@/lib/logger";
-import { captureException } from "@/lib/monitoring";
+import { captureException, captureMessage } from "@/lib/monitoring";
 import { prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
@@ -111,6 +111,27 @@ export async function POST(req: Request) {
         const orderNumber = session.metadata?.orderNumber;
         if (!orderNumber) throw new WebhookIgnoredError("Missing order number");
 
+        // 商用审计修复（2026-09-26）：异步支付方式（SEPA 借记/Boleto/OXXO/Klarna/ACH）
+        // 在客户「提交」收银台时即触发本事件，此刻 payment_status 仍为 unpaid、钱未到账
+        // （凭证类可能永远不到账）。不校验就置 PAID = 客户凭一张凭证白拿货发货。
+        // unpaid 会话交由 async_payment_succeeded / async_payment_failed 后续事件驱动。
+        if (session.payment_status !== "paid") {
+          await audit({
+            action: "STRIPE_SESSION_UNPAID",
+            entity: "Order",
+            entityId: orderNumber,
+            meta: {
+              orderNumber,
+              paymentStatus: session.payment_status,
+              note: "异步支付方式未到账，等待 async_payment_* 事件",
+            },
+            req,
+          });
+          throw new WebhookIgnoredError(
+            `Session not paid yet (payment_status=${session.payment_status})`,
+          );
+        }
+
         const order = await prisma.order.findUnique({ where: { orderNumber } });
         if (!order) throw new WebhookIgnoredError(`Order not found: ${orderNumber}`);
 
@@ -139,6 +160,67 @@ export async function POST(req: Request) {
         const paymentIntent =
           typeof session.payment_intent === "string" ? session.payment_intent : undefined;
         await markOrderPaid(orderNumber, paymentIntent);
+        break;
+      }
+
+      // 异步支付方式（SEPA/Boleto/OXXO/Klarna/ACH）到账成功：此事件才代表钱真正收到。
+      // 校验口径与 completed(paid) 完全一致（金额按分精确比对 + 币种一致）。
+      case "checkout.session.async_payment_succeeded": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const orderNumber = session.metadata?.orderNumber;
+        if (!orderNumber) throw new WebhookIgnoredError("Missing order number");
+        if (session.payment_status !== "paid") {
+          throw new WebhookIgnoredError("async_payment_succeeded without paid status");
+        }
+        const order = await prisma.order.findUnique({ where: { orderNumber } });
+        if (!order) throw new WebhookIgnoredError(`Order not found: ${orderNumber}`);
+        const expectedCents = Math.round(Number(order.total) * 100);
+        if (session.amount_total !== expectedCents) {
+          await audit({
+            action: "STRIPE_AMOUNT_MISMATCH",
+            entity: "Order",
+            entityId: order.id,
+            meta: {
+              orderNumber,
+              gatewayAmount: session.amount_total,
+              expectedAmount: expectedCents,
+              event: "async_payment_succeeded",
+            },
+            req,
+          });
+          throw new WebhookIgnoredError("Payment amount does not match order");
+        }
+        if (
+          session.currency &&
+          order.currency &&
+          session.currency.toLowerCase() !== order.currency.toLowerCase()
+        ) {
+          throw new WebhookIgnoredError("Payment currency does not match order");
+        }
+        const paymentIntent =
+          typeof session.payment_intent === "string" ? session.payment_intent : undefined;
+        await markOrderPaid(orderNumber, paymentIntent);
+        break;
+      }
+
+      // 异步支付方式最终失败（凭证过期/借记被拒等）：订单维持待支付直至订单过期
+      // 自动取消；这里告警留痕，供客服提前联系客户改用即时支付方式。
+      case "checkout.session.async_payment_failed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        await audit({
+          action: "STRIPE_ASYNC_PAYMENT_FAILED",
+          entity: "Order",
+          entityId: session.metadata?.orderNumber ?? "unknown",
+          meta: {
+            orderNumber: session.metadata?.orderNumber,
+            paymentStatus: session.payment_status,
+          },
+          req,
+        });
+        captureMessage(
+          `[pay] 异步支付失败（订单 ${session.metadata?.orderNumber ?? "?"}，会话 ${session.id}）—— 客户未完成支付，订单将按超时规则自动取消`,
+          "warning",
+        );
         break;
       }
 

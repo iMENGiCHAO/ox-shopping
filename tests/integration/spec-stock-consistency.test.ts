@@ -153,4 +153,80 @@ describe("specStock 一致性（P2-1）", () => {
     // 回补后：Black=5 White=3（完全守恒）
     expect(await specOf(product.id)).toEqual({ Color: { Black: 5, White: 3 } });
   });
+
+  it("同商品多规格行下单：扣减链式聚合，无丢失更新（商用审计回归）", async () => {
+    const { POST: productPost } = await import("@/app/api/admin/products/route");
+    const { POST: ordersPost } = await import("@/app/api/orders/route");
+    const { POST: cancelPost } = await import("@/app/api/orders/[orderNumber]/cancel/route");
+    const { POST: addrPost } = await import("@/app/api/user/addresses/route");
+
+    const sku = `SPECMULTI-${Date.now()}`;
+    const create = await callApi(productPost, {
+      method: "POST",
+      cookies: cookiesOf(adminJar),
+      body: {
+        name: "多行聚合规格商品",
+        sku,
+        price: 99,
+        stock: 10,
+        categoryId,
+        status: "ACTIVE",
+        attributes: [{ name: "Color", values: ["Black", "White"] }],
+        specStock: { Color: { Black: 2, White: 8 } },
+      },
+    });
+    expect(create.status).toBe(200);
+    const product = ((await getData(create)) as { product: { id: string } }).product;
+    productIds.push(product.id);
+
+    const addr = await callApi(addrPost, {
+      method: "POST",
+      cookies: cookiesOf(userJar),
+      body: {
+        recipientName: "聚合测试",
+        phone: "13800138000",
+        province: "广东省",
+        city: "深圳市",
+        district: "南山区",
+        detail: "科技园 2 号",
+        isDefault: false,
+      },
+    });
+    const addressId = ((await getData(addr)) as { address: { id: string } }).address.id;
+
+    // 同一商品两行：Black×2 + White×1。
+    // 修复前：两行各自基于同一份旧快照计算再整体覆盖写回 —— White 行写回时
+    // 会把 Black 行的扣减抹掉（Black 库存凭空回升 → 规格级超卖，单请求可触发）。
+    // 修复后：链式聚合，两行扣减都生效：Black 2→0，White 8→7。
+    const order = await callApi(ordersPost, {
+      method: "POST",
+      cookies: cookiesOf(userJar),
+      body: {
+        items: [
+          { productId: product.id, quantity: 2, attributes: [{ name: "Color", value: "Black" }] },
+          { productId: product.id, quantity: 1, attributes: [{ name: "Color", value: "White" }] },
+        ],
+        addressId,
+        shippingMethod: "standard",
+        couponCode: "",
+      },
+    });
+    expect(order.status).toBe(200);
+    const orderNumber = ((await getData(order)) as { order: { orderNumber: string } }).order.orderNumber;
+    orderNumbers.push(orderNumber);
+
+    // 聚合断言：两行的扣减都落库（Black=0 White=7，而非旧 bug 的 Black=2 White=7）
+    expect(await specOf(product.id)).toEqual({ Color: { Black: 0, White: 7 } });
+    const productRow = await prisma.product.findUniqueOrThrow({ where: { id: product.id } });
+    expect(Number(productRow.stock)).toBe(7); // 总库存 10−3 同步正确
+
+    // 取消回补同样聚合：Black 0→2，White 7→8（而非旧行为只回补后一行）
+    const cancel = await callApi(cancelPost, {
+      method: "POST",
+      cookies: cookiesOf(userJar),
+      params: { orderNumber },
+    });
+    expect(cancel.status).toBe(200);
+    expect(await specOf(product.id)).toEqual({ Color: { Black: 2, White: 8 } });
+  });
 });

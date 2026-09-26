@@ -10,12 +10,13 @@ import { ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
 import { generateOrderNumber, toCents, formatMoney } from "@/lib/utils";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
 import { payableCurrencyCodes } from "@/server/services/currency-config.service";
-import { assertTransition, canTransition } from "@/lib/order-status";
+import { assertTransition, canTransition, REFUNDABLE_STATUSES } from "@/lib/order-status";
 import { queueMail } from "@/server/services/mail-outbox.service";
 import { audit } from "@/lib/audit";
 import { createNotification, notifyAdmins } from "@/server/services/notification.service";
 import { distributionBridge } from "@/server/services/distribution/bridge";
 import { logger } from "@/lib/logger";
+import { captureMessage } from "@/lib/monitoring";
 import {
   createCheckoutSession,
   createStripeRefund,
@@ -33,7 +34,11 @@ import { sanitizePlainText } from "@/lib/sanitize";
 import { assertValidSpecs } from "@/server/services/cart.service";
 import type { SpecSelection } from "@/server/services/cart.service";
 import { calculateShippingFee } from "@/server/services/shipping.service";
-import { getRateSnapshot } from "@/components/shop/currency-server";
+import {
+  assertRatesUsableForMoney,
+  RateUnavailableError,
+} from "@/components/shop/currency-server";
+import { serviceUnavailable } from "@/lib/errors";
 import {
   allocateLineAmounts,
   allocateRateAmounts,
@@ -387,14 +392,29 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       `当前币种（${userCurrency}）暂不支持结算，请在币种选择器切换到可支付的币种后重新提交`,
     );
   }
-  const rateSnap = await getRateSnapshot();
+  // 钱路径熔断（2026-09-26 商用审计）：汇率快照退化为静态参考值或库内值滞后超限时
+  // 拒绝下单 —— 按 30 小时前的旧汇率收款，平台结汇时差额全是真金白银的损失。
+  // 用户看到「稍后再试」，这比按错误汇率成交好得多；管理员也可锁价豁免。
+  let rateSnap;
+  try {
+    rateSnap = await assertRatesUsableForMoney();
+  } catch (err) {
+    if (err instanceof RateUnavailableError) {
+      throw serviceUnavailable(
+        "汇率服务暂时不可用，无法按当前汇率结算，请稍后再试或切换币种",
+      );
+    }
+    throw err;
+  }
   const exchangeRate = rateSnap.rates[userCurrency] ?? 1;
   // 基础货币为 USD，用户币种金额 = USD 金额 × 汇率
   const toUserCurrency = (amountUsd: number) => Math.round(amountUsd * exchangeRate * 100) / 100;
 
   const order = await prisma.$transaction(async (tx) => {
-    const ids = [...new Set(input.items.map((i) => i.productId))];
-    // 行锁串行化同商品的并发扣减（specStock 为 JSON 读-改-写，必须先锁行）
+    const ids = [...new Set(input.items.map((i) => i.productId))].sort();
+    // 行锁串行化同商品的并发扣减（specStock 为 JSON 读-改-写，必须先锁行）。
+    // ids 排序保证并发下单按同一顺序逐行加锁 —— 否则两个购物车部分重叠的
+    // 请求会互等成 PG 死锁，被 abort 的一方直接 500（商用审计修复）。
     await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
     const freshList = await tx.product.findMany({ where: { id: { in: ids } } });
     const freshById = new Map(freshList.map((p) => [p.id, p]));
@@ -467,6 +487,11 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       specDeducted: Record<string, number>;
     }
     const plans: ItemDeduction[] = [];
+    // 规格库存写回计划（商用审计 H-1 修复）：同商品多行必须**链式聚合**——
+    // 每行基于上一行扣减后的 next 继续算，循环结束后一次写回。此前每行独立
+    // 基于同一份旧快照计算再整体覆盖写回，同商品两行时后行把前行的扣减
+    // 覆盖掉（S×2+M×1 下单后 S 规格库存凭空回升 → 规格级超卖，单请求即可触发）。
+    const specWrites = new Map<string, { deducted: Record<string, number>; next: unknown }>();
     for (let i = 0; i < input.items.length; i++) {
       const item = input.items[i]!;
       const fresh = freshById.get(item.productId)!;
@@ -474,9 +499,11 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
       if (!fresh || fresh.status !== "ACTIVE")
         throw badRequest(`"${snapshot.name}" is no longer available`);
 
-      // 规格级校验与扣减计划（未追踪的组/值视为可用）
+      // 规格级校验与扣减计划（未追踪的组/值视为可用）；
+      // 聚合基准 = 同商品上一行的扣减结果，保证多行扣减全部生效
+      const prior = specWrites.get(item.productId);
       const plan = planSpecDeduction(
-        fresh.specStock,
+        (prior?.next ?? fresh.specStock) as unknown as Parameters<typeof planSpecDeduction>[0],
         item.attributes,
         item.quantity,
         fresh.isPresale,
@@ -510,15 +537,22 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
         }
       }
 
-      // 规格库存落库（JSON 整体写回；行锁保证无并发丢失更新）
+      // 记录聚合写回计划（同商品多行链式叠加），循环结束后一次写回
       if (Object.keys(plan.deducted).length > 0) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { specStock: plan.next as Prisma.InputJsonValue },
-        });
+        const merged: Record<string, number> = { ...(prior?.deducted ?? {}) };
+        for (const [k, v] of Object.entries(plan.deducted)) merged[k] = (merged[k] ?? 0) + v;
+        specWrites.set(item.productId, { deducted: merged, next: plan.next });
       }
 
       plans.push({ stockDeducted, specDeducted: plan.deducted });
+    }
+
+    // 规格库存落库：每商品一次写回（JSON 整体覆盖；行锁 + 聚合保证无并发/多行丢失更新）
+    for (const [productId, w] of specWrites) {
+      await tx.product.update({
+        where: { id: productId },
+        data: { specStock: w.next as Prisma.InputJsonValue },
+      });
     }
 
     // 2. 创建订单（存储用户币种金额 + 汇率快照）
@@ -827,6 +861,11 @@ export async function createPaymentUrl(
       }
     }
 
+    // 商用审计修复（2026-09-26）：legacy 路径此前把明细行逐行传给 Stripe，
+    // Σ行价×数量 = subtotal ≠ order.total（有运费/优惠券/税时）→ 会话金额与
+    // webhook 校验的 order.total 必然不等 → 金额不一致事件被忽略、订单永不置
+    // PAID、30 分钟后被自动取消 —— 但客户已被真实扣款。与渠道化路径同口径：
+    // 按订单总额单行建 Session，恒等于 webhook 校验值（明细进 Stripe 商品名）。
     const { url, sessionId } = await createCheckoutSession(
       {
         orderNumber: order.orderNumber,
@@ -836,12 +875,14 @@ export async function createPaymentUrl(
         // 游客单回跳结果页后要能继续查看订单
         accessToken: order.accessToken,
       },
-      order.items.map((i) => ({
-        name: i.productName,
-        image: i.productImage,
-        quantity: i.quantity,
-        price: Number(i.price),
-      })),
+      [
+        {
+          name: `Order ${order.orderNumber}`,
+          image: order.items[0]?.productImage ?? undefined,
+          quantity: 1,
+          price: Number(order.total),
+        },
+      ],
     );
     // 会话 ID 落库：掉单对账定时任务据此核对网关侧真实状态
     await prisma.order
@@ -874,6 +915,47 @@ export async function markOrderPaid(
     include: { items: true },
   });
   if (!order) throw notFound("Order not found");
+
+  // 已取消订单收到支付确认（商用审计 G 级修复）：订单过期被自动取消（库存已回补、
+  // 券已返还）后，Stripe 会话仍有平台侧最长 60s 的有效窗口（Stripe expires_at 最短
+  // 31 分钟 > 订单 30 分钟），顾客在窗口内完成支付时 webhook 会把已取消的单打到这里。
+  // 之前静默返回 = 钱被扣、货已回补给他人 —— 平台钱货两空且无告警。
+  // 兜底：全额原路退款 + error 级告警；退款失败也不吞事件，人工凭告警介入。
+  if (order.status === "CANCELLED" && order.paymentSessionId) {
+    logger.error(
+      { orderId: order.id, orderNumber: order.orderNumber, sessionId: order.paymentSessionId },
+      "[pay] 已取消订单收到支付确认，自动发起全额退款",
+    );
+    captureMessage(
+      `[pay] 已取消订单 ${order.orderNumber} 收到支付确认，已自动发起全额退款`,
+      "error",
+    );
+    try {
+      const session = await retrieveCheckoutSession(order.paymentSessionId);
+      const piId =
+        typeof session?.payment_intent === "string" ? session.payment_intent : null;
+      if (piId) {
+        await createStripeRefund(piId, Number(order.total));
+        logger.info(
+          { orderId: order.id, paymentIntent: piId, amount: Number(order.total) },
+          "[pay] 已取消订单退款已发起（原路全额）",
+        );
+      } else {
+        captureMessage(
+          `[pay] 已取消订单 ${order.orderNumber} 无法定位 PaymentIntent，退款未发起 —— 请人工退款（会话 ${order.paymentSessionId}）`,
+          "error",
+        );
+      }
+    } catch (err) {
+      logger.error({ err, orderId: order.id }, "[pay] 已取消订单自动退款失败");
+      captureMessage(
+        `[pay] 已取消订单 ${order.orderNumber} 自动退款失败，请人工退款：${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+    }
+    return order;
+  }
+
   if (order.status !== "PENDING_PAYMENT") return order;
 
   // 原子认领：并发场景只有一个调用方能把状态推进到 PAID。
@@ -993,7 +1075,7 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
       throw badRequest("This order cannot be cancelled in its current state");
     const o = (await tx.order.findUnique({ where: { id: order.id }, include: { items: true } }))!;
 
-    const ids = [...new Set(o.items.map((it) => it.productId).filter((v): v is string => !!v))];
+    const ids = [...new Set(o.items.map((it) => it.productId).filter((v): v is string => !!v))].sort();
     if (ids.length > 0) {
       await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(ids)}) FOR UPDATE`;
     }
@@ -1007,6 +1089,9 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
           ).map((p) => [p.id, p])
         : [],
     );
+    // 规格库存回补（商用审计：同商品多行必须链式聚合，一次写回 ——
+    // 逐行基于同一份快照独立回补再整体覆盖，会让同商品前一行的回补被后一行抹掉）
+    const specRestores = new Map<string, unknown>();
     for (const item of o.items) {
       if (!item.productId) continue;
       const p = productMap.get(item.productId);
@@ -1030,17 +1115,18 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
           data: { soldCount: { decrement: item.quantity } },
         });
       }
-      // 规格库存按记录精确回补
+      const prior = specRestores.get(item.productId);
       const restoredSpec = applySpecRestock(
-        p?.specStock,
+        (prior ?? p?.specStock) as Parameters<typeof applySpecRestock>[0],
         item.specDeducted as Record<string, number> | null,
       );
-      if (restoredSpec) {
-        await tx.product.update({
-          where: { id: item.productId },
-          data: { specStock: restoredSpec as unknown as Prisma.InputJsonValue },
-        });
-      }
+      if (restoredSpec) specRestores.set(item.productId, restoredSpec);
+    }
+    for (const [pid, next] of specRestores) {
+      await tx.product.update({
+        where: { id: pid },
+        data: { specStock: next as unknown as Prisma.InputJsonValue },
+      });
     }
     // 折扣码回补：取消即把券还给客户（usedCount − 1 并删除核销记录），
     // 与库存回补同一事务，避免「库存回来了、券却没回来」。
@@ -1289,11 +1375,23 @@ export async function approveRefund(
     if (!(["REQUESTED", "FAILED"] as string[]).includes(fresh.status)) {
       throw badRequest("This refund request has already been processed");
     }
+    // 纵深防御（商用审计）：订单当前状态必须仍可退款。申请创建时校验过一次，
+    // 但订单可能在等待审批期间被 webhook 置为 REFUNDED 等态 —— 此前只靠
+    // 占用额封顶间接兜住，这里在锁内显式再校验一次。
+    if (!REFUNDABLE_STATUSES.includes(order.status)) {
+      throw badRequest(
+        `Order status is ${order.status}, which is not refundable anymore`,
+      );
+    }
+    // 占用额聚合必须计入 FAILED（商用审计修复）：网关超时时本地置 FAILED，
+    // 但 Stripe 侧可能已扣款、outbox 稍后会重试把它复活——若不计入，管理员还能
+    // 按「剩余额度」再批新退款，本地 Σrefund 可超 order.total（接不做总额
+    // 封顶的网关时即真实超退）。FAILED ≠ 确定未扣款，必须视为已占用。
     const occupied = await tx.refund.aggregate({
       where: {
         orderId: order.id,
         id: { not: fresh.id },
-        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED"] },
+        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED", "FAILED"] },
       },
       _sum: { amount: true },
     });
@@ -1321,6 +1419,45 @@ export async function approveRefund(
   });
 
   return await processRefundOutboxItem(claimed.id);
+}
+
+/**
+ * 退款失败后的重试调度（商用审计修复：带死信上限）。
+ *
+ * 之前：FAILED → outbox RETRY + 60s 后重试，**无上限** —— 网关持续拒绝
+ * （如 charge 已全退、paymentId 缺失）时每分钟重试到永远，且管理员没有任何
+ * 接口能叫停；极晚成功还会让「已告知失败」的顾客数天后突然收到钱。
+ * 现在：attempts ≥ REFUND_MAX_ATTEMPTS 时 outbox 置 COMPLETED（终态，
+ * 停止自动重试）+ refund 保持 FAILED + error 级告警转人工；占用额聚合已
+ * 把 FAILED 计入封顶，所以死信不会让新退款超总额，只会留下待人工的缺口。
+ */
+const REFUND_MAX_ATTEMPTS = 6;
+async function scheduleRefundRetry(
+  refundId: string,
+  orderId: string,
+  message: string,
+  gatewayRefundId: string | null,
+): Promise<void> {
+  const box = await prisma.refundOutbox.findUnique({ where: { refundId } });
+  const dead = (box?.attempts ?? 0) >= REFUND_MAX_ATTEMPTS;
+  await prisma.$transaction([
+    prisma.refund.update({
+      where: { id: refundId },
+      data: { status: "FAILED", ...(gatewayRefundId ? { gatewayRefundId } : {}), lastError: message },
+    }),
+    prisma.refundOutbox.update({
+      where: { refundId },
+      data: dead
+        ? { status: "COMPLETED", claimedAt: null, lastError: `死信(${REFUND_MAX_ATTEMPTS} 次重试均失败)：${message}` }
+        : { status: "RETRY", nextAttemptAt: new Date(Date.now() + 60_000), lastError: message },
+    }),
+  ]);
+  if (dead) {
+    captureMessage(
+      `[refund] 退款 ${refundId}（订单 ${orderId}）连续 ${REFUND_MAX_ATTEMPTS} 次重试均失败，已停止自动重试 —— 请人工处理：${message}`,
+      "error",
+    );
+  }
 }
 
 /** 领取并执行一笔退款 outbox；稳定幂等键跨所有重试不变。 */
@@ -1421,20 +1558,7 @@ export async function processRefundOutboxItem(refundId: string): Promise<RefundE
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : "未知错误";
-    await prisma.$transaction([
-      prisma.refund.update({
-        where: { id: refundId },
-        data: { status: "FAILED", lastError: message },
-      }),
-      prisma.refundOutbox.update({
-        where: { refundId },
-        data: {
-          status: "RETRY",
-          nextAttemptAt: new Date(Date.now() + 60_000),
-          lastError: message,
-        },
-      }),
-    ]);
+    await scheduleRefundRetry(refundId, order.id, message, null);
     logger.error({ err, orderId: order.id, refundId }, "退款网关调用失败，已进入重试队列");
     return { state: "FAILED", refundId, gatewayRefundId: null, error: message };
   }
@@ -1459,20 +1583,7 @@ export async function processRefundOutboxItem(refundId: string): Promise<RefundE
 
   if (state === "FAILED") {
     const message = "Gateway rejected the refund";
-    await prisma.$transaction([
-      prisma.refund.update({
-        where: { id: refundId },
-        data: { status: "FAILED", gatewayRefundId, lastError: message },
-      }),
-      prisma.refundOutbox.update({
-        where: { refundId },
-        data: {
-          status: "RETRY",
-          nextAttemptAt: new Date(Date.now() + 60_000),
-          lastError: message,
-        },
-      }),
-    ]);
+    await scheduleRefundRetry(refundId, order.id, message, gatewayRefundId);
     return { state: "FAILED", refundId, gatewayRefundId, error: message };
   }
 
@@ -1538,10 +1649,11 @@ async function refundEntireOrder(
     if (!["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(fresh.status)) {
       throw new ApiError(400, "BAD_REQUEST", "Order status has changed; refresh and try again");
     }
+    // FAILED 同样计入占用（同 approveRefund：网关超时可能已扣款、outbox 会重试复活）
     const occupied = await tx.refund.aggregate({
       where: {
         orderId: order.id,
-        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED"] },
+        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED", "FAILED"] },
       },
       _sum: { amount: true },
     });
@@ -1633,7 +1745,7 @@ export async function markOrderRefundedByGateway(
     // 库存回补
     const productIds = [
       ...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v)),
-    ];
+    ].sort();
     if (productIds.length > 0) {
       await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) FOR UPDATE`;
       const products = await tx.product.findMany({
@@ -1641,6 +1753,8 @@ export async function markOrderRefundedByGateway(
         select: { id: true, isPresale: true, specStock: true },
       });
       const map = new Map(products.map((p) => [p.id, p]));
+      // 规格回补链式聚合（同 cancelOrder：同商品多行一次写回，防覆盖丢回补）
+      const specRestores = new Map<string, unknown>();
       for (const item of order.items) {
         if (!item.productId) continue;
         const p = map.get(item.productId);
@@ -1658,16 +1772,18 @@ export async function markOrderRefundedByGateway(
             data: { soldCount: { decrement: item.quantity } },
           });
         }
+        const prior = specRestores.get(item.productId);
         const restoredSpec = applySpecRestock(
-          p?.specStock,
+          (prior ?? p?.specStock) as Parameters<typeof applySpecRestock>[0],
           item.specDeducted as Record<string, number> | null,
         );
-        if (restoredSpec) {
-          await tx.product.update({
-            where: { id: item.productId },
-            data: { specStock: restoredSpec as unknown as Prisma.InputJsonValue },
-          });
-        }
+        if (restoredSpec) specRestores.set(item.productId, restoredSpec);
+      }
+      for (const [pid, next] of specRestores) {
+        await tx.product.update({
+          where: { id: pid },
+          data: { specStock: next as unknown as Prisma.InputJsonValue },
+        });
       }
     }
 

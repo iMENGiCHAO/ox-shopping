@@ -109,6 +109,10 @@ export const bankcardProvider: PaymentProvider = {
     const transactionId = params["transaction_id"] ?? "";
     const amount = Number(params["total_amount"] ?? "0");
     if (!orderNumber || !transactionId) return null;
+    // 商用审计修复：只认「支付成功」状态（同 alipay 的 trade_status 纵深）
+    if (params["status"] !== "SUCCESS" && params["trade_status"] !== "SUCCESS") {
+      return null;
+    }
     return { orderNumber, transactionId, amount };
   },
 
