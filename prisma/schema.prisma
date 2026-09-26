@@ -1171,3 +1171,20 @@ model OrderAttribution {
   @@index([natural, createdAt])
   @@map("order_attributions")
 }
+
+/// 调度器租约（2026-09-26 长事务重构）：单行表，多实例抢租约执行心跳任务。
+/// 此前整轮任务（含 Stripe 网络调用）包在最长 5 分钟的**事务**里持咨询锁 ——
+/// 常驻占 1 个连接池连接 + 每分钟的长事务阻碍 autovacuum 回收死元组
+/// （orders/commission_logs 高频更新表投产后表膨胀风险）。租约模式下：
+/// 短事务抢锁（毫秒级）→ 任务在**事务外**执行，崩溃后租约自然过期，
+/// 其他实例下轮接管。
+model SchedulerLease {
+  id          Int       @id @default(1)
+  /// 租约到期时间；到期后任何实例可抢占
+  lockedUntil DateTime
+  /// 当前持有者标识（实例随机 id，仅排障用）
+  holder      String?
+  updatedAt   DateTime  @updatedAt
+
+  @@map("scheduler_lease")
+}

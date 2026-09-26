@@ -63,6 +63,10 @@ beforeEach(async () => {
   for (const ip of ["127.0.0.1", "unknown", testClientKey()])
     await resetRateLimit(`order-create-ip:${ip}`);
   await resetRateLimit(`order-create:${userId}`);
+  // 调度器租约（长事务重构）：测试必须确定性地自己当 leader —— 清掉任何
+  // 持有者的租约（含 dev server 等共享本库进程留下的），否则抢不到锁、
+  // runScheduledJobs 静默让位，用例全数「假失败」。
+  await prisma.$executeRaw`DELETE FROM scheduler_lease`;
 });
 
 /** 下一单，然后把 createdAt 回拨到超时线之外，模拟「用户拍下没付款就走了」 */

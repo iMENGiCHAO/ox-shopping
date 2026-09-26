@@ -141,10 +141,9 @@ export async function createCheckoutSession(
  * 定时任务用它核对 PENDING_PAYMENT 订单在网关侧的真实状态（已支付→补标记，过期→取消）。
  *
  * `opts` 用于给**定时对账**路径加时间上界。为什么必须能加上界：
- * 对账在 `prisma.$transaction` 里调用（事务存在的唯一目的是持有
- * `pg_try_advisory_xact_lock` 做多实例选主），Stripe SDK 的默认超时是 80s，
- * 一旦网关变慢，事务时长就被外部服务延迟支配 —— 超过事务超时后**锁会提前释放**，
- * 另一个实例会并发跑同一轮任务。给出上界后事务时长有确定范围。
+ * 对账任务要求「单轮时长有确定边界」（中断安全，剩余下轮继续——调度器已
+ * 改租约表选主，任务在事务外执行），Stripe SDK 的默认超时是 80s，一旦网关
+ * 变慢，单轮对账会被外部服务延迟支配。给出上界后单轮时长有确定范围。
  * 建单路径（用户在等跳转）不传 `opts`，保持 SDK 默认行为。
  */
 export interface RetrieveSessionOptions {

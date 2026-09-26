@@ -17,11 +17,10 @@ import { drainMailOutbox } from "@/server/services/mail-outbox.service";
 
 /**
  * 进程内定时任务（Next instrumentation 启动，无需外部 cron）。
- * 多实例部署时通过 Postgres 事务级咨询锁(pg_try_advisory_xact_lock)选主：
- * 同一时刻只有一个实例持锁执行，事务结束锁自动释放，实例崩溃也无残留。
+ * 多实例部署通过 Postgres 租约表(scheduler_lease)选主：同一时刻只有一个
+ * 实例持有租约执行；实例崩溃后租约 55s 自然过期，其他实例下轮接管。
  */
 
-const LEADER_LOCK_KEY = 918_273_645;
 const RECONCILE_AFTER_MS = 10 * 60_000; // 下单 10 分钟后才对账
 const RECONCILE_BATCH = 50;
 
@@ -33,29 +32,30 @@ let lastReconcileAt = 0;
 let lastRollupAt = 0;
 
 /**
- * 选主事务的超时上限。
+ * 选主：租约表（scheduler_lease 单行）+ 原子条件更新 —— 2026-09-26 性能审计
+ * 的长事务重构落地。
  *
- * 必须显式给足：这个事务存在的**唯一**目的是持有
- * `pg_try_advisory_xact_lock`（事务级咨询锁，事务结束即释放），
- * 因此它的存活时长 = 本轮全部任务的耗时。Prisma 的交互事务默认只给 **5s**，
- * 在慢库/慢卷上（本项目的外置卷实测单轮 6.5s+）必然超时：
- * `A commit cannot be executed on an expired transaction` →
- * 每轮心跳都报错告警，而且**事务一死锁就提前释放**，
- * 此时任务可能还在跑，多实例下会被另一个实例重复执行（选主失效）。
+ * 此前设计（已废弃）：整轮任务包在最长 5 分钟的**事务**里持
+ * `pg_try_advisory_xact_lock`。两个投产级问题：
+ *   1. 事务时长 = 本轮全部任务耗时（含 Stripe 网络调用）→ 常驻占 1 个
+ *      连接池连接（Prisma 未显式配 connection_limit 的小规格实例上与页面
+ *      聚合争抢）；
+ *   2. 每分钟存在的分钟级长事务阻碍 autovacuum 回收死元组 ——
+ *      orders / commission_logs 都是高频更新表，投产后表膨胀 + 统计信息
+ *      失真的风险真实存在。
  *
- * 5 分钟对本轮任务（超时订单取消 + Token 清理 + 审计归档 + Stripe 对账）
- * 是充裕上界。代价是极端情况下会占住一个连接池连接，属可接受权衡。
- *
- * ⚠️ 遗留设计问题：`runAllJobs()` 里含 Stripe 网络请求，也就是**在数据库事务里做网络 I/O**，
- * 这是不推荐的（事务时长受外部服务延迟支配）。彻底解法是改用「租约表」
- * （lockedUntil 字段 + 条件更新 + 续租）让任务在事务外执行。
- * 当前用「每次外部调用超时上界 + 整轮时间预算」把事务时长**夹在确定范围内**兜底，
- * 重构仍列为后续项。
+ * 现行设计：`INSERT ... ON CONFLICT (id) DO UPDATE ... WHERE lockedUntil < now()`
+ * 单条原子语句抢租约（毫秒级短事务）→ 抢到后任务在**事务外**执行
+ * （网络 IO 不再占事务；各任务内部自己的短事务照旧）。租约 TTL 55s 略短于
+ * 心跳 60s：实例崩溃后租约自然过期，任何实例下轮接管，无残留锁。
+ * 任务本身全部幂等（事件级 claim + 订单级 CAS + 计提三层幂等），
+ * 极端情况下租约过期后另一实例提前接棒跑同一轮也是安全的。
  */
-const LEADER_TX_TIMEOUT_MS = 5 * 60_000;
-const LEADER_TX_MAX_WAIT_MS = 10_000;
+const LEASE_TTL_MS = 55_000;
+/** 进程内防重入：上一轮未跑完时跳过本轮（interval 重触发），不做排队。 */
+let jobsInFlight = false;
 
-/** 单次 Stripe 查询的超时上界（毫秒）。必须显式给：SDK 默认 80s 会让持锁事务失去上界。 */
+/** 单次 Stripe 查询的超时上界（毫秒）。必须显式给：SDK 默认 80s 会让单轮失去上界。 */
 const RECONCILE_REQUEST_TIMEOUT_MS = 8_000;
 
 /**
@@ -73,29 +73,41 @@ const RECONCILE_BUDGET_MS = 120_000;
  * 退款 outbox 自动重试（P1：此前退款只在管理员「批准」时同步执行一次，
  * 网关失败/未确认的 RETRY 项永远无人认领 → 退款静默卡死，只能人工反复重批）。
  * `processRefundOutboxItem` 自带「认领租约 + 5 分钟过期抢占」，幂等且并发安全，
- * 这里只负责扫描到期项。网关调用发生在持锁事务内（同 Stripe 对账的已知取舍），
- * 因此同样需要批大小 + 时间预算双上界，保证事务时长有确定边界。
+ * 这里只负责扫描到期项。网关调用已移出租约事务外执行（长事务重构），
+ * 批大小 + 时间预算双上界仍保留：保证单轮时长有确定边界，任务中断安全。
  */
 const REFUND_OUTBOX_BATCH = 10;
 const REFUND_OUTBOX_BUDGET_MS = 90_000;
 
-/** 每个心跳周期执行的全部任务（咨询锁保证多实例只有一个真正执行） */
+/** 每个心跳周期执行的全部任务（租约保证多实例只有一个真正执行） */
 export async function runScheduledJobs(): Promise<void> {
+  if (jobsInFlight) return; // 上一轮还没跑完：跳过本轮（任务幂等，不排队）
+  jobsInFlight = true;
   try {
-    await prisma.$transaction(
-      async (tx) => {
-        const rows = await tx.$queryRaw<Array<{ locked: boolean }>>`
-        SELECT pg_try_advisory_xact_lock(${LEADER_LOCK_KEY}) AS locked`;
-        if (!rows[0]?.locked) return; // 其他实例正在执行本轮
-
-        await runAllJobs();
-      },
-      { timeout: LEADER_TX_TIMEOUT_MS, maxWait: LEADER_TX_MAX_WAIT_MS },
-    );
+    const acquired = await acquireLease();
+    if (!acquired) return; // 其他实例持有租约，本轮让位
+    await runAllJobs(); // 事务外执行：网络 IO 不再占数据库事务
   } catch (err) {
     logger.error({ err }, "[cron] 心跳执行失败");
     captureMessage("[cron] 心跳执行失败", "error");
+  } finally {
+    jobsInFlight = false;
   }
+}
+
+/** 原子抢租约：单条 INSERT ON CONFLICT DO UPDATE ... WHERE 过期才可抢 */
+async function acquireLease(): Promise<boolean> {
+  const holder = `inst-${process.pid}`;
+  const now = new Date();
+  const until = new Date(Date.now() + LEASE_TTL_MS);
+  const rows = await prisma.$queryRaw<Array<{ id: number }>>`
+    INSERT INTO scheduler_lease (id, "lockedUntil", holder, "updatedAt")
+    VALUES (1, ${until}, ${holder}, now())
+    ON CONFLICT (id) DO UPDATE
+      SET "lockedUntil" = ${until}, holder = ${holder}, "updatedAt" = now()
+      WHERE scheduler_lease."lockedUntil" < ${now}
+    RETURNING id`;
+  return rows.length > 0;
 }
 
 async function runAllJobs(): Promise<void> {
@@ -306,7 +318,7 @@ async function runAllJobs(): Promise<void> {
 
   // 3c. 邮件 outbox 自动重试（P1：订单确认/发货/退款邮件此前 fire-and-forget，
   //     网关抖动即永久丢信）。queueMail 落库后立即试发一次，此后靠这里退避重试；
-  //     网络发送在持锁事务内（同 Stripe 对账取舍），drain 自带批大小 + 时间预算上界。
+  //     网络发送在租约事务外执行（长事务重构后），drain 自带批大小 + 时间预算上界。
   try {
     const n = await drainMailOutbox();
     if (n > 0) logger.info({ count: n }, "[cron] 邮件 outbox 已处理");

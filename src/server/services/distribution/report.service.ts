@@ -1,6 +1,7 @@
 import "server-only";
 import type { OrderStatus } from "@prisma/client";
 import type { WithdrawStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cacheGet, cacheSet } from "@/lib/cache";
 import { logger } from "@/lib/logger";
@@ -101,23 +102,38 @@ export async function getMyCustomers(
   const ids = binds.map((b) => b.customerId).filter((v): v is string => !!v);
   if (ids.length === 0) return { rows: [], total };
 
-  const [orders, commissions] = await Promise.all([
-    prisma.order.findMany({
-      where: {
-        userId: { in: ids },
-        paidAt: { not: null },
-        status: { notIn: ["CANCELLED", "REFUNDED"] },
-      },
-      select: {
-        userId: true,
-        total: true,
-        currency: true,
-        exchangeRate: true,
-        addressSnapshot: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }),
+  // 性能审计下推：此前 findMany 无 take 拉本页客户**全部已支付订单**（含
+  // addressSnapshot 重 JSONB）回 Node 聚合 —— 大客户场景一次数千行。现拆两条
+  // SQL：① groupBy 聚合消费额/单数；② DISTINCT ON 每客户只取最近一单的快照
+  // 提取手机号。口径与原 toCny 逐分支对照（空/USD 币种按原额，rate<=0 按 1）。
+  const [spendRows, latestRows, commissions] = await Promise.all([
+    prisma.$queryRaw<{ userId: string; count: number; cny: string }[]>`
+      SELECT
+        o."userId" AS "userId",
+        COUNT(*)::int AS "count",
+        COALESCE(SUM(
+          CASE WHEN COALESCE(NULLIF(o."currency", ''), 'USD') = 'USD'
+            THEN o."total"::numeric
+            ELSE o."total"::numeric
+              / CASE WHEN o."exchangeRate" > 0 THEN o."exchangeRate"::numeric ELSE 1 END
+          END * CAST(${String(usdToCny)} AS numeric)
+        ), 0)::text AS "cny"
+      FROM orders o
+      WHERE o."userId" IN (${Prisma.join(ids)})
+        AND o."paidAt" IS NOT NULL
+        AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+      GROUP BY o."userId"
+    `,
+    prisma.$queryRaw<{ userId: string; addressSnapshot: unknown }[]>`
+      SELECT DISTINCT ON (o."userId")
+        o."userId" AS "userId",
+        o."addressSnapshot" AS "addressSnapshot"
+      FROM orders o
+      WHERE o."userId" IN (${Prisma.join(ids)})
+        AND o."paidAt" IS NOT NULL
+        AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+      ORDER BY o."userId", o."createdAt" DESC
+    `,
     prisma.commissionLog.groupBy({
       by: ["fromUserId"],
       where: {
@@ -129,14 +145,18 @@ export async function getMyCustomers(
     }),
   ]);
 
+  const phoneByUser = new Map<string, string>();
+  for (const r of latestRows) {
+    if (r.userId) phoneByUser.set(r.userId, phoneFromSnapshot(r.addressSnapshot));
+  }
   const spend = new Map<string, { count: number; cny: number; phone: string }>();
-  for (const o of orders) {
-    if (!o.userId) continue;
-    const cur = spend.get(o.userId) ?? { count: 0, cny: 0, phone: "" };
-    cur.count += 1;
-    cur.cny += toCny(Number(o.total), o.currency, Number(o.exchangeRate), usdToCny);
-    if (!cur.phone) cur.phone = phoneFromSnapshot(o.addressSnapshot); // 最近一单的手机号
-    spend.set(o.userId, cur);
+  for (const r of spendRows) {
+    if (!r.userId) continue;
+    spend.set(r.userId, {
+      count: r.count,
+      cny: Number(r.cny ?? 0),
+      phone: phoneByUser.get(r.userId) ?? "",
+    });
   }
   const commissionByUser = new Map(
     commissions.map((c) => [c.fromUserId ?? "", Number(c._sum.amountCny ?? 0)]),

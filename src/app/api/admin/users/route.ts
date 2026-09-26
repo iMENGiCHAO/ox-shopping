@@ -57,39 +57,52 @@ export const GET = apiHandler(async (req) => {
 
   // 本页客户的订单聚合：有效消费（paid 且非取消/退款）按各订单的汇率快照折算 CNY，
   // 与仪表盘「各币种销售汇总」完全同口径；金额不能直接 sum（跨币种混加没有意义）。
+  // 性能审计下推：此前 findMany 无 take 拉本页用户**全部历史订单**回 Node 聚合
+  // （鲸鱼用户把单页放大到数千行）—— 现一条 SQL groupBy 库内完成，口径逐分支对照
+  // （游客单 userId 为 null 天然不在 IN 列表里，聚合只含本页注册用户）。
   const ids = rows.map((r) => r.id);
-  const [orders, usdCnyRate] = await Promise.all([
-    ids.length
-      ? prisma.order.findMany({
-          where: { userId: { in: ids } },
-          select: {
-            userId: true,
-            total: true,
-            currency: true,
-            exchangeRate: true,
-            createdAt: true,
-            status: true,
-            paidAt: true,
-          },
-        })
-      : Promise.resolve([]),
-    getRateSnapshot().then((s) => s.rates["CNY"] ?? 7.2),
-  ]);
+  const usdCnyRate = ids.length
+    ? await getRateSnapshot().then((s) => s.rates["CNY"] ?? 7.2)
+    : 7.2;
 
-  const agg = new Map<string, { paidCount: number; paidCny: number; lastOrderAt: Date | null }>();
-  for (const o of orders) {
-    // 游客订单 userId 为 null：不归属任何用户，跳过（聚合口径只统计注册用户）
-    if (!o.userId) continue;
-    const a = agg.get(o.userId) ?? { paidCount: 0, paidCny: 0, lastOrderAt: null };
-    a.lastOrderAt = !a.lastOrderAt || o.createdAt > a.lastOrderAt ? o.createdAt : a.lastOrderAt;
-    if (o.paidAt && o.status !== "CANCELLED" && o.status !== "REFUNDED") {
-      a.paidCount += 1;
-      const rate = Number(o.exchangeRate ?? 1);
-      const usd =
-        o.currency === "USD" || !rate || rate <= 0 ? Number(o.total) : Number(o.total) / rate;
-      a.paidCny += usd * usdCnyRate;
-    }
-    agg.set(o.userId, a);
+  const aggRows =
+    ids.length > 0
+      ? await prisma.$queryRaw<
+          { userId: string; lastOrderAt: Date | null; paidCount: number; paidCny: string }[]
+        >`
+          SELECT
+            o."userId" AS "userId",
+            MAX(o."createdAt") AS "lastOrderAt",
+            COUNT(*) FILTER (
+              WHERE o."paidAt" IS NOT NULL
+                AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+            )::int AS "paidCount",
+            COALESCE(SUM(
+              CASE WHEN COALESCE(o."exchangeRate", 0) > 0
+                    AND COALESCE(NULLIF(o."currency", ''), 'USD') <> 'USD'
+                THEN o."total"::numeric / o."exchangeRate"::numeric
+                ELSE o."total"::numeric END
+              * CAST(${String(usdCnyRate)} AS numeric)
+            ) FILTER (
+              WHERE o."paidAt" IS NOT NULL
+                AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+            ), 0)::text AS "paidCny"
+          FROM orders o
+          WHERE o."userId" IN (${Prisma.join(ids)})
+          GROUP BY o."userId"
+        `
+      : [];
+
+  const agg = new Map<
+    string,
+    { paidCount: number; paidCny: number; lastOrderAt: Date | null }
+  >();
+  for (const r of aggRows) {
+    agg.set(r.userId, {
+      paidCount: r.paidCount,
+      paidCny: Number(r.paidCny ?? 0),
+      lastOrderAt: r.lastOrderAt ? new Date(r.lastOrderAt) : null,
+    });
   }
 
   const enriched = rows.map((r) => ({
