@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
+import { safeJsonLd } from "@/lib/utils";
 import { listCategoryTree, listProducts } from "@/server/services/product.service";
 import { ProductCard } from "@/components/shop/product-card";
 import { ProductGrid } from "@/components/shop/product-grid";
@@ -135,7 +136,7 @@ export default async function HomePage() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify([
+          __html: safeJsonLd([
             {
               "@context": "https://schema.org",
               "@type": "Organization",

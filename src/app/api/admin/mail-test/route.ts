@@ -56,6 +56,8 @@ export const POST = apiHandler(async (req) => {
       meta: { to: input.to, channel: status.effective, ok: false, reason },
       req,
     }).catch(() => undefined);
-    throw new ApiError(400, "BAD_REQUEST", `测试邮件发送失败：${reason}`);
+    // 商用审计收敛：SMTP/Resend 的异常原文可能含主机/账号细节——审计留痕里有
+    // reason（admin 可查），客户端只回固定文案。
+    throw new ApiError(400, "BAD_REQUEST", "测试邮件发送失败");
   }
 });

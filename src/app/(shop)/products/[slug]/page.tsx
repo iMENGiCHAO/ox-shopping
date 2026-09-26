@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { safeJsonLd } from "@/lib/utils";
 import type { Metadata } from "next";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -180,7 +181,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }}
       />
       <div className="shell pdp-shell space-y-14 pb-12 pt-12">
         {/* Main section — 官方 PDP 栅格 7fr / 80px / 3fr（见 .pdp-grid）

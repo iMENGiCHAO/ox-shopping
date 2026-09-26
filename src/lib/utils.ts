@@ -98,3 +98,18 @@ export function randomFilename(originalName: string): string {
 export function dateString(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * JSON-LD 安全序列化（2026-09-26 商用审计高危修复）。
+ *
+ * `JSON.stringify` 不转义 `<` —— 字符串里的 `</script>` 会闭合 JSON-LD 的
+ * script 标签，其后内容按 HTML 解析。FAQ/产品名/站点名这类**由后台录入、
+ * 前台公开页渲染**的字段一旦被注入 `</script><meta refresh>`，全体访客会被
+ * 强制跳钓鱼站（meta refresh 不受 CSP nonce/strict-dynamic 限制）。
+ *
+ * 修法（Next.js 官方推荐）：把 `<` 转义为 `\u003c`，一行修根。所有
+ * `dangerouslySetInnerHTML` 承载 JSON-LD 的地方必须经此函数。
+ */
+export function safeJsonLd(value: unknown): string {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}

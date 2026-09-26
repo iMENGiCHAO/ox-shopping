@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+import { safeJsonLd } from "@/lib/utils";
 import type { Metadata } from "next";
 import { getT, getLang } from "@/lib/shop-i18n-server";
 import { prisma } from "@/lib/prisma";
@@ -115,7 +116,7 @@ export default async function FaqsPage() {
     <div className="content-shell pb-16 pt-[var(--page-title-pt)]">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }}
       />
       {/* 原站实测：字号是**流式**的（375 → 20px，1216 → 26.5639px），
           上内边距也响应式（<1000 → 40px，≥1000 → 64px）。此前写死 28px。 */}

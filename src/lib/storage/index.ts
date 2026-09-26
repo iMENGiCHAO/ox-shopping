@@ -199,9 +199,13 @@ export async function completePresignedUpload(
     await s3
       .send(new DeleteObjectCommand({ Bucket: env.S3_BUCKET, Key: key }))
       .catch(() => undefined);
+    // 商用审计修复：S3 SDK/网络异常的原文可能含 endpoint/bucket/key 细节，
+    // 绝不透传给客户端（上传完成接口仅 requireStaff，可被探测存储拓扑）。
+    // 原文进日志，客户端只见固定文案。
+    logger.warn({ err, key }, "[upload] S3 complete 闸门校验失败");
     return {
       ok: false,
-      error: err instanceof Error ? err.message : "上传验证失败",
+      error: "上传验证失败",
     };
   }
 }
