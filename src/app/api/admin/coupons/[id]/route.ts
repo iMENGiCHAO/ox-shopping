@@ -1,5 +1,5 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { serializeCoupon } from "@/server/serializers";
@@ -58,7 +58,7 @@ export const GET = apiHandler(async (_req, ctx) => {
 
 /** PUT /api/admin/coupons/[id] — 全量更新券码 */
 export const PUT = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = couponId(ctx);
   const input = await readJson(req, couponSchema);
 
@@ -102,7 +102,7 @@ export const PUT = apiHandler(async (req, ctx) => {
  * 若开关也走 PUT，前端必须回传整行，任何字段漂移都会让开关失效。
  */
 export const PATCH = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = couponId(ctx);
   const input = await readJson(req, couponToggleSchema);
 
@@ -134,7 +134,7 @@ export const PATCH = apiHandler(async (req, ctx) => {
  * 这类券只能停用（isActive=false）。
  */
 export const DELETE = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = couponId(ctx);
 
   const coupon = await prisma.coupon.findUnique({

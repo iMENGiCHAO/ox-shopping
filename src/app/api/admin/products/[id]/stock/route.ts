@@ -1,5 +1,5 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { serializeProduct } from "@/server/serializers";
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { invalidateProductsCache } from "@/lib/cache";
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 /** PATCH /api/admin/products/[id]/stock */
 export const PATCH = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);
   const input = await readJson(req, stockUpdateSchema);
 

@@ -1,7 +1,8 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
 import { routeParam } from "@/app/api/_lib/params";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -22,9 +23,12 @@ const updateSchema = z.object({
 
 /** PUT /api/admin/shipping-methods/[id] */
 export const PUT = apiHandler(async (req, ctx) => {
-  await requireStaff();
+  const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);
   const input = await readJson(req, updateSchema);
+  // 商用审计补痕（2026-09-26）：运费直接影响订单应付金额——更新前取旧值，
+  // 留痕记前后对比。此前 PUT/DELETE 是全后台唯一「资金相关且零留痕」的写面。
+  const before = await prisma.shippingMethod.findUnique({ where: { id } });
   const method = await prisma.shippingMethod.update({
     where: { id },
     data: {
@@ -41,12 +45,28 @@ export const PUT = apiHandler(async (req, ctx) => {
       ...(input.etaEn !== undefined ? { etaEn: input.etaEn } : {}),
     },
   });
+  await audit({
+    userId: actor.id,
+    action: "ADMIN_SHIPPING_UPDATE",
+    entity: "ShippingMethod",
+    entityId: method.id,
+    meta: {
+      code: method.code,
+      feeBefore: before ? before.fee : null,
+      feeAfter: method.fee,
+      freeOverBefore: before ? before.freeOver : null,
+      freeOverAfter: method.freeOver,
+      isCashOnDelivery: method.isCashOnDelivery,
+      isActive: method.isActive,
+    },
+    req,
+  });
   return json({ method });
 });
 
 /** DELETE /api/admin/shipping-methods/[id] — 仅未被订单引用的可删 */
 export const DELETE = apiHandler(async (req, ctx) => {
-  await requireStaff();
+  const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);
   const used = await prisma.order.count({ where: { shippingMethodId: id } });
   if (used > 0) {
@@ -55,8 +75,25 @@ export const DELETE = apiHandler(async (req, ctx) => {
       where: { id },
       data: { isActive: false },
     });
+    await audit({
+      userId: actor.id,
+      action: "ADMIN_SHIPPING_DELETE",
+      entity: "ShippingMethod",
+      entityId: id,
+      meta: { code: method.code, soft: true, orderRefs: used },
+      req,
+    });
     return json({ method, soft: true });
   }
+  const doomed = await prisma.shippingMethod.findUnique({ where: { id } });
   await prisma.shippingMethod.delete({ where: { id } });
+  await audit({
+    userId: actor.id,
+    action: "ADMIN_SHIPPING_DELETE",
+    entity: "ShippingMethod",
+    entityId: id,
+    meta: { code: doomed?.code ?? null, soft: false, orderRefs: 0 },
+    req,
+  });
   return json({ ok: true });
 });

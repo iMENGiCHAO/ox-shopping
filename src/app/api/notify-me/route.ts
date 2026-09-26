@@ -4,6 +4,7 @@ import { badRequest, notFound, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_LIMITS } from "@/lib/rate-limits";
 import { hasSoldOutSpecValue } from "@/server/services/spec-stock";
+import { getClientIp } from "@/lib/server/utils-server";
 import { z } from "zod";
 import { getLang } from "@/lib/shop-i18n-server";
 import type { Lang } from "@/lib/shop-i18n";
@@ -21,6 +22,14 @@ const schema = z.object({
 export const POST = apiHandler(async (req) => {
   const input = await readJson(req, schema);
   const email = input.email.toLowerCase();
+
+  // 权限审计修复：单邮箱桶可被轮换邮箱绕过——叠加 IP 桶，挡「轮换邮箱无限
+  // 灌 NotifyMe 行 → 补货时邮件轰炸 + DB 灌水」
+  const ipRl = await rateLimit({
+    key: `notifyme-ip:${getClientIp(req)}`,
+    ...RATE_LIMITS.notifyMeIp,
+  });
+  if (!ipRl.ok) throw rateLimited("Too many requests, please try again later");
 
   const rl = await rateLimit({ key: `notifyme:${email}`, ...RATE_LIMITS.notifyMe });
   if (!rl.ok) throw rateLimited("Too many requests, please try again later");

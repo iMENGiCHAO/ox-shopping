@@ -1,5 +1,5 @@
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { serializeCoupon } from "@/server/serializers";
@@ -79,7 +79,7 @@ export const GET = apiHandler(async (req) => {
 
 /** POST /api/admin/coupons — 新建券码 */
 export const POST = apiHandler(async (req) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const input = await readJson(req, couponSchema);
 
   const exists = await prisma.coupon.findUnique({ where: { code: input.code } });

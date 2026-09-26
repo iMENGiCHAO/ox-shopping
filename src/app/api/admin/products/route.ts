@@ -2,7 +2,7 @@ import { aggregateTrackedStock } from "@/server/services/spec-stock";
 import { getSiteSettings } from "@/server/services/settings.service";
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
 import { conflict } from "@/lib/errors";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { serializeProduct } from "@/server/serializers";
 import { invalidateProductsCache } from "@/lib/cache";
 import { audit } from "@/lib/audit";
@@ -87,7 +87,7 @@ export const GET = apiHandler(async (req) => {
 
 /** POST /api/admin/products */
 export const POST = apiHandler(async (req) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const input = await readJson(req, productCreateSchema);
 
   const skuExists = await prisma.product.findUnique({ where: { sku: input.sku } });

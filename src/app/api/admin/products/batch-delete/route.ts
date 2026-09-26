@@ -1,5 +1,5 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/session";
 import { invalidateProductsCache } from "@/lib/cache";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  *  - 审计记录被删商品 id 与名称（最多记 20 个，避免 meta 过大）
  */
 export const POST = apiHandler(async (req) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const input = await readJson(req, batchDeleteSchema);
 
   const rows = await prisma.product.findMany({

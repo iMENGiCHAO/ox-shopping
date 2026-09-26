@@ -69,6 +69,12 @@ export const RATE_LIMITS = {
   },
   /** 到货提醒订阅：单邮箱 5 次/小时（另有同邮箱+商品去重兜底） */
   notifyMe: { limit: 5, windowSeconds: 3600 },
+  /** 到货提醒订阅（IP 桶）：20 次/小时——单邮箱桶可被轮换邮箱绕过，
+   * IP 桶挡「轮换邮箱无限灌 NotifyMe 行 → 补货时邮件轰炸 + DB 灌水」（权限审计修复） */
+  notifyMeIp: { limit: 20, windowSeconds: 3600 },
+  /** 退款申请：单订单 3 次/10 分钟——每笔申请都会 notifyAdmins 刷后台待办，
+   * 攻击者持 N 个游客单 token 可无限刷管理员通知队列（权限审计修复） */
+  refundRequest: { limit: 3, windowSeconds: 600 },
   /** 分销绑定关系变更：单用户 10 次/小时 */
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */

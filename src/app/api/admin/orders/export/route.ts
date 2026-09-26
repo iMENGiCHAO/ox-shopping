@@ -1,6 +1,7 @@
 import { apiHandler, searchParam } from "@/lib/api";
 import { badRequest } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { dateString } from "@/lib/utils";
 import { toCsv, normalizeRows } from "@/lib/csv";
@@ -22,7 +23,7 @@ const ORDER_STATUSES: OrderStatus[] = [
 
 /** GET /api/admin/orders/export — 订单 CSV 导出(上限 5000 条) */
 export const GET = apiHandler(async (req) => {
-  await requireStaff();
+  const actor = await requireStaff();
   const sp = new URL(req.url).searchParams;
   const status = searchParam(sp, "status");
   const q = searchParam(sp, "q");
@@ -75,6 +76,15 @@ export const GET = apiHandler(async (req) => {
   }));
 
   const csv = toCsv(normalizeRows(rows));
+  // 权限审计补痕：全量订单导出含收货人/邮箱 PII，SUPPORT 可拉取——外带必须留痕
+  await audit({
+    userId: actor.id,
+    action: "ADMIN_ORDER_EXPORT",
+    entity: "Order",
+    entityId: "batch",
+    meta: { rows: rows.length, status: status ?? null, q: q ?? null, from: from ?? null, to: to ?? null },
+    req,
+  });
   const filename = `orders-${dateString(new Date()).replace(/-/g, "")}.csv`;
 
   return new Response(csv, {

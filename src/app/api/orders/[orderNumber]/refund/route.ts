@@ -1,5 +1,5 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { badRequest, conflict } from "@/lib/errors";
+import { badRequest, conflict, rateLimited } from "@/lib/errors";
 import { requireOrderAccess, orderContact } from "@/server/services/order-access";
 import { serializeRefund } from "@/server/serializers";
 import { audit } from "@/lib/audit";
@@ -10,6 +10,9 @@ import { refundRequestSchema } from "@/lib/validations/cart-order";
 import { REFUNDABLE_STATUSES } from "@/lib/order-status";
 import { routeParam } from "@/app/api/_lib/params";
 import { sanitizePlainText } from "@/lib/sanitize";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
+import { getClientIp } from "@/lib/server/utils-server";
 import { Prisma } from "@prisma/client";
 
 export const runtime = "nodejs";
@@ -19,7 +22,12 @@ export const POST = apiHandler(async (req, ctx) => {
   const input = await readJson(req, refundRequestSchema);
   const orderNumber = routeParam(ctx.params.orderNumber);
 
+  // 权限审计修复：每笔申请都 notifyAdmins 刷后台待办——攻击者持 N 个游客单
+  // token 可逐单无限刷管理员通知队列。按订单限流（游客场景叠加 IP 桶）。
   const { order, user } = await requireOrderAccess(req, orderNumber);
+  const rlKey = user ? `refund-req:${orderNumber}` : `refund-req:${orderNumber}:${getClientIp(req)}`;
+  const rl = await rateLimit({ key: rlKey, ...RATE_LIMITS.refundRequest });
+  if (!rl.ok) throw rateLimited("Too many refund requests, please try again later");
 
   if (!REFUNDABLE_STATUSES.includes(order.status)) {
     throw badRequest("This order is not eligible for a refund in its current state");

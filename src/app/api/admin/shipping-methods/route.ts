@@ -1,8 +1,9 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { listAllShippingMethods } from "@/server/services/shipping.service";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/errors";
+import { audit } from "@/lib/audit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -34,7 +35,7 @@ const createSchema = z.object({
 
 /** POST /api/admin/shipping-methods — 新建（代号唯一性 + 格式友好校验） */
 export const POST = apiHandler(async (req) => {
-  await requireStaff();
+  const actor = await requireAdmin();
   const input = await readJson(req, createSchema);
   // 与历史行为一致：写入前统一小写 + 空格转短横线
   const code = input.code.toLowerCase().replace(/\s+/g, "-");
@@ -68,6 +69,15 @@ export const POST = apiHandler(async (req) => {
       etaZh: input.etaZh ?? null,
       etaEn: input.etaEn ?? null,
     },
+  });
+  // 商用审计补痕：运费模板直接影响订单应付金额，写操作必须留痕
+  await audit({
+    userId: actor.id,
+    action: "ADMIN_SHIPPING_CREATE",
+    entity: "ShippingMethod",
+    entityId: method.id,
+    meta: { code: method.code, fee: method.fee, freeOver: method.freeOver, isCashOnDelivery: method.isCashOnDelivery },
+    req,
   });
   return json({ method }, { status: 201 });
 });

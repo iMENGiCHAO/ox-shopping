@@ -1,6 +1,6 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { conflict } from "@/lib/errors";
-import { requireStaff } from "@/lib/auth/session";
+import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { getProductById } from "@/server/services/product.service";
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { aggregateTrackedStock } from "@/server/services/spec-stock";
@@ -28,7 +28,7 @@ export const GET = apiHandler(async (req, ctx) => {
 
 /** PUT /api/admin/products/[id] */
 export const PUT = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);
   const existing = await getProductById(id);
   const input = await readJson(req, productUpdateSchema);
@@ -82,7 +82,7 @@ export const PUT = apiHandler(async (req, ctx) => {
  *  订单历史安全：OrderItem 存有 name/image/sku/price 快照且 productId onDelete=SetNull，
  *  删除后历史订单仍完整展示；CartItem/Review 为 Cascade 一并清理；NotifyMe 引用会保留但失联。 */
 export const DELETE = apiHandler(async (req, ctx) => {
-  const actor = await requireStaff();
+  const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);
   const existing = await getProductById(id);
   const name = existing.name;
