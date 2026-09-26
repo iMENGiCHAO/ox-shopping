@@ -237,6 +237,9 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  /// 心跳清理任务按 expiresAt 批删（scheduler 每 60s）：
+  /// 无索引时 20 万用户 × 多设备 token 规模下每分钟全表扫（性能审计修复）。
+  @@index([expiresAt])
   @@map("refresh_tokens")
 }
 
@@ -449,6 +452,13 @@ model Order {
   @@index([paymentSessionId])
   @@index([assigneeId])
   @@index([isUnread, status])
+  /// 运营默认视图按 [isUnread desc, createdAt desc] 排序：无此索引时
+  /// 50 万行 seq scan + top-N sort（性能审计高危）。
+  @@index([isUnread, createdAt(sort: Desc)])
+  /// 资金口径统计/对账全靠 paidAt 过滤（营收、趋势、reconcile）：
+  /// 此前全 schema 无 paidAt 索引，全部 seq scan（性能审计高危）。
+  /// PG 单列 b-tree 不含 NULL 行，`paidAt IS NOT NULL` 谓词直接命中。
+  @@index([paidAt])
   @@map("orders")
 }
 
@@ -558,6 +568,9 @@ model MailOutbox {
 
   @@index([status, nextAttemptAt])
   @@index([createdAt])
+  /// 心跳清理按 updatedAt 批删已终态行（scheduler 每 60s）：无索引时倾向
+  /// 全表扫（性能审计中危）。
+  @@index([updatedAt])
   @@map("mail_outbox")
 }
 
@@ -1036,6 +1049,9 @@ model CommissionLog {
   @@index([orderId])
   @@index([toUserId, status, createdAt])
   @@index([status, createdAt])
+  /// 风控自购检测（90 天窗口倒序）/ 报表按时间过滤：单列时间索引支撑，
+  /// 此前风控 SQL 无命中时全表扫 100 万行（性能审计中危）。
+  @@index([createdAt])
   @@map("commission_logs")
 }
 

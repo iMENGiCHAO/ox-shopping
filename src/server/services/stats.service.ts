@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getRateSnapshot } from "@/components/shop/currency-server";
 import { getSiteSettings } from "@/server/services/settings.service";
+import { cacheGet, cacheSet } from "@/lib/cache";
 
 /**
  * 管理端仪表盘统计。
@@ -94,7 +95,13 @@ interface RevenueByCurrencyRow {
   cnyEquivalent: DbNumber;
 }
 
-export async function getAdminStats() {
+/**
+ * 重统计部分（性能审计修复：仪表盘每次刷新对 50 万行 orders 做 ≥4 次全表扫）：
+ * 3 条营收/趋势 SQL + 9 个 count 全部走 30s 缓存 —— recentOrders/topProducts
+ * 是 take 8/5 的轻查询，保留实时（新订单即时可见），不进缓存（也避免
+ * Date 字段经 JSON round-trip 变 string 的类型失真）。
+ */
+async function computeHeavyStats() {
   const now = new Date();
   const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -144,8 +151,6 @@ export async function getAdminStats() {
     todayOrders,
     notifyMeCount,
     lowStockCount,
-    recentOrders,
-    topProducts,
   ] = await Promise.all([
     prisma.$queryRaw<RevenueTotalsRow[]>(Prisma.sql`
       SELECT
@@ -201,20 +206,6 @@ export async function getAdminStats() {
     prisma.order.count({ where: { createdAt: { gte: dayStart } } }),
     prisma.notifyMe.count({ where: { status: "draft" } }),
     prisma.product.count({ where: { status: "ACTIVE", stock: { lte: lowStockThreshold } } }),
-    prisma.order.findMany({
-      take: 8,
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      include: {
-        user: { select: { name: true, email: true } },
-        items: { select: { productName: true } },
-      },
-    }),
-    prisma.product.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: [{ soldCount: "desc" }, { id: "asc" }],
-      take: 5,
-      select: { id: true, name: true, slug: true, soldCount: true, stock: true, price: true },
-    }),
   ]);
 
   const totals = totalsRows[0] ?? { revenueUsd: 0, todayRevenueUsd: 0 };
@@ -249,10 +240,52 @@ export async function getAdminStats() {
     todayRevenueUsd: Math.round(todayRevenueUsd * 100) / 100,
     todayOrders,
     trend: buildRevenueTrend(days, trendRows, usdToCny),
-    recentOrders,
-    topProducts,
     notifyMeCount,
     lowStockCount,
     lowStockThreshold,
   };
+}
+
+/**
+ * 仪表盘统计入口（性能审计修复：30s 缓存 + 轻查询实时）。
+ *
+ * 缓存语义：统计数字（营收/趋势/各计数）最多滞后 30s —— 管理端可接受
+ * （审计建议 30-60s）；TTL 自然过期，不做写路径失效联动（仪表盘非交易链路）。
+ * recentOrders（take 8）/ topProducts（take 5）是索引命中的轻查询，实时执行，
+ * 新订单即时出现在「最近订单」。
+ */
+const ADMIN_STATS_CACHE_KEY = "admin:stats:v1";
+const ADMIN_STATS_CACHE_TTL = 30;
+
+type HeavyAdminStats = Awaited<ReturnType<typeof computeHeavyStats>>;
+
+export async function getAdminStats() {
+  let heavy = await cacheGet<HeavyAdminStats>(ADMIN_STATS_CACHE_KEY);
+  if (!heavy) {
+    heavy = await computeHeavyStats();
+    await cacheSet(ADMIN_STATS_CACHE_KEY, heavy, ADMIN_STATS_CACHE_TTL);
+  }
+  const [recentOrders, topProducts] = await Promise.all([
+    prisma.order.findMany({
+      take: 8,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      include: {
+        user: { select: { name: true, email: true } },
+        items: { select: { productName: true } },
+      },
+    }),
+    prisma.product.findMany({
+      where: { status: "ACTIVE" },
+      orderBy: [{ soldCount: "desc" }, { id: "asc" }],
+      take: 5,
+      select: { id: true, name: true, slug: true, soldCount: true, stock: true, price: true },
+    }),
+  ]);
+  return { ...heavy, recentOrders, topProducts };
+}
+
+/** 显式失效仪表盘统计缓存（测试/运营手动刷新用；生产靠 30s TTL 自然过期） */
+export async function invalidateAdminStatsCache(): Promise<void> {
+  const { cacheDel } = await import("@/lib/cache");
+  await cacheDel(ADMIN_STATS_CACHE_KEY);
 }

@@ -25,6 +25,13 @@ const LEADER_LOCK_KEY = 918_273_645;
 const RECONCILE_AFTER_MS = 10 * 60_000; // 下单 10 分钟后才对账
 const RECONCILE_BATCH = 50;
 
+/* 性能审计降频守卫：分销对账（补偿性质）5 分钟一轮；团队业绩 rollup（天级
+ * 新鲜度足够）每小时一轮。此前两者都跟着 60s 心跳每轮跑。 */
+const RECONCILE_JOB_INTERVAL_MS = 5 * 60_000;
+const ROLLUP_JOB_INTERVAL_MS = 60 * 60_000;
+let lastReconcileAt = 0;
+let lastRollupAt = 0;
+
 /**
  * 选主事务的超时上限。
  *
@@ -309,9 +316,20 @@ async function runAllJobs(): Promise<void> {
 
   // 4. 分销对账补偿（隔离模块）：补归属 / 补佣金 / 冲正退款单 / 到期结算。
   //    走 bridge：`DISTRIBUTION_ENABLED=false` 时立即返回，异常也只记录日志。
-  await distributionBridge.runReconcile();
+  //    性能审计修复（降频）：对账是补偿性质（漏网单由 7 天水位窗口兜底），
+  //    此前每 60s 心跳跑一轮，稳态下两轮「全表+反连接」扫描纯属浪费 —— 降为
+  //    5 分钟一轮，扫描成本降 5 倍且不损失任何补齐时延语义。
+  if (Date.now() - lastReconcileAt >= RECONCILE_JOB_INTERVAL_MS) {
+    await distributionBridge.runReconcile();
+    lastReconcileAt = Date.now();
+  }
 
   // 5. 分销团队业绩日汇总（P2-12，幂等）：把"每次打开报表全表扫描"变成读小表。
-  //    每次调度都跑最近 2 天，既保证当日数据新鲜，也不怕漏跑。
-  await distributionBridge.runRollup();
+  //    性能审计修复（降频）：rollup 的 teamSize 快照天级新鲜度足够，此前却每
+  //    60s 心跳都跑（每轮对闭包表全表 groupBy ×2）—— 降为每小时一轮。
+  //    幂等可重跑 + rollup 覆盖最近 2 天，漏跑下轮自动补齐。
+  if (Date.now() - lastRollupAt >= ROLLUP_JOB_INTERVAL_MS) {
+    await distributionBridge.runRollup();
+    lastRollupAt = Date.now();
+  }
 }

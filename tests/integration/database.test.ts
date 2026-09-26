@@ -6,7 +6,12 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { getAdminStats, localDateKey, toUsd } from "@/server/services/stats.service";
+import {
+  getAdminStats,
+  invalidateAdminStatsCache,
+  localDateKey,
+  toUsd,
+} from "@/server/services/stats.service";
 
 const STATS_ORDER_PREFIX = `QA-STATS-${Date.now()}-`;
 
@@ -135,6 +140,8 @@ describe("管理端统计数据库聚合", () => {
       })),
     });
 
+    // 统计带 30s 缓存（性能审计修复）：断言增量前显式失效，拿实时值
+    await invalidateAdminStatsCache();
     const after = await getAdminStats();
     // getAdminStats 仍会取最近 8 单用于列表，但营收不得再走无 take 的全量 findMany。
     expect(orderFindMany).toHaveBeenCalledTimes(2);

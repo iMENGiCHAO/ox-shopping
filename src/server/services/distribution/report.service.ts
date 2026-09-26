@@ -2,6 +2,7 @@ import "server-only";
 import type { OrderStatus } from "@prisma/client";
 import type { WithdrawStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cacheGet, cacheSet } from "@/lib/cache";
 import { logger } from "@/lib/logger";
 import type { CommissionState } from "@/lib/distribution/contract";
 import {
@@ -423,7 +424,26 @@ async function getTeamStatsLive(
 
 /* ─────────────────────────── 平台侧（管理员） ─────────────────────────── */
 
+/** 分销总览缓存（性能审计修复：commissionLog 全表 groupBy + 闭包表近全量
+ * count，每次打开总览页都跑 —— 60s 缓存，纯数字结构无 Date，JSON 安全） */
+const ADMIN_OVERVIEW_CACHE_KEY = "dist:overview:v1";
+const ADMIN_OVERVIEW_CACHE_TTL = 60;
+
 export async function getAdminOverview(): Promise<{
+  distributors: number;
+  teamMembers: number;
+  binds: number;
+  commissionByStatus: Record<string, { count: number; amountCny: number }>;
+  pendingWithdraw: { count: number; amountCny: number };
+}> {
+  const cached = await cacheGet<Awaited<ReturnType<typeof computeAdminOverview>>>(ADMIN_OVERVIEW_CACHE_KEY);
+  if (cached) return cached;
+  const overview = await computeAdminOverview();
+  await cacheSet(ADMIN_OVERVIEW_CACHE_KEY, overview, ADMIN_OVERVIEW_CACHE_TTL);
+  return overview;
+}
+
+async function computeAdminOverview(): Promise<{
   distributors: number;
   teamMembers: number;
   binds: number;
@@ -658,22 +678,45 @@ export async function getAdminReport(days = 30): Promise<{
   const from = new Date(Date.now() - days * 86_400_000);
   const usdToCny = await currentUsdToCny();
 
-  const [orders, grouped] = await Promise.all([
-    prisma.order.findMany({
-      where: { paidAt: { gte: from, not: null }, status: { notIn: ["CANCELLED", "REFUNDED"] } },
-      select: {
-        total: true,
-        currency: true,
-        exchangeRate: true,
-        items: {
-          select: {
-            quantity: true,
-            price: true,
-            product: { select: { costPrice: true } },
-          },
-        },
-      },
-    }),
+  /* 性能审计修复（SQL 聚合下推）：此前把窗口内全部已支付订单 + items + 商品
+     成本拉进 Node 内存算毛利 —— 365 天窗口可拉数十万行 × items，单请求内存/
+     CPU 尖峰、响应数十秒。口径完全不变（toCny 的 CASE 表达式逐分支对照）：
+     USD（含空/NULL 币种）按原额，其他币种除以订单汇率快照（<=0 按 1），
+     再乘当前 USD→CNY。两条 SQL 都走 orders paidAt 索引 + order_items orderId
+     索引，库内流式聚合，任意窗口都不占 Node 内存。 */
+  const usdToCnyLiteral = String(usdToCny);
+  const [revenueRows, costRows, grouped] = await Promise.all([
+    prisma.$queryRaw<{ paidOrders: number; revenueCny: string }[]>`
+      SELECT
+        COUNT(*)::int AS "paidOrders",
+        COALESCE(SUM(
+          CASE WHEN COALESCE(NULLIF(o."currency", ''), 'USD') = 'USD'
+            THEN o."total"::numeric
+            ELSE o."total"::numeric
+              / CASE WHEN o."exchangeRate" > 0 THEN o."exchangeRate"::numeric ELSE 1 END
+          END * CAST(${usdToCnyLiteral} AS numeric)
+        ), 0)::text AS "revenueCny"
+      FROM orders o
+      WHERE o."paidAt" IS NOT NULL AND o."paidAt" >= ${from}
+        AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+    `,
+    prisma.$queryRaw<{ itemsTotal: number; itemsWithCost: number; costCny: string }[]>`
+      SELECT
+        COUNT(*)::int AS "itemsTotal",
+        COUNT(*) FILTER (WHERE p."costPrice" IS NOT NULL AND p."costPrice" > 0)::int AS "itemsWithCost",
+        COALESCE(SUM(
+          CASE WHEN COALESCE(NULLIF(o."currency", ''), 'USD') = 'USD'
+            THEN (COALESCE(p."costPrice", 0) * i."quantity")::numeric
+            ELSE (COALESCE(p."costPrice", 0) * i."quantity")::numeric
+              / CASE WHEN o."exchangeRate" > 0 THEN o."exchangeRate"::numeric ELSE 1 END
+          END * CAST(${usdToCnyLiteral} AS numeric)
+        ), 0)::text AS "costCny"
+      FROM order_items i
+      JOIN orders o ON o."id" = i."orderId"
+      LEFT JOIN products p ON p."id" = i."productId"
+      WHERE o."paidAt" IS NOT NULL AND o."paidAt" >= ${from}
+        AND o."status" NOT IN ('CANCELLED', 'REFUNDED')
+    `,
     // 带 reversedCny：部分退款后流水仍是 PENDING/SETTLED，
     // 只看 amountCny 会把已冲正的部分也算成佣金支出（payoutRatio 虚高）。
     prisma.commissionLog.groupBy({
@@ -683,19 +726,13 @@ export async function getAdminReport(days = 30): Promise<{
     }),
   ]);
 
-  let revenueCny = 0;
-  let costCny = 0;
-  let itemsWithCost = 0;
-  let itemsTotal = 0;
-  for (const o of orders) {
-    revenueCny += toCny(Number(o.total), o.currency, Number(o.exchangeRate), usdToCny);
-    for (const it of o.items) {
-      itemsTotal += 1;
-      const cost = Number(it.product?.costPrice ?? 0);
-      if (cost > 0) itemsWithCost += 1;
-      costCny += toCny(cost * it.quantity, o.currency, Number(o.exchangeRate), usdToCny);
-    }
-  }
+  const revenueRow = revenueRows[0] ?? { paidOrders: 0, revenueCny: "0" };
+  const costRow = costRows[0] ?? { itemsTotal: 0, itemsWithCost: 0, costCny: "0" };
+  const paidOrders = revenueRow.paidOrders;
+  const revenueCny = Number(revenueRow.revenueCny ?? 0);
+  const costCny = Number(costRow.costCny ?? 0);
+  const itemsTotal = costRow.itemsTotal;
+  const itemsWithCost = costRow.itemsWithCost;
 
   /* 净额口径（P1 修复）：每笔流水可贡献的收入 = amountCny − reversedCny；
      REVERSED 桶是「已全额冲正」的行，不再计入支出，只并入「已冲正」合计
@@ -721,7 +758,7 @@ export async function getAdminReport(days = 30): Promise<{
 
   return {
     days,
-    paidOrders: orders.length,
+    paidOrders,
     paidRevenueCny: round2(revenueCny),
     commissionTotalCny: commissionTotal,
     commissionSettledCny: settled,
@@ -762,8 +799,15 @@ export async function reconcileDistribution(limit = 100): Promise<{
   // 一次性写成自然单，之后不再反复扫描（P0-4）
   const enabledAt = await getDistributionEnabledAt();
 
+  /* 性能审计修复（扫描水位）：归属/佣金在支付时同步写入，本对账只补「写
+     时崩溃/竞态」的漏网单 —— 漏网单在下轮（5 分钟）即被补齐并滑出命中集。
+     此前无时间下界：稳态下每轮都要对 50 万行 paid 集合做全表 + 反连接扫描
+     且永远返回 0 行。7 天窗口远宽于补齐周期，已补齐的行不再命中（attribution
+     非空 / commissions 非空），稳态扫描量 = 最近 7 天活跃集 ≈ 0 行。 */
+  const reconcileFloor = new Date(Date.now() - 7 * 86_400_000);
   const orphans = await prisma.order.findMany({
     where: {
+      createdAt: { gte: reconcileFloor },
       paidAt: { not: null },
       status: { in: COMMISSIONABLE },
       attribution: null,
@@ -787,6 +831,7 @@ export async function reconcileDistribution(limit = 100): Promise<{
 
   const missing = await prisma.order.findMany({
     where: {
+      createdAt: { gte: reconcileFloor },
       paidAt: { not: null },
       status: { in: COMMISSIONABLE },
       attribution: { distributorId: { not: null } },
@@ -897,9 +942,12 @@ export async function getRiskReport(options: { largeWithdrawThreshold?: number }
        进不了视图 —— 而自购返佣（自买自返/刷单）正是风控最核心的信号，
        漏报等于风控形同虚设。这里用原生 SQL 在库内完成字段对字段比较。 */
     (async () => {
+      /* 性能审计修复：自反比较无法用普通索引，无命中时全表扫 100 万行 ——
+         加 90 天窗口（风控信号时效性足够）+ createdAt 索引，倒序扫最近窗口。 */
       const selfBuyIds = await prisma.$queryRaw<{ id: string }[]>`
         SELECT id FROM commission_logs
         WHERE "fromUserId" = "toUserId" AND status IN ('PENDING', 'SETTLED')
+          AND "createdAt" >= now() - interval '90 days'
         ORDER BY "createdAt" DESC
         LIMIT 200
       `;
@@ -1357,4 +1405,10 @@ export async function getDailyStatSeries(
     salesCny: Number(r.salesCny),
     commissionCny: Number(r.commissionCny),
   }));
+}
+
+/** 显式失效分销总览缓存（测试用；生产靠 60s TTL 自然过期） */
+export async function invalidateAdminOverviewCache(): Promise<void> {
+  const { cacheDel } = await import("@/lib/cache");
+  await cacheDel(ADMIN_OVERVIEW_CACHE_KEY);
 }
