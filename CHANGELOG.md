@@ -9,6 +9,56 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-26（五）· 全项目死代码清扫：删 37 个僵尸脚本 + 240 条僵尸词条 + 死函数（梦哥）
+
+> 大爷要求：「检查一下这个项目有哪些是死代码、僵尸代码——之前修改优化网店
+> 冗余的、不要的——清理一下，保持项目的干净。」原则：工具扫描 + 引用链
+> 人工验证双保险，不盲删（约定式路由、词典字符串引用、动态 import 都是
+> 扫描器盲区，必须逐个验证）。
+
+### 一、僵尸脚本（37 个文件，-631 行）
+
+- **早期 QA 手工探测脚本 32 个**（`scripts/qa/qa-*.mjs`）：被 Playwright e2e
+  + vitest 集成测试全套取代，且经引用链分析零可达（npm scripts 入口 +
+  文档活指引均无）。**保留 10 个有 npm 入口的**（`qa:hardcode`/
+  `qa:error-lang`/`qa:links:static` 三件套更是 `verify` 门禁链的组成部分）。
+- **一次性/遗留脚本 5 个**：`start-dev-db.mjs`（embedded-postgres 依赖根本
+  不在 package.json，跑不起来的「遗留路径」）、`wait-for-db.mjs`、
+  `seed-faqs.ts`（FAQ 种子已并入 `prisma/seed.ts`）、`gen-demo-images.mjs`、
+  `fix-error-lang.mjs`。
+- 文档同步：QUICKSTART / PROJECT_DEVELOPMENT / DESIGN 里对已删脚本的
+  「可用」指引改为指向 Playwright / 现行链路。
+
+### 二、词典僵尸词条（240 条，admin 69 + shop 171）
+
+- 两本 i18n 词典里躺着历次迭代换版前的文案尸块（如 Banners/Subscribe/
+  "New Arrivals"/"Forgot password?"），只增不减。
+- **清理即工程化**：正向测试（`i18n-keys`）只保证「引用的 key 必须有词条」，
+  新增 `i18n-dict-lean` 反向卫生测试补齐另一半——「词条必须被引用」，
+  进 CI 后新死词条直接红，不用再周期性人工清扫。
+- 实施教训（三次迭代）：正则/字符串偏移对多行块、转义引号、注释全不可靠
+  （v2 误删活词条、v3 破坏文件结构），最终用 **TypeScript AST**（编译器级
+  pos/end 定位词条节点）+ prettier 重排 + 双向测试验证，一次通过。
+
+### 三、死函数与重复导出（6 处）
+
+- `categoryProductCount`（category-utils）、`getCategoryBySlug` / `getHomeData` /
+  `requireProduct` + `badRequest` 转发导出（product.service）、
+  `cleanupExpiredTokens` / `refreshRequiredError`（session）、`isTest`（env）
+  ——全部零引用，删。
+- `productImageSchema` 是 `imageUrlSchema` 的纯别名（重复导出），删别名、
+  调用点改用本体。
+- 清理后遗留的 3 个空 import 一并摘除，lint 警告回到基线 14。
+- **刻意保留**：`components/ui/*` 全家桶的 re-export（shadcn 组件库完整性，
+  非 business 死代码）；文件内部在用、仅 export 面过宽的符号（收窄属于
+  风格优化，不属死代码，未动）。
+
+### 四、验证
+
+- tsc 0 错 · lint 0 错 14 警（零新增）· 单测 **284/284**（含新增反向卫生
+  测试 2 例）· 集成 **166/166** · build ✅ · e2e 不受影响（`verify` 门禁链
+  中的 qa:static 三件套全部保留）
+
 ## 2026-09-24（四）· 后台体验修复 + 全站多币种结算 + 分销利润分成（梦哥）
 
 > 大爷实测反馈（原话要点）：侧栏收起后没有功能图标；后台仪表盘中英混用；
