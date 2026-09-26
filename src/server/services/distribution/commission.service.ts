@@ -571,7 +571,7 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
         [...byUser.entries()].map(([userId, entry]) =>
           notifyCommissionSettled({
             userId,
-            amountCny: entry.net,
+            amountSettle: entry.net,
             settleCurrency: entry.currency,
             orderNumber: order?.orderNumber,
           }).catch((err) => logger.error({ err, userId }, "分销：结算通知失败（已忽略）")),
@@ -607,7 +607,7 @@ export async function reversalRatioForOrder(orderId: string): Promise<number> {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     // ⚠️ 必须取 subtotal/discount：冲正比例的分母要与**计提基数**同源
-    select: { status: true, total: true, subtotal: true, discount: true },
+    select: { status: true, total: true, subtotal: true, discount: true, shippingFee: true, tax: true },
   });
   if (!order) return 0;
   if (order.status === "REFUNDED" || order.status === "CANCELLED") return 1;
@@ -622,11 +622,26 @@ export async function reversalRatioForOrder(orderId: string): Promise<number> {
   /* 分母口径（P1-1 修复）：**商品实付小计**（subtotal − discount），与 commissionBase() 同源。
      原实现用 order.total 作分母：佣金既然按「商品实付」计提，就必须按「商品实付」冲正。
      含运费订单（实测 87/96 张）商品全额退款时 refunded/total = 90/100 = 0.9，
-     只冲回 90% 佣金 —— 平台在已退款的商品上白付 10%~25% 的佣金。
-     退款额可能含运费（整单退），此时比值 >1 → 夹取到 1（全额冲正）。 */
+     只冲回 90% 佣金 —— 平台在已退款的商品上白付 10%~25% 的佣金。 */
   const base = commissionBase(order);
   if (base <= 0) return 1;
-  return Math.min(1, refunded / base);
+  /* 分子口径（商用审计修复，二修）：退款额不含行级拆分，不知道「这笔退的是
+     商品还是运费」。旧口径按 refunded/base 直接冲 —— 纯运费退款 10 元也会按
+     10/90 冲佣金，等于用运费错扣分销商的血汗钱。一修的 min(refunded, base)
+     与旧口径数学恒等（自查推翻）。二修口径：
+     · 整单退（refunded ≈ total）：分子 = base，全额冲正；
+     · 部分退款：先把运费+税从分子中剔除 —— 退款额默认优先偿还运费税，
+       剩余部分才视为商品退款。这会低估部分「纯商品退款」的冲正额
+       （平台有界多付），但绝不因运费错扣分销商 —— 宁可平台多付，不错扣。
+     行级拆分（该退的是哪些行）依赖退款明细的 schema 演进，届时精确到行。 */
+  const shippingFee = Number(order.shippingFee) || 0;
+  const tax = Number(order.tax) || 0;
+  const orderTotal = Number(order.total);
+  const goodsRefunded =
+    refunded >= orderTotal - 0.01
+      ? base
+      : Math.max(0, refunded - shippingFee - tax);
+  return Math.min(1, goodsRefunded / base);
 }
 
 /**
@@ -721,7 +736,7 @@ export async function applyOrderReversal(
           [...reversedByUser.entries()].map(([userId, entry]) =>
             notifyCommissionReversed({
               userId,
-              amountCny: entry.amount,
+              amountSettle: entry.amount,
               settleCurrency: entry.currency,
               orderNumber: orderRow?.orderNumber,
               full: ratio >= 1,
@@ -989,7 +1004,7 @@ export async function reverseCommissionManually(input: {
   if (result.toUserId) {
     void notifyCommissionReversed({
       userId: result.toUserId,
-      amountCny: result.deltaSettle,
+      amountSettle: result.deltaSettle,
       settleCurrency: result.settleCurrency,
       full: result.fullReversed,
     }).catch((err) => logger.error({ err }, "分销：人工冲正通知失败（已忽略）"));

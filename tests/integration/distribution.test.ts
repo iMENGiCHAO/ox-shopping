@@ -605,9 +605,14 @@ describe("P0 加固：部分退款按比例冲正", () => {
     const afterPartial = await prisma.commissionLog.findUniqueOrThrow({ where: { id: mine.id } });
     /* 冲正分母 = **商品实付小计**（subtotal − discount），与计佣基数同源。
        这里刻意**不再**用 orderRow.total：含运费订单用 total 作分母会系统性漏冲
-       （商品全退时只冲 90%，平台在已退款商品上白付佣金）——P1-1 修复。 */
+       （商品全退时只冲 90%，平台在已退款商品上白付佣金）——P1-1 修复。
+       分子口径（商用审计二修）：部分退款**先剔除运费+税**再进分子 ——
+       退款额默认优先偿还运费税，剩余才是商品退款。旧口径 half 直接进分子，
+       「一半退款里含运费的一半」也会去冲佣金 = 用运费错扣分销商。 */
     const commissionBase = Number(orderRow.subtotal) - Number(orderRow.discount);
-    const expectedRatio = half / commissionBase;
+    const shippingAndTax = Number(orderRow.shippingFee) + Number(orderRow.tax);
+    const goodsRefunded = Math.max(0, half - shippingAndTax);
+    const expectedRatio = goodsRefunded / commissionBase;
     expect(Number(afterPartial.reversedAmount)).toBeCloseTo(Number(mine.amount) * expectedRatio, 1);
     // 部分冲正不等于全额：状态不能被标成 REVERSED
     expect(afterPartial.status).not.toBe("REVERSED");
@@ -633,6 +638,53 @@ describe("P0 加固：部分退款按比例冲正", () => {
     expect(afterFull.every((l) => l.status === "REVERSED")).toBe(true);
     for (const l of afterFull) {
       expect(Number(l.reversedAmount)).toBeCloseTo(Number(l.amount), 2);
+    }
+  });
+
+  it("纯运费退款 → 不冲佣金（分子剔运费税，2026-09-26 商用审计二修回归）", async () => {
+    const order = await placeOrder(buyer);
+    await payOrder(buyer, order.orderNumber);
+
+    const before = await prisma.commissionLog.findMany({
+      where: { orderId: order.orderId },
+      orderBy: { level: "asc" },
+    });
+    expect(before.length).toBeGreaterThan(0);
+    const orderRow = await prisma.order.findUniqueOrThrow({ where: { id: order.orderId } });
+    const shippingFee = Number(orderRow.shippingFee);
+    expect(shippingFee).toBeGreaterThan(0); // 造数必须含运费，否则本用例无意义
+
+    // 退款额恰好 = 运费：新口径下商品退款额 = max(0, 运费 − 运费 − 税) = 0
+    // → ratio = 0 → 不冲佣金。旧口径会按 运费/商品实付 比例错冲分销商。
+    const { POST: refundPost } = await import("@/app/api/orders/[orderNumber]/refund/route");
+    const apply = await callApi(refundPost, {
+      method: "POST",
+      cookies: cookiesOf(buyer.jar),
+      params: { orderNumber: order.orderNumber },
+      body: { reason: "集成测试：纯运费退款不应冲佣金", amount: shippingFee },
+    });
+    expect(apply.status).toBe(200);
+    const refund = await prisma.refund.findFirstOrThrow({
+      where: { orderId: order.orderId },
+      orderBy: { createdAt: "desc" },
+    });
+    const { PUT: refundPut } = await import("@/app/api/admin/refunds/[id]/route");
+    const approve = await callApi(refundPut, {
+      method: "PUT",
+      cookies: cookiesOf(adminJar),
+      params: { id: refund.id },
+      body: { decision: "approve", adminNote: "退运费" },
+    });
+    expect(approve.status).toBe(200);
+
+    // 冲正必须为零：流水 reversedAmount 不动、状态不被标 REVERSED
+    const after = await prisma.commissionLog.findMany({
+      where: { orderId: order.orderId },
+      orderBy: { level: "asc" },
+    });
+    for (const log of after) {
+      expect(Number(log.reversedAmount)).toBe(0);
+      expect(log.status).not.toBe("REVERSED");
     }
   });
 });

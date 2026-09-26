@@ -497,7 +497,7 @@ export async function applyWithdraw(input: {
   void notifyWithdrawStatus({
     userId: input.userId,
     status: "PENDING",
-    amountCny: amount,
+    amountSettle: amount,
     settleCurrency: settlementCurrency,
   }).catch(() => undefined);
 
@@ -600,7 +600,7 @@ export async function auditWithdraw(input: {
     void notifyWithdrawStatus({
       userId: record.userId,
       status: fresh.status,
-      amountCny: amount,
+      amountSettle: amount,
       settleCurrency: record.currency,
       note: input.note ?? null,
     }).catch(() => undefined);
