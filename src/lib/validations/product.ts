@@ -12,8 +12,6 @@ export const imageUrlSchema = z
   .max(2048)
   .refine((v) => v.startsWith("/") || /^https?:\/\//i.test(v), "图片地址不合法");
 
-export const productImageSchema = imageUrlSchema;
-
 export const productAttributeSchema = z.object({
   name: z.string().trim().min(1, "属性名不能为空").max(30),
   values: z.array(z.string().trim().min(1).max(50)).min(1, "至少一个属性值").max(50),
@@ -100,7 +98,7 @@ const productBaseSchema = z.object({
     .record(z.string(), z.record(z.string(), z.number().int().min(0)))
     .nullable()
     .optional(),
-  images: z.array(productImageSchema).max(20, "最多 20 张图片").default([]),
+  images: z.array(imageUrlSchema).max(20, "最多 20 张图片").default([]),
   attributes: z.array(productAttributeSchema).max(30).default([]),
   status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).default("DRAFT"),
   categoryId: z.string().min(1, "请选择分类"),

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { cacheGet, cacheSet, productsCacheKey } from "@/lib/cache";
 import { createHash } from "crypto";
-import { ApiError, badRequest, notFound } from "@/lib/errors";
+import { notFound } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 
 /** 商品与分类服务(用户端) */
@@ -273,18 +273,6 @@ export async function listCategoryTree(): Promise<CategoryNode[]> {
   return tree;
 }
 
-/** 获取分类(供筛选器) */
-export async function getCategoryBySlug(slug: string) {
-  const category = await prisma.category
-    .findUnique({ where: { slug }, include: { children: true } })
-    .catch((err: unknown) => {
-      logger.warn({ err: (err as Error).message }, "[catalog] 分类详情读取失败");
-      return null;
-    });
-  if (!category || !category.isActive) throw notFound("Category not found");
-  return category;
-}
-
 export async function getRelatedProducts(productId: string, categoryId: string, limit = 4) {
   return prisma.product.findMany({
     where: { categoryId, status: "ACTIVE", id: { not: productId } },
@@ -304,49 +292,3 @@ export async function getRelatedProducts(productId: string, categoryId: string, 
     },
   });
 }
-
-/** 首页数据 */
-export async function getHomeData() {
-  const [hot, newest] = await Promise.all([
-    prisma.product.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: [{ soldCount: "desc" }, { id: "asc" }],
-      take: 8,
-      select: {
-        id: true,
-        name: true,
-        nameEn: true,
-        slug: true,
-        price: true,
-        compareAtPrice: true,
-        images: true,
-        soldCount: true,
-        stock: true,
-        category: { select: { name: true } },
-      },
-    }),
-    prisma.product.findMany({
-      where: { status: "ACTIVE" },
-      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
-      take: 8,
-      select: {
-        id: true,
-        name: true,
-        nameEn: true,
-        slug: true,
-        price: true,
-        compareAtPrice: true,
-        images: true,
-        soldCount: true,
-        stock: true,
-      },
-    }),
-  ]);
-  return { hot, newest };
-}
-
-export function requireProduct(result: unknown): asserts result is NonNullable<typeof result> {
-  if (!result) throw new ApiError(404, "NOT_FOUND", "Product not found");
-}
-
-export { badRequest };

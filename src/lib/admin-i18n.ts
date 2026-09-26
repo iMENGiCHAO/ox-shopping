@@ -18,30 +18,18 @@ const DICT: Dict = {
   Dashboard: { zh: "仪表盘" },
   Products: { zh: "商品" },
   Categories: { zh: "分类" },
-  Banners: { zh: "页面横幅" },
   "Notify Me": { zh: "到货通知" },
-  Payments: { zh: "支付接口" },
-  "Legal Pages": { zh: "法务页面" },
   Users: { zh: "用户" },
   Refunds: { zh: "退款" },
   Orders: { zh: "订单" },
   "Audit Logs": { en: "Audit Logs", zh: "审计日志" },
   Settings: { zh: "设置" },
-  "Collapse Sidebar": { en: "Collapse Sidebar", zh: "收起侧边栏" },
-  "Expand Sidebar": { en: "Expand Sidebar", zh: "展开侧边栏" },
-  "Toggle sidebar width": { en: "Toggle sidebar width", zh: "切换侧边栏宽度" },
   Admin: { zh: "管理" },
   "returns to Store": { en: "returns to Store", zh: "返回店铺" },
   "Sign Out": { en: "Sign Out", zh: "退出登录" },
-  "Account Settings": { en: "Account Settings", zh: "账号设置" },
-  Administrator: { zh: "管理员" },
   Support: { zh: "客服" },
   Customer: { zh: "顾客" },
   Role: { zh: "角色" },
-  "Signed out": { en: "Signed out", zh: "已退出" },
-
-  /* ── Dashboard (admin/page.tsx) ────────────────────────────────── */
-  "Total Revenue": { en: "Total Revenue", zh: "总营收" },
   "Today's Revenue": { en: "Today's Revenue", zh: "今日营收" },
   "All-time Revenue": { en: "All-time Revenue", zh: "累计营收" },
   "Pending Shipments": { en: "Pending Shipments", zh: "待发货" },
@@ -58,11 +46,8 @@ const DICT: Dict = {
   },
   "View all": { en: "View all", zh: "查看全部" },
   "No data yet": { en: "No data yet", zh: "暂无数据" },
-  "Last 7 days": { en: "Last 7 days", zh: "最近 7 天" },
-  "Last 30 days": { en: "Last 30 days", zh: "最近 30 天" },
   "Store performance overview": { en: "Store performance overview", zh: "店铺运营概览" },
   Today: { en: "Today", zh: "今日" },
-  showed: { en: "showed", zh: "已售" },
   sold: { en: "sold", zh: "已售" },
   days: { en: "days", zh: "天" },
   "in stock": { en: "in stock", zh: "库存中" },
@@ -89,16 +74,11 @@ const DICT: Dict = {
   Price: { zh: "价格" },
   Stock: { zh: "库存" },
   Category: { zh: "分类" },
-  "Created At": { en: "Created At", zh: "创建时间" },
   "Updated At": { en: "Updated At", zh: "更新时间" },
   SKU: { zh: "SKU" },
   Image: { zh: "图片" },
   Description: { zh: "描述" },
   Slug: { zh: "路径标识" },
-
-  /* ── Products page ─────────────────────────────────────────────── */
-  "New Product": { en: "New Product", zh: "新增商品" },
-  "Edit Product": { en: "Edit Product", zh: "编辑商品" },
   Editing: { en: "Editing", zh: "正在编辑" },
   "Fields marked * are required": { en: "Fields marked * are required", zh: "带 * 的字段为必填项" },
   ProductName: { en: "Product Name", zh: "商品名称" },
@@ -150,46 +130,14 @@ const DICT: Dict = {
   Publish: { en: "Publish", zh: "发布" },
   "Saving…": { en: "Saving…", zh: "保存中…" },
   "Save failed, please retry": { en: "Save failed, please retry", zh: "保存失败，请重试" },
-  "Edit the storefront Privacy / Terms / Refund / Cookie policy content here.": {
-    en: "Edit the storefront Privacy / Terms / Refund / Cookie policy content here. Supports Markdown-style headings, lists, and blank lines.",
-    zh: "在此编辑店面的隐私政策／服务条款／退款政策／Cookie 政策内容。支持标题、列表与空行分段。",
-  },
-  "Product created": { en: "Product created", zh: "商品已创建" },
-  "Product updated": { en: "Product updated", zh: "商品已更新" },
-  "Product deleted": { en: "Product deleted", zh: "商品已删除" },
-  "Stock updated": { en: "Stock updated", zh: "库存已更新" },
-  "Delete Product": { en: "Delete Product", zh: "删除商品" },
-  "Product Name": { en: "Product Name", zh: "商品名称" },
-  "Compare-at Price": { en: "Compare-at Price", zh: "划线价" },
-  "Product Images": { en: "Product Images", zh: "商品图片" },
-  "Drop images here or click to upload": {
-    en: "Drop images here or click to upload",
-    zh: "拖拽图片到此处或点击上传",
-  },
   Active: { en: "Active", zh: "上架" },
   Draft: { en: "Draft", zh: "草稿" },
-  "Delete product": { en: "Delete product", zh: "删除商品" },
-  'Are you sure you want to delete product "{name}"? This action cannot be undone.': {
-    en: 'Are you sure you want to delete product "{name}"? This action cannot be undone.',
-    zh: "确定要删除商品“{name}”吗？此操作不可撤销。",
-  },
-  'Updated {n} product(s) to "{status}"': {
-    en: 'Updated {n} product(s) to "{status}"',
-    zh: "已将 {n} 个商品更新为「{status}」",
-  },
-  '"{name}" updated to "{status}"': {
-    en: '"{name}" updated to "{status}"',
-    zh: "「{name}」已更新为「{status}」",
-  },
   Inactive: { en: "Inactive", zh: "下架" },
-  "Out of Stock": { en: "Out of Stock", zh: "缺货" },
-  "In Stock": { en: "In Stock", zh: "有货" },
   Published: { en: "Published", zh: "已发布" },
 
   /* ── Categories page ───────────────────────────────────────────── */
   "New Category": { en: "New Category", zh: "新增分类" },
   "Edit Category": { en: "Edit Category", zh: "编辑分类" },
-  "Delete Category": { en: "Delete Category", zh: "删除分类" },
   "Parent Category": { en: "Parent Category", zh: "父级分类" },
   "None (top-level)": { en: "None (top-level)", zh: "无（顶级）" },
 
@@ -198,7 +146,6 @@ const DICT: Dict = {
   Total: { zh: "总计" },
   Date: { zh: "日期" },
   "Ship Order": { en: "Ship Order", zh: "发货" },
-  "Mark as Shipped": { en: "Mark as Shipped", zh: "标记为已发货" },
   "Tracking Number": { en: "Tracking Number", zh: "物流单号" },
   Carrier: { en: "Carrier", zh: "承运商" },
   Pending: { zh: "待处理" },
@@ -215,18 +162,9 @@ const DICT: Dict = {
   /* ── Users page ───────────────────────────────────────────────── */
   Email: { zh: "邮箱" },
   "User Name": { en: "User Name", zh: "用户名" },
-  "New User": { en: "New User", zh: "新增用户" },
   "Edit User": { en: "Edit User", zh: "编辑用户" },
-  "Delete User": { en: "Delete User", zh: "删除用户" },
-  "Assign Role": { en: "Assign Role", zh: "分配角色" },
-
-  /* ── Refunds page ─────────────────────────────────────────────── */
-  "Refund #": { en: "Refund #", zh: "退款号" },
   "Refund Amount": { en: "Refund Amount", zh: "退款金额" },
   Reason: { en: "Reason", zh: "原因" },
-  "Refund Review": { en: "Refund Review", zh: "退款审核" },
-  "Refund Approve": { en: "Refund Approve", zh: "同意退款" },
-  "Refund Reject": { en: "Refund Reject", zh: "驳回退款" },
   Requested: { zh: "申请中" },
   "Review Notes": { en: "Review Notes", zh: "审核备注" },
 
@@ -235,14 +173,10 @@ const DICT: Dict = {
   Actor: { zh: "操作人" },
   Target: { zh: "对象" },
   "IP Address": { en: "IP Address", zh: "IP 地址" },
-
-  /* ── Settings page ────────────────────────────────────────────── */
-  "Site Settings": { en: "Site Settings", zh: "站点设置" },
   "Site Name": { en: "Site Name", zh: "站点名称" },
   "Site Description": { en: "Site Description", zh: "站点描述" },
   "Contact Email": { en: "Contact Email", zh: "联系邮箱" },
   "Contact Phone": { en: "Contact Phone", zh: "联系电话" },
-  "SEO Keywords": { en: "SEO Keywords", zh: "SEO 关键词" },
   "Save Changes": { en: "Save Changes", zh: "保存修改" },
   "Settings saved": { en: "Settings saved", zh: "设置已保存" },
 
@@ -279,7 +213,6 @@ const DICT: Dict = {
     en: "Basic info shown in the site footer and contact page",
     zh: "显示在页脚和联系页面的基本信息",
   },
-  "Policy pages": { en: "Policy pages", zh: "政策页面" },
   "SEO settings": { en: "SEO settings", zh: "SEO 设置" },
   "Search engine keyword configuration": {
     en: "Search engine keyword configuration",
@@ -288,27 +221,14 @@ const DICT: Dict = {
   "Keywords (comma-separated)": { en: "Keywords (comma-separated)", zh: "关键词（逗号分隔）" },
   "ICP filing number": { en: "ICP filing number", zh: "ICP 备案号" },
   "Privacy policy": { en: "Privacy policy", zh: "隐私政策" },
-  "Terms of service": { en: "Terms of service", zh: "服务条款" },
   "Refund policy": { en: "Refund policy", zh: "退款政策" },
-  "Cookie policy": { en: "Cookie policy", zh: "Cookie 政策" },
-  "Payment / email / storage sensitive config": {
-    en: "Payment / email / storage sensitive config",
-    zh: "支付 / 邮件 / 存储敏感配置",
-  },
   "Failed to save settings": { en: "Failed to save settings", zh: "保存设置失败" },
-
-  /* ── Misc / dialogs ───────────────────────────────────────────── */
-  "Are you sure?": { en: "Are you sure?", zh: "确定吗？" },
-  "This action cannot be undone.": { en: "This action cannot be undone.", zh: "此操作无法撤销。" },
-  "Demo account": { en: "Demo account", zh: "演示账号" },
   "Sign In": { en: "Sign In", zh: "登录" },
   "Sign in with your administrator account": {
     en: "Sign in with your administrator account",
     zh: "请使用管理员账户登录",
   },
   Password: { zh: "密码" },
-  "Email is required": { en: "Email is required", zh: "邮箱必填" },
-  "Password is required": { en: "Password is required", zh: "密码必填" },
   "Welcome back": { en: "Welcome back", zh: "欢迎回来" },
   "This account does not have admin access": {
     en: "This account does not have admin access",
@@ -339,17 +259,7 @@ const DICT: Dict = {
   },
   "All statuses": { en: "All statuses", zh: "全部状态" },
   "No orders yet": { en: "No orders yet", zh: "暂无订单" },
-  "Please select products first": { en: "Please select products first", zh: "请先选择商品" },
-  "Stock must be a non-negative integer": {
-    en: "Stock must be a non-negative integer",
-    zh: "库存必须为非负整数",
-  },
-  "All categories": { en: "All categories", zh: "全部分类" },
-  "Select all": { en: "Select all", zh: "全选" },
   Sold: { en: "Sold", zh: "已售" },
-  "No products yet": { en: "No products yet", zh: "暂无商品" },
-  "Edit stock": { en: "Edit stock", zh: "编辑库存" },
-  "Change status": { en: "Change status", zh: "变更状态" },
   "No refund requests": { en: "No refund requests", zh: "暂无退款申请" },
   "System Settings": { en: "System Settings", zh: "系统设置" },
   "Pre-order only": { en: "Pre-order only", zh: "仅预售订单" },
@@ -391,11 +301,6 @@ const DICT: Dict = {
       zh: "留空即跟随自动汇率;手动覆写全站即时生效且重启后仍然有效。",
     },
   "Legal pages": { en: "Legal pages", zh: "法务页面" },
-  "Edit each legal document independently — Accessibility, Privacy, Terms, Refund and Cookie policies.":
-    {
-      en: "Edit each legal document independently — Accessibility, Privacy, Terms, Refund and Cookie policies.",
-      zh: "独立编辑各法务文档——无障碍声明、隐私政策、服务条款、退款政策与 Cookie 政策。",
-    },
   "Frontend path": { en: "Frontend path", zh: "前台路径" },
   "Each document is edited per language (Chinese / English) and linked to the storefront page and the footer — the storefront updates immediately after saving.":
     {
@@ -468,30 +373,8 @@ const DICT: Dict = {
     en: "Brand logo updated. The storefront header updates immediately.",
     zh: "LOGO 已更新,前台顶栏即时生效。",
   },
-  "Best with transparent background and light/white artwork for the dark header. Clear it to restore the built-in default.":
-    {
-      en: "Best with transparent background and light/white artwork for the dark header. Clear it to restore the built-in default.",
-      zh: "建议使用透明底、浅色或白色图案以适配黑色顶栏;清空即恢复内置默认标志。",
-    },
-  "Payment gateways": { en: "Payment gateways", zh: "支付接口" },
-  "Reserve payment integrations — fill in credentials to go live later": {
-    en: "Reserve payment integrations — fill in credentials to go live later",
-    zh: "预留支付接口——填入凭证即可随时切换正式收款",
-  },
-  "Checkout currently runs on Mock payment": {
-    en: "Checkout currently runs on Mock payment",
-    zh: "当前结算使用 Mock 模拟支付",
-  },
-  "Fill in a gateway's credentials and enable it — the reserved provider hooks are wired to this configuration. Secret fields are masked after saving; leave them blank to keep existing values.":
-    {
-      en: "Fill in a gateway's credentials and enable it — the reserved provider hooks are wired to this configuration. Secret fields are masked after saving; leave them blank to keep existing values.",
-      zh: "填入网关凭证并启用即可——预留的接入点已与此配置打通。密钥保存后脱敏显示;留空表示保持原有值不变。",
-    },
   Enabled: { en: "Enabled", zh: "启用" },
-  secret: { en: "secret", zh: "密钥" },
-  "Save payment settings": { en: "Save payment settings", zh: "保存支付设置" },
-  "Payment settings saved": { en: "Payment settings saved", zh: "支付设置已保存" },
-  // 注：原 "Ox Shopping" 词条（站名占位符）已移除 —— 站名输入框改为直接显示
+  secret: { en: "secret", zh: "密钥" }, // 注：原 "Ox Shopping" 词条（站名占位符）已移除 —— 站名输入框改为直接显示
   // 当前生效品牌（LangProvider 注入的 siteName），不再需要写死品牌的示例词条。
   "Describe your store in one line": {
     en: "Describe your store in one line",
@@ -528,7 +411,6 @@ const DICT: Dict = {
   Guest: { en: "Guest", zh: "游客" },
   "Contact email": { en: "Contact email", zh: "联系邮箱" },
   "Discount code": { en: "Discount code", zh: "折扣码" },
-  "Discount codes": { en: "Discount codes", zh: "折扣码" },
   Discount: { en: "Discount", zh: "折扣" },
 
   /* ── 折扣码后台管理（/admin/coupons）───────────────────────────── */
@@ -601,7 +483,6 @@ const DICT: Dict = {
     en: "Coupon code may only contain letters, numbers, - and _",
     zh: "券码只能包含字母、数字、连字符与下划线",
   },
-  "Discount value is required": { en: "Discount value is required", zh: "请填写折扣值" },
   "Minimum spend is required": { en: "Minimum spend is required", zh: "请填写最低消费" },
   "Start time is required": { en: "Start time is required", zh: "请选择生效时间" },
   "End time is required": { en: "End time is required", zh: "请选择失效时间" },
@@ -642,39 +523,50 @@ const DICT: Dict = {
   /* ── 后台页面文案（key 为中文原文；en 缺省时回落中文，与既有条目同口径）── */
   /* ── i18n 统一迁移新增（2026-09-23，脚本 scripts/merge-admin-i18n.py 生成）── */
   "SMTP 主机": { zh: "SMTP 主机" },
-  "「仅写日志」不会真正发出邮件：内容写入日志与本地 .mail-out 目录，用于开发演示，切勿用于线上。": { zh: "「仅写日志」不会真正发出邮件：内容写入日志与本地 .mail-out 目录，用于开发演示，切勿用于线上。" },
-  "仅写日志": { zh: "仅写日志" },
-  "使用 SSL/TLS（465 端口通常勾选；587 用 STARTTLS 不勾选）": { zh: "使用 SSL/TLS（465 端口通常勾选；587 用 STARTTLS 不勾选）" },
+  "「仅写日志」不会真正发出邮件：内容写入日志与本地 .mail-out 目录，用于开发演示，切勿用于线上。": {
+    zh: "「仅写日志」不会真正发出邮件：内容写入日志与本地 .mail-out 目录，用于开发演示，切勿用于线上。",
+  },
+  仅写日志: { zh: "仅写日志" },
+  "使用 SSL/TLS（465 端口通常勾选；587 用 STARTTLS 不勾选）": {
+    zh: "使用 SSL/TLS（465 端口通常勾选；587 用 STARTTLS 不勾选）",
+  },
   "保存中…": { zh: "保存中…" },
-  "保存邮件配置失败": { zh: "保存邮件配置失败" },
-  "加载邮件配置失败": { zh: "加载邮件配置失败" },
-  "发件人": { zh: "发件人" },
-  "发件地址": { zh: "发件地址" },
+  保存邮件配置失败: { zh: "保存邮件配置失败" },
+  加载邮件配置失败: { zh: "加载邮件配置失败" },
+  发件人: { zh: "发件人" },
+  发件地址: { zh: "发件地址" },
   "发送中…": { zh: "发送中…" },
-  "发送测试邮件": { zh: "发送测试邮件" },
-  "发送通道": { zh: "发送通道" },
-  "可选": { zh: "可选" },
-  "后台配置": { zh: "后台配置" },
+  发送测试邮件: { zh: "发送测试邮件" },
+  发送通道: { zh: "发送通道" },
+  可选: { zh: "可选" },
+  后台配置: { zh: "后台配置" },
   "密码 / 授权码": { zh: "密码 / 授权码" },
-  "密钥加密存储，接口只回显「是否已配置」；留空表示不修改。保存后立即生效，无需重启。": { zh: "密钥加密存储，接口只回显「是否已配置」；留空表示不修改。保存后立即生效，无需重启。" },
+  "密钥加密存储，接口只回显「是否已配置」；留空表示不修改。保存后立即生效，无需重启。": {
+    zh: "密钥加密存储，接口只回显「是否已配置」；留空表示不修改。保存后立即生效，无需重启。",
+  },
   "已配置，留空不修改": { zh: "已配置，留空不修改" },
-  "接收测试邮件的邮箱地址": { zh: "接收测试邮件的邮箱地址" },
-  "测试邮件发送失败": { zh: "测试邮件发送失败" },
+  接收测试邮件的邮箱地址: { zh: "接收测试邮件的邮箱地址" },
+  测试邮件发送失败: { zh: "测试邮件发送失败" },
   "测试邮件已发出，请查收": { zh: "测试邮件已发出，请查收" },
-  "状态加载失败": { zh: "状态加载失败" },
-  "环境变量兜底": { zh: "环境变量兜底" },
-  "生效通道": { zh: "生效通道" },
-  "用户名": { zh: "用户名" },
-  "真实发送一封测试邮件，失败会显示服务商返回的原因。": { zh: "真实发送一封测试邮件，失败会显示服务商返回的原因。" },
-  "端口": { zh: "端口" },
-  "订单确认、发货通知、到货提醒、找回密码等邮件都依赖此通道。配置不全时邮件只会写入日志，不会真正送达顾客。": { zh: "订单确认、发货通知、到货提醒、找回密码等邮件都依赖此通道。配置不全时邮件只会写入日志，不会真正送达顾客。" },
-  "请先填写接收测试邮件的邮箱地址": { zh: "请先填写接收测试邮件的邮箱地址" },
-  "连通性自检": { zh: "连通性自检" },
-  "通道配置": { zh: "通道配置" },
-  "邮件服务": { zh: "邮件服务" },
+  状态加载失败: { zh: "状态加载失败" },
+  环境变量兜底: { zh: "环境变量兜底" },
+  生效通道: { zh: "生效通道" },
+  用户名: { zh: "用户名" },
+  "真实发送一封测试邮件，失败会显示服务商返回的原因。": {
+    zh: "真实发送一封测试邮件，失败会显示服务商返回的原因。",
+  },
+  端口: { zh: "端口" },
+  "订单确认、发货通知、到货提醒、找回密码等邮件都依赖此通道。配置不全时邮件只会写入日志，不会真正送达顾客。":
+    {
+      zh: "订单确认、发货通知、到货提醒、找回密码等邮件都依赖此通道。配置不全时邮件只会写入日志，不会真正送达顾客。",
+    },
+  请先填写接收测试邮件的邮箱地址: { zh: "请先填写接收测试邮件的邮箱地址" },
+  连通性自检: { zh: "连通性自检" },
+  通道配置: { zh: "通道配置" },
+  邮件服务: { zh: "邮件服务" },
   "邮件配置已保存（立即生效）": { zh: "邮件配置已保存（立即生效）" },
-  "配置来源": { zh: "配置来源" },
-  "重试": { zh: "重试" },
+  配置来源: { zh: "配置来源" },
+  重试: { zh: "重试" },
   /* ── i18n 统一迁移新增（2026-09-23，脚本 scripts/merge-admin-i18n.py 生成）── */
   "前端客户动作（新订单 / 退款申请 / 新用户注册 / 补货提醒）的站内反馈，确保运营信息不静默": {
     zh: "前端客户动作（新订单 / 退款申请 / 新用户注册 / 补货提醒）的站内反馈，确保运营信息不静默",
@@ -1180,10 +1072,11 @@ const DICT: Dict = {
     zh: "利润分成（实付 − 成本价）",
     en: "Profit share (paid − cost)",
   },
-  "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。": {
-    zh: "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。",
-    en: "In profit-share mode the base is the sum of (paid allocation − cost × qty) per order line, in the order currency; lines without a cost snapshot are skipped (with an audit note), and orders with no computable profit accrue no commission.",
-  },
+  "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。":
+    {
+      zh: "利润分成模式下，基数为各订单行「实付分摊 − 成本价×数量」之和（订单币种）；未填成本价的商品行跳过计佣并留痕，整体无利润则本单不计佣。",
+      en: "In profit-share mode the base is the sum of (paid allocation − cost × qty) per order line, in the order currency; lines without a cost snapshot are skipped (with an audit note), and orders with no computable profit accrue no commission.",
+    },
   统计天数: { zh: "统计天数" },
   "统计，最多展示 200 条；点「查看」可继续往下钻": {
     zh: "统计，最多展示 200 条；点「查看」可继续往下钻",

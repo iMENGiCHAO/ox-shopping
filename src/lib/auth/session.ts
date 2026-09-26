@@ -18,7 +18,6 @@ import {
   verifyRefreshToken,
 } from "@/lib/auth/jwt";
 import {
-  ApiError,
   forbidden,
   passwordChangeRequired,
   replayDetected,
@@ -273,16 +272,4 @@ export async function revokeAllUserTokens(userId: string): Promise<void> {
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date() },
   });
-}
-
-/** 清理过期 refresh token 记录(定期任务可调用) */
-export async function cleanupExpiredTokens(): Promise<void> {
-  await prisma.refreshToken.deleteMany({
-    where: { expiresAt: { lt: new Date() } },
-  });
-}
-
-/** 便捷：构造需要登录的错误(供刷新失败重定向) */
-export function refreshRequiredError(): ApiError {
-  return unauthorized("Your session has expired, please sign in again");
 }

@@ -33,11 +33,3 @@ export function collectNodeAndDescendants(
   }
   return out;
 }
-
-/** 统计分类下的直接商品数(兼容 productCount / _count.products 两种返回) */
-export function categoryProductCount(category: {
-  productCount?: number;
-  _count?: { products?: number };
-}): number {
-  return category.productCount ?? category._count?.products ?? 0;
-}

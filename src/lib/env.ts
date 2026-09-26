@@ -258,7 +258,6 @@ export const PLACEHOLDER_BRAND = "Ox Shopping";
 }
 
 export const isProduction = env.NODE_ENV === "production";
-export const isTest = env.NODE_ENV === "test";
 
 /** Stripe 是否可用(密钥已配置且未强制 mock) */
 export const isStripeConfigured = env.PAYMENT_MODE !== "mock" && env.STRIPE_SECRET_KEY.length > 0;
