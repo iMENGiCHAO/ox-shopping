@@ -15,7 +15,7 @@
 | 业务定位 | 官方商店克隆站：商品列表/详情、购物车（含游客车）、结算（Mock / Stripe）、订单、会员、多币种、中英双语言、账户注销 |
 | 技术栈 | Next.js 16.3.3 (App Router + Turbopack + `src/proxy.ts`) · TypeScript strict · Prisma 5.22 + PostgreSQL · Tailwind CSS · Radix UI · zod · vitest · Redis(可选，缓存/限流) |
 | 运行模式 | `npm run dev`（本地开发）/ `next build && next start`（生产，受 REQUIRE_STRONG_SECRETS 密钥守卫保护） |
-| 数据层 | 本地 dev 用 `scripts/start-db.sh`（Homebrew @17 + GCD workq 豁免 dylib）；macOS 15.7+ 需先跑 `scripts/fix-postgres-multithreaded.sh` 打二进制补丁。`scripts/start-dev-db.mjs`（embedded-postgres）为遗留路径：`embedded-postgres` **不在 package.json 依赖中**，要用得先自行 `npm install` |
+| 数据层 | 本地 dev 用 `scripts/start-db.sh`（Homebrew @17 + GCD workq 豁免 dylib）；macOS 15.7+ 需先跑 `scripts/fix-postgres-multithreaded.sh` 打二进制补丁。（原 embedded-postgres 遗留脚本已在 2026-09-26 死代码清扫中删除） |
 | 支付 | 六渠道三态（未配置/已配置/可收款）：mock 开箱启用；Stripe 渠道化真实接入（后台 `/admin/payment-channels` 填 `sk_`/`whsec_` 即收款）；alipay/wechat/bankcard/paypal 为预留级；渠道×币种校验（国内渠道仅 CNY） |
 | 品牌 | 前台英文 `Ox Shopping`；后台中文 `牛来购物`；站名存 `site_settings.siteName` |
 
@@ -31,7 +31,7 @@ src/components/admin/      后台组件（admin-shell/product-form/currency-mana
 src/server/services/       服务层（product/order/settings/spec-stock/password-reset/…）
 src/lib/                   工具与常量（i18n、validations、storage、csrf、audit、guest-cart、auth/temp-password）
 prisma/                    schema + seed + xcom-catalog 商品目录 + migrations
-scripts/                   start-dev-db / fix-postgres-multithreaded / restart-dev / qa/* 等运维与验收脚本
+scripts/                   fix-postgres-multithreaded / restart-dev / start-db / qa/* 等运维与验收脚本（2026-09-26 死代码清扫：删除 32 个被 Playwright e2e 与集成测试取代的早期 QA 脚本及遗留一次性脚本）
 docs/                      本文档及速查/部署/清单/设计文档
 ```
 
@@ -359,7 +359,7 @@ docs/                      本文档及速查/部署/清单/设计文档
 **开发期已知事项**：
 - dev server 长时间运行后客户端水合可能失效（页面 SSR 正常但交互不响应）——重启 + `rm -rf .next` 即恢复；上线必须生产构建。
 - 生产启动受 `REQUIRE_STRONG_SECRETS` 密钥守卫保护（设计行为）：`next start` 前需配置 ≥32 位随机 JWT 密钥，或本地演示显式 `REQUIRE_STRONG_SECRETS=false`。
-- 本机 SIP 关闭（Custom Configuration），PG 用 `scripts/start-db.sh`（GCD workq 自检豁免 dylib）启动；macOS 15.7+ Homebrew PG 需先跑 `scripts/fix-postgres-multithreaded.sh` 打二进制补丁（icu4c 78 静态初始化开线程导致 postmaster 必炸，LC_ALL/DYLD interpose 均无效）。`scripts/start-dev-db.mjs` 走 embedded-postgres，但该依赖**不在 package.json**（要用先 `npm install`），属遗留路径。
+- 本机 SIP 关闭（Custom Configuration），PG 用 `scripts/start-db.sh`（GCD workq 自检豁免 dylib）启动；macOS 15.7+ Homebrew PG 需先跑 `scripts/fix-postgres-multithreaded.sh` 打二进制补丁（icu4c 78 静态初始化开线程导致 postmaster 必炸，LC_ALL/DYLD interpose 均无效）。（原 embedded-postgres 遗留脚本已删除）
 - **改了 `prisma/schema.prisma` 或跑完迁移后必须 `bash scripts/restart-dev.sh`**：dev server 不会热加载 Prisma Client，stale client 会报「Unknown argument」甚至 500。
 - 项目在 Time Machine 网络卷：Turbopack 首次编译慢（可达数十秒），QA/E2E 的 toast/路由等待需放宽到 60s、截图超时放宽到 30s。
 - 曾发生验证脚本误触演示数据（DELETE/PUT）→ 已按 seed 基线核对恢复；**自动化操作后台需只走 API 直连**。

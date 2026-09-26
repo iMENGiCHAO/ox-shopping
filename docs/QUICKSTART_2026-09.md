@@ -152,7 +152,7 @@ bash scripts/restart-dev.sh
 - **根因**：Homebrew icu4c 78 的 `libicuuc` 在 dylib 加载时（比 `main()` 还早）就启动后台线程。**所有 Homebrew PG 14/16/17 都中招**；`LC_ALL`、`DYLD_INSERT_LIBRARIES` 覆盖、降版本全部无效（libSystem 共享缓存符号不可覆盖）。
 - **正解（幂等脚本）**：`bash scripts/fix-postgres-multithreaded.sh` —— 把 `postgres` 二进制里对 `_pthread_is_threaded_np` 的 5 字节 `call`（`E8 rel32`）替换为 `xor eax,eax; nop×3`（`31 C0 90 90 90`），使检查恒为「单线程」。脚本自动备份原二进制到 /tmp 并 ad-hoc 重签（macOS 要求改后重签）；已打补丁则跳过。
   - **触发场景**：`brew upgrade` / 重装 postgresql@17 之后必须重跑。
-- **另一条（遗留）路径**：`node scripts/start-dev-db.mjs` 使用 `embedded-postgres` 自带 binary，同样需要 patch，且 `embedded-postgres` **当前不在 package.json 依赖里**（要用得先 `npm install`）——日常以 Homebrew @17 + 补丁脚本为准。
+- **另一条（遗留）路径已清理**：原 `scripts/start-dev-db.mjs`（embedded-postgres）依赖不在 package.json、跑不起来，属死代码，已在 2026-09-26 死代码清扫中删除——日常以 Homebrew @17 + 补丁脚本为准。
 - **SIP 遗留**：本机 SIP 为 Custom Configuration，`scripts/start-db.sh` 仍以 `/tmp/libnoforkcheck.dylib`（GCD workq 豁免）作为旧方案兜底。
 
 ### 5.2 Next 16 与训练数据不一致

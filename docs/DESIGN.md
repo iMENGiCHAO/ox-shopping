@@ -119,8 +119,8 @@ node scripts/qa/qa-links.mjs          # 站内断链爬取
 node scripts/qa/qa-lang.mjs           # 币种 → 语言/价格联动
 ```
 
-> 视觉模型走查脚本（旧文档提及的 `design-vision-qa.cjs`）未随仓库提供，已移除该引用；
-> 需要时可用 `scripts/qa/qa-shot.mjs` 出图后人工/模型审阅。
+> 视觉模型走查脚本（旧文档提及的 `design-vision-qa.cjs`）未随仓库提供，已移除该引用。
+> 需要出图审阅时用 Playwright 的 screenshot 能力（`tests/e2e/` 同款）。
 
 ## 6. 测试与部署
 
