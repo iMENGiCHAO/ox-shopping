@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -69,8 +70,26 @@ const PRODUCT_STATUSES: AdminProductStatus[] = ["DRAFT", "ACTIVE", "ARCHIVED"];
 
 const PAGE_SIZE = 10;
 
+/**
+ * 深链初值只读一次（大爷 2026-09-26 报障修复）：
+ * 仪表盘「低库存」卡片直达 ?stock=low&status=ACTIVE。此前深链走 useEffect
+ * 初始化：挂载先按默认值发出**无筛选请求 A**，effect 改 state 后再发**筛选请求 B**，
+ * dev 下 A 首次触编译响应慢、A 后到覆盖 B 的结果 → 「点进来没有筛选结果」。
+ * 现改为 useSearchParams 直读初值：首个 render 就带筛选，只发一个正确请求。
+ * （防竞态守卫仍保留——用户快速手动切换筛选的覆盖问题与此无关、依然需要。）
+ * useSearchParams 要求 Suspense 边界，包在外层壳组件。
+ */
 export default function AdminProductsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <AdminProductsPageInner />
+    </React.Suspense>
+  );
+}
+
+function AdminProductsPageInner() {
   const t = useT();
+  const searchParams = useSearchParams();
 
   const [rows, setRows] = React.useState<AdminProduct[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -80,10 +99,17 @@ export default function AdminProductsPage() {
 
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
-  const [statusFilter, setStatusFilter] = React.useState("all");
+  // 深链直达：?status=DRAFT|ACTIVE|ARCHIVED（仅首挂载读一次）
+  const [statusFilter, setStatusFilter] = React.useState(() => {
+    const s = searchParams.get("status");
+    return s === "DRAFT" || s === "ACTIVE" || s === "ARCHIVED" ? s : "all";
+  });
   const [categoryFilter, setCategoryFilter] = React.useState("all");
   // 低库存筛选（与仪表盘计数同口径）+ 生效阈值（服务端随列表下发，后台可配）
-  const [stockFilter, setStockFilter] = React.useState("all");
+  // 深链直达：?stock=low（仅首挂载读一次）
+  const [stockFilter, setStockFilter] = React.useState(() =>
+    searchParams.get("stock") === "low" ? "low" : "all",
+  );
   const [lowStockThreshold, setLowStockThreshold] = React.useState(LOW_STOCK_THRESHOLD);
 
   const [categories, setCategories] = React.useState<AdminCategoryOption[]>([]);
@@ -98,6 +124,8 @@ export default function AdminProductsPage() {
 
   const [stockEditId, setStockEditId] = React.useState<string | null>(null);
   const [stockValue, setStockValue] = React.useState("");
+  // 列表请求序号（防竞态守卫，见 load 内注释）
+  const loadSeq = React.useRef(0);
   // 多规格商品的规格明细库存内联编辑状态
   const [specEditId, setSpecEditId] = React.useState<string | null>(null);
   const [specEditValue, setSpecEditValue] = React.useState<Record<string, Record<string, string>>>(
@@ -108,14 +136,6 @@ export default function AdminProductsPage() {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
     return () => clearTimeout(t);
   }, [search]);
-
-  // 深链初始化（仪表盘「低库存」信号直达 ?stock=low&status=ACTIVE）：仅首挂载读一次 URL
-  React.useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    if (sp.get("stock") === "low") setStockFilter("low");
-    const s = sp.get("status");
-    if (s === "DRAFT" || s === "ACTIVE" || s === "ARCHIVED") setStatusFilter(s);
-  }, []);
 
   React.useEffect(() => {
     setPage(1);
@@ -130,10 +150,17 @@ export default function AdminProductsPage() {
     if (categoryFilter !== "all") params.set("categoryId", categoryFilter);
     if (stockFilter !== "all") params.set("stock", stockFilter);
     setLoading(true);
+    // 防竞态（大爷 2026-09-26 报障修复）：挂载时先用默认筛选发出请求 A，深链
+    // effect 随后把 stockFilter 置为 low 再发请求 B —— dev 下 A 首次触编译响应
+    // 慢、B 先回，A 后到时 setRows(全量) 会覆盖 B 的低库存结果，用户看到
+    // 「点低库存卡片进来却没有筛选结果」。用户快速手动切换筛选同样会竞态。
+    // 请求序号守卫：只接受最新一次请求的响应，过期响应一律丢弃。
+    const seq = ++loadSeq.current;
     try {
       const res = await apiFetchRaw<AdminListResult<AdminProduct> & { lowStockThreshold?: number }>(
         `/api/admin/products?${params.toString()}`,
       );
+      if (seq !== loadSeq.current) return; // 已被更新的请求取代，丢弃
       setRows(res.data ?? []);
       setTotal(res.pagination?.total ?? 0);
       setTotalPages(res.pagination?.totalPages ?? 1);
@@ -141,9 +168,10 @@ export default function AdminProductsPage() {
       if (typeof res.lowStockThreshold === "number") setLowStockThreshold(res.lowStockThreshold);
       setSelected(new Set());
     } catch (err) {
+      if (seq !== loadSeq.current) return;
       toast.error(err instanceof Error ? err.message : "加载商品失败");
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, [page, debouncedSearch, statusFilter, categoryFilter, stockFilter]);
 
