@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach, afterAll } from "vitest";
+import { describe, expect, it, afterEach, beforeAll } from "vitest";
 import { vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
@@ -50,17 +50,31 @@ function forceDbFallback(): void {
   invalidateRateCache();
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
+/**
+ * 用例间恢复「新鲜台账」基线（原版 afterAll 直接删 fx.* 键，把共享测试库的
+ * 汇率状态清零 —— 并行下单用例在 live 源不可用时撞上熔断 503，测试间污染）。
+ * 现改为每用例结束即恢复 seed 基线，把污染窗口压缩到用例内部的毫秒级。
+ */
+async function restoreFreshBaseline(): Promise<void> {
+  await prisma.siteSetting.upsert({
+    where: { key: RATES_KEY },
+    update: { value: { USD: 1, CNY: 7.2, EUR: 0.92 } },
+    create: { key: RATES_KEY, value: { USD: 1, CNY: 7.2, EUR: 0.92 } },
+  });
+  await prisma.siteSetting.upsert({
+    where: { key: RATES_AT_KEY },
+    update: { value: Date.now() },
+    create: { key: RATES_AT_KEY, value: Date.now() },
+  });
+  await clearOverrides();
   invalidateRateCache();
-});
+}
 
-afterAll(async () => {
-  // 清理：删测试造的 fx 键 + 失效缓存，让后续测试走正常 refresh 链路
-  await prisma.siteSetting
-    .deleteMany({ where: { key: { in: [RATES_KEY, RATES_AT_KEY, OVERRIDES_KEY] } } })
-    .catch(() => {});
-  invalidateRateCache();
+beforeAll(restoreFreshBaseline);
+
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  await restoreFreshBaseline();
 });
 
 describe("钱路径汇率熔断（assertRatesUsableForMoney）", () => {

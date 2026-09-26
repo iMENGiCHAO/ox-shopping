@@ -501,6 +501,30 @@ async function seedCurrencyConfigs() {
   console.log(`✓ 币种配置已播种（新增 ${missing.length} 个，内置清单共 ${CURRENCIES.length} 个）`);
 }
 
+/**
+ * 汇率台账基线（2026-09-26 商用审计配套）：
+ * - 测试：每轮 migrate reset 后，live 源不可用时下单/计提走 db 回退且
+ *   台账新鲜 → 钱路径熔断放行 —— **集成测试从此不依赖外网汇率源**。
+ * - 生产：首次部署即有兜底台账（此前部署后直到第一次成功拉取前，
+ *   汇率服务是「无台账 + 静态参考值」状态，钱路径直接被熔断拒单）。
+ *   运行中由 persistRates 持续覆盖，seed 绝不覆盖已有台账（update: {}）。
+ *   表值与 src/components/shop/currency.ts 的 FALLBACK_RATES 同源维护。
+ */
+async function seedFxBaseline() {
+  const { FALLBACK_RATES } = await import("../src/components/shop/currency");
+  await prisma.siteSetting.upsert({
+    where: { key: "fx.rates" },
+    update: {},
+    create: { key: "fx.rates", value: FALLBACK_RATES as unknown as Prisma.InputJsonValue },
+  });
+  await prisma.siteSetting.upsert({
+    where: { key: "fx.ratesAt" },
+    update: {},
+    create: { key: "fx.ratesAt", value: Date.now() },
+  });
+  console.log("✓ 汇率台账基线就绪（fx.rates / fx.ratesAt）");
+}
+
 async function main() {
   console.log("开始写入种子数据...");
   // 演示账号门控：生产环境默认跳过（admin@example.com 等已知口令绝不入生产库）。
@@ -519,6 +543,7 @@ async function main() {
   await seedCollectionMembers(categoryMap);
   await seedShippingMethods();
   await seedSiteSettings();
+  await seedFxBaseline();
   await seedFaqs();
   await seedPaymentChannels();
   await seedCurrencyConfigs();
