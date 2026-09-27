@@ -32,6 +32,15 @@ export const POST = apiHandler(async (req, ctx) => {
   if (!REFUNDABLE_STATUSES.includes(order.status)) {
     throw badRequest("This order is not eligible for a refund in its current state");
   }
+  // COD（货到付款）语义守卫（业务闭环审计建议#3）：未发货的 COD 单没有线上
+  // 资金往来 —— 顾客没付过钱，走「退款」会被置成 SUCCEEDED（拿一张假的
+  // 「已退款」凭证）。正确语义是取消（订单/库存/券回补），取消入口本来就
+  // 支持 COD PROCESSING —— 在申请入口直接引导。
+  if (order.isCashOnDelivery && order.status === "PROCESSING") {
+    throw badRequest(
+      "Cash-on-delivery orders that have not shipped have no payment to refund — please cancel the order instead",
+    );
+  }
   if (input.amount <= 0) {
     throw badRequest("Refund amount must be greater than 0");
   }

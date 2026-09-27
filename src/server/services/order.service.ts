@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { env, brandFallback } from "@/lib/env";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { getLang } from "@/lib/shop-i18n-server";
-import { ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
+import { AUTO_CONFIRM_DELIVERY_DAYS, ORDER_EXPIRE_SECONDS, TAX_RATE } from "@/lib/constants";
 import { generateOrderNumber, toCents, formatMoney } from "@/lib/utils";
 import { ApiError, badRequest, notFound } from "@/lib/errors";
 import { payableCurrencyCodes } from "@/server/services/currency-config.service";
@@ -1052,7 +1052,11 @@ export async function markOrderPaid(
 }
 
 /** 取消订单(按下单时的实际扣减记录精确恢复库存) */
-export async function cancelOrder(order: Order, byUserId?: string | null): Promise<Order> {
+export async function cancelOrder(
+  order: Order,
+  byUserId?: string | null,
+  opts?: { autoExpired?: boolean },
+): Promise<Order> {
   // COD（货到付款）特殊路径：未发货的 COD 单无资金往来（现金交易），
   // 允许直接取消并回补库存——不必走退款流程（网关退款对现金交易无意义）。
   const cancellable =
@@ -1147,6 +1151,27 @@ export async function cancelOrder(order: Order, byUserId?: string | null): Promi
     meta: { orderNumber: order.orderNumber },
   });
 
+  // 取消邮件（业务闭环审计 D2 修复）：超时自动取消此前对游客单零触达（无账号
+  // 没站内信、无邮件），登录用户也只有一条站内信。超时取消是高频分支，
+  // 「订单消失了但没人告诉我」是典型客诉源 —— 邮件对游客（contactEmail）
+  // 和登录用户（回退账号邮箱）全覆盖，autoExpired 切换「未扣款可重下」口径。
+  {
+    const user = order.userId ? await prisma.user.findUnique({ where: { id: order.userId } }) : null;
+    const mailTo = order.contactEmail ?? user?.email ?? null;
+    if (mailTo) {
+      void queueMail({
+        to: mailTo,
+        template: "order-cancelled",
+        data: {
+          name: greetingName(user?.name, order),
+          orderNumber: order.orderNumber,
+          orderUrl: orderUrlFor(order),
+          autoExpired: opts?.autoExpired === true,
+        },
+      });
+    }
+  }
+
   // 站内消息：订单已取消（游客单无账号，跳过）
   if (order.userId) {
     void createNotification({
@@ -1174,7 +1199,8 @@ export async function expireStaleOrders(): Promise<number> {
   let count = 0;
   for (const order of stale) {
     try {
-      await cancelOrder(order, null);
+      // 超时自动取消：邮件用「未扣款，可重新下单」口径（顾客没主动取消）
+      await cancelOrder(order, null, { autoExpired: true });
       count++;
     } catch {
       /* 并发冲突忽略 */
@@ -1335,13 +1361,14 @@ export async function updateOrderStatus(
       },
     });
   } else if (order.userId && to === "DELIVERED") {
+    // 文案为完成语义：DELIVERED 是终态（手动/自动确认收货），不再说「请确认收货」
     void createNotification({
       userId: order.userId,
       type: "order",
-      title: "订单已送达",
-      titleEn: "Order delivered",
-      body: `订单 ${order.orderNumber} 已送达，请确认收货。`,
-      bodyEn: `Order ${order.orderNumber} has been delivered. Please confirm receipt.`,
+      title: "订单已完成",
+      titleEn: "Order completed",
+      body: `订单 ${order.orderNumber} 已确认送达，感谢您的购买。`,
+      bodyEn: `Order ${order.orderNumber} has been confirmed as delivered. Thank you for your purchase.`,
       link: `/orders/${order.orderNumber}`,
       meta: { orderNumber: order.orderNumber, status: "DELIVERED" },
     });
@@ -1352,7 +1379,57 @@ export async function updateOrderStatus(
     await distributionBridge.onOrderDelivered(order.id);
   }
 
+  // 完成邮件：确认收货（用户手动/管理员/超时自动）全场景送达 —— 自动确认时
+  // 用户没有任何操作，状态变更必须主动告知；手动确认也发（一致且无害）。
+  if (to === "DELIVERED") {
+    const dUser = order.userId ? await prisma.user.findUnique({ where: { id: order.userId } }) : null;
+    const dMailTo = order.contactEmail ?? dUser?.email ?? null;
+    if (dMailTo) {
+      void queueMail({
+        to: dMailTo,
+        template: "order-delivered",
+        data: {
+          name: greetingName(dUser?.name, order),
+          orderNumber: order.orderNumber,
+          orderUrl: orderUrlFor(order),
+        },
+      });
+    }
+  }
+
   return updated;
+}
+
+/**
+ * 超时自动确认收货（业务闭环审计建议#1）：发货后顾客长期不点确认，
+ * 订单永停 SHIPPED —— 佣金已可结算（资金线不受阻）但旅程不闭合。
+ * 到期（AUTO_CONFIRM_DELIVERY_DAYS 天）后批量推进 DELIVERED：
+ * 复用 updateOrderStatus 全语义（CAS 推进 + COD 送达记 paidAt + 通知 +
+ * 分销即时结算钩子）；CAS 冲突（管理员抢先推进）视为已完成，跳过。
+ */
+export async function autoConfirmDeliveries(): Promise<number> {
+  if (AUTO_CONFIRM_DELIVERY_DAYS <= 0) return 0;
+  const staleBefore = new Date(Date.now() - AUTO_CONFIRM_DELIVERY_DAYS * 86_400_000);
+  const due = await prisma.order.findMany({
+    where: { status: "SHIPPED", shippedAt: { lt: staleBefore } },
+    include: { items: true },
+    take: 50,
+    orderBy: { shippedAt: "asc" },
+  });
+  let confirmed = 0;
+  for (const o of due) {
+    try {
+      await updateOrderStatus(o, "DELIVERED", null);
+      confirmed++;
+    } catch (err) {
+      // 并发冲突（已被管理员/用户推进）：跳过；其他错误也不该中断整批
+      logger.warn({ err, orderId: o.id }, "[auto-confirm] 自动确认收货跳过一条");
+    }
+  }
+  if (confirmed > 0) {
+    logger.info({ count: confirmed }, "[auto-confirm] 超时订单已自动确认收货");
+  }
+  return confirmed;
 }
 
 type RefundExecutionResult =
@@ -1461,6 +1538,55 @@ async function scheduleRefundRetry(
 }
 
 /** 领取并执行一笔退款 outbox；稳定幂等键跨所有重试不变。 */
+/**
+ * 退款终态通知（业务闭环审计 D3 修复）—— 邮件 + 站内信双通道。
+ *
+ * 此前退款审批只反映「当时」状态：异步网关受理（pending）后 cron 重试成功落
+ * REFUNDED、或 FAILED 后数天重试成功 —— 用户永远停留在「退款处理中/失败」的
+ * 旧信息里（钱到账了没人告诉顾客）。本 helper 在两个异步终态点调用：
+ *   1) processRefundOutboxItem 的 SUCCEEDED 分支（部分退款成功、订单未整单终结）
+ *   2) markOrderRefundedByGateway（整单 REFUNDED 终态，含网关侧主动同步）
+ * 幂等由调用方保证（outbox 只推进一次；整单终态有事务内 didTransition 标志）。
+ */
+async function notifyRefundOutcome(
+  orderId: string,
+  opts: { statusText: string; statusTextEn: string; amount: string },
+): Promise<void> {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    include: { items: true },
+  });
+  if (!order) return;
+  const user = order.userId ? await prisma.user.findUnique({ where: { id: order.userId } }) : null;
+  const mailTo = order.contactEmail ?? user?.email ?? null;
+  const orderUrl = orderUrlFor(order);
+  if (mailTo) {
+    void queueMail({
+      to: mailTo,
+      template: "refund-update",
+      data: {
+        name: greetingName(user?.name, order),
+        orderNumber: order.orderNumber,
+        statusText: opts.statusText,
+        amount: opts.amount,
+        orderUrl,
+      },
+    });
+  }
+  if (order.userId) {
+    void createNotification({
+      userId: order.userId,
+      type: "order",
+      title: opts.statusText,
+      titleEn: opts.statusTextEn,
+      body: `订单 ${order.orderNumber}：${opts.statusText}（${opts.amount}）`,
+      bodyEn: `Order ${order.orderNumber}: ${opts.statusTextEn} (${opts.amount})`,
+      link: `/orders/${order.orderNumber}`,
+      meta: { orderNumber: order.orderNumber, status: "REFUNDED" },
+    });
+  }
+}
+
 export async function processRefundOutboxItem(refundId: string): Promise<RefundExecutionResult> {
   const now = new Date();
   const stale = new Date(now.getTime() - 5 * 60_000);
@@ -1610,7 +1736,16 @@ export async function processRefundOutboxItem(refundId: string): Promise<RefundE
     _sum: { amount: true },
   });
   if (Number(completed._sum.amount ?? 0) >= Number(order.total) - 1e-9) {
+    // 整单终态：markOrderRefundedByGateway 内部统一发「已全额退款」通知
     await markOrderRefundedByGateway(order, gatewayRefundId);
+  } else {
+    // 部分退款成功（订单不整单终结）：顾客此前收到的是「退款处理中/失败」，
+    // 异步到达的成功必须补通知（业务闭环审计 D3）。
+    await notifyRefundOutcome(order.id, {
+      statusText: "退款成功（部分退款）",
+      statusTextEn: "Refund completed (partial)",
+      amount: `${order.currency} ${Number(refund.amount).toFixed(2)}`,
+    });
   }
   void logPayment({
     orderId: order.id,
@@ -1725,6 +1860,9 @@ export async function markOrderRefundedByGateway(
 ): Promise<Order> {
   if (order.status === "REFUNDED") return order;
 
+  // 整单终态通知去重标志（业务闭环审计 D3）：并发重放（webhook + 对账同步
+  // 双路径同时到达）时只有真正推进状态的那一方发通知。
+  let didTransition = false;
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
     const fresh = await tx.order.findUnique({ where: { id: order.id } });
@@ -1741,6 +1879,7 @@ export async function markOrderRefundedByGateway(
       where: { id: order.id },
       data: { status: "REFUNDED", refundedAt: new Date() },
     });
+    didTransition = true;
 
     // 库存回补
     const productIds = [
@@ -1832,6 +1971,16 @@ export async function markOrderRefundedByGateway(
 
   // 分销（隔离模块）：网关退款 → 佣金冲正
   await distributionBridge.onOrderRefunded(order.id);
+
+  // 整单退款终态通知（业务闭环审计 D3）：网关侧主动同步 / outbox 全额累计
+  // 达成的路径里，顾客此前收到的都是「处理中/失败」—— 终态到达必须补通知。
+  if (didTransition) {
+    await notifyRefundOutcome(order.id, {
+      statusText: "订单已全额退款",
+      statusTextEn: "Order fully refunded",
+      amount: `${order.currency} ${Number(order.total).toFixed(2)}`,
+    });
+  }
 
   return updated!;
 }

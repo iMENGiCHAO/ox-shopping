@@ -60,6 +60,46 @@ const COPY = {
       ignore: "If this wasn't you, please ignore this email.",
     },
   },
+  orderDelivered: {
+    zh: {
+      preview: (n: string) => `订单 ${n} 已完成`,
+      title: "订单已完成",
+      greet: (n: string) => `您好，${n}：`,
+      body: (n: string) =>
+        `您的订单 <strong>${n}</strong> 已确认送达。感谢您的购买，期待再次为您服务！`,
+      cta: "查看订单详情",
+    },
+    en: {
+      preview: (n: string) => `Order ${n} completed`,
+      title: "Order completed",
+      greet: (n: string) => `Hi ${n},`,
+      body: (n: string) =>
+        `Your order <strong>${n}</strong> has been confirmed as delivered. Thank you for your purchase — we look forward to serving you again!`,
+      cta: "View order details",
+    },
+  },
+  orderCancelled: {
+    zh: {
+      preview: (n: string) => `订单 ${n} 已取消`,
+      title: "订单已取消",
+      greet: (n: string) => `您好，${n}：`,
+      expiredBody: (n: string) =>
+        `订单 <strong>${n}</strong> 因超时未支付已被系统自动取消。您的账户未产生任何扣款；如有需要，欢迎随时重新下单。`,
+      body: (n: string) =>
+        `订单 <strong>${n}</strong> 已取消。若您认为这是一次误操作，或您已完成付款但订单被取消，请立即联系客服 —— 我们会为您全额退款。`,
+      cta: "查看订单详情",
+    },
+    en: {
+      preview: (n: string) => `Order ${n} cancelled`,
+      title: "Order cancelled",
+      greet: (n: string) => `Hi ${n},`,
+      expiredBody: (n: string) =>
+        `Your order <strong>${n}</strong> was cancelled automatically because payment was not completed in time. You have not been charged; you're welcome to place a new order anytime.`,
+      body: (n: string) =>
+        `Your order <strong>${n}</strong> has been cancelled. If you believe this was a mistake, or if you already paid but the order was cancelled, please contact support right away — we will issue a full refund.`,
+      cta: "View order details",
+    },
+  },
   orderConfirmed: {
     zh: {
       preview: (n: string) => `订单 ${n} 已确认`,
@@ -452,6 +492,53 @@ export function ResetRejectedEmail(
           {c.cta}
         </Button>
       </Section>
+    </EmailShell>
+  );
+}
+
+export function OrderDeliveredEmail(
+  props: BaseProps & { name: string; orderNumber: string; orderUrl: string },
+) {
+  const lang: Lang = props.lang ?? "zh";
+  const c = pick(COPY.orderDelivered, lang);
+  return (
+    <EmailShell {...props} preview={c.preview(props.orderNumber)} lang={lang}>
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+      <Text style={{ lineHeight: "24px" }}>{c.greet(props.name)}</Text>
+      <Text
+        style={{ lineHeight: "24px" }}
+        dangerouslySetInnerHTML={{ __html: c.body(props.orderNumber) }}
+      />
+      <Button href={props.orderUrl}>{c.cta}</Button>
+    </EmailShell>
+  );
+}
+
+export function OrderCancelledEmail(
+  props: BaseProps & {
+    name: string;
+    orderNumber: string;
+    orderUrl: string;
+    /** 超时未支付自动取消：正文切换为「未扣款，可重新下单」口径 */
+    autoExpired?: boolean;
+  },
+) {
+  const lang: Lang = props.lang ?? "zh";
+  const c = pick(COPY.orderCancelled, lang);
+  const expired = props.autoExpired === true;
+  return (
+    <EmailShell {...props} preview={c.preview(props.orderNumber)} lang={lang}>
+      <Heading style={{ fontSize: 22, margin: "0 0 16px" }}>{c.title}</Heading>
+      <Text style={{ lineHeight: "24px" }}>{c.greet(props.name)}</Text>
+      <Text
+        style={{ lineHeight: "24px" }}
+        dangerouslySetInnerHTML={{
+          __html: expired
+            ? c.expiredBody(props.orderNumber)
+            : c.body(props.orderNumber),
+        }}
+      />
+      <Button href={props.orderUrl}>{c.cta}</Button>
     </EmailShell>
   );
 }

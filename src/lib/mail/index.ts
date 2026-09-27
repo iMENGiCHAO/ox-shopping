@@ -10,7 +10,7 @@ import {
   type MailRuntimeConfig,
 } from "@/server/services/mail-config.service";
 import { logger } from "@/lib/logger";
-import {
+import { OrderCancelledEmail, OrderDeliveredEmail,
   AccountDeletedEmail,
   DataDeletionEmail,
   DistributionNoticeEmail,
@@ -73,6 +73,21 @@ export interface MailData {
     orderNumber: string;
     trackingCompany: string;
     trackingNumber: string;
+    orderUrl: string;
+    lang?: MailLang;
+  };
+  /** 订单取消（超时自动/用户/管理员共用模板；autoExpired 切换「未扣款」口径） */
+  "order-cancelled": {
+    name: string;
+    orderNumber: string;
+    orderUrl: string;
+    autoExpired?: boolean;
+    lang?: MailLang;
+  };
+  /** 订单完成（确认收货/自动确认收货） */
+  "order-delivered": {
+    name: string;
+    orderNumber: string;
     orderUrl: string;
     lang?: MailLang;
   };
@@ -171,6 +186,14 @@ const templates: Record<MailTemplate, TemplateMeta> = {
   "order-shipped": {
     subject: (lang, brand) => subjectLine(lang, brand, "您的包裹已发货", "Your order has shipped"),
     render: (data) => render(OrderShippedEmail(data as never)),
+  },
+  "order-cancelled": {
+    subject: (lang, brand) => subjectLine(lang, brand, "订单已取消", "Your order has been cancelled"),
+    render: (data) => render(OrderCancelledEmail(data as never)),
+  },
+  "order-delivered": {
+    subject: (lang, brand) => subjectLine(lang, brand, "订单已完成", "Your order is complete"),
+    render: (data) => render(OrderDeliveredEmail(data as never)),
   },
   "refund-update": {
     subject: (lang, brand) => subjectLine(lang, brand, "退款进度更新", "Refund status update"),

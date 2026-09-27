@@ -37,6 +37,7 @@ export interface InvoiceCopy {
   subtotal: string;
   discount: string;
   shipping: string;
+  free: string;
   tax: string;
   total: string;
   thanks: string;
@@ -60,6 +61,7 @@ export const INVOICE_COPY: Record<InvoiceLang, InvoiceCopy> = {
     subtotal: "小计",
     discount: "折扣",
     shipping: "运费",
+    free: "免运费",
     tax: "税费",
     total: "合计",
     thanks: "感谢您的惠顾！本发票由系统自动生成，如有疑问请联系客服。",
@@ -80,6 +82,7 @@ export const INVOICE_COPY: Record<InvoiceLang, InvoiceCopy> = {
     subtotal: "Subtotal",
     discount: "Discount",
     shipping: "Shipping",
+    free: "Free",
     tax: "Tax",
     total: "Total",
     thanks:
@@ -215,7 +218,8 @@ export function generateInvoicePdf(input: InvoiceInput): Promise<Buffer> {
     };
     line(c.subtotal, formatMoney(input.subtotal, input.currency));
     if (input.discount > 0) line(c.discount, `-${formatMoney(input.discount, input.currency)}`);
-    line(c.shipping, formatMoney(input.shippingFee, input.currency));
+    // 0 运费显示 Free（与订单页口径一致；显示 "0.00" 会让顾客误以为被收了运费占位）
+    line(c.shipping, input.shippingFee > 0 ? formatMoney(input.shippingFee, input.currency) : c.free ?? "Free");
     if (input.tax > 0) line(c.tax, formatMoney(input.tax, input.currency));
     doc
       .moveTo(360, doc.y - 6)

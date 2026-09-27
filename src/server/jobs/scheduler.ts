@@ -28,8 +28,10 @@ const RECONCILE_BATCH = 50;
  * 新鲜度足够）每小时一轮。此前两者都跟着 60s 心跳每轮跑。 */
 const RECONCILE_JOB_INTERVAL_MS = 5 * 60_000;
 const ROLLUP_JOB_INTERVAL_MS = 60 * 60_000;
+const RESTOCK_RETRY_INTERVAL_MS = 10 * 60_000;
 let lastReconcileAt = 0;
 let lastRollupAt = 0;
+let lastRestockRetryAt = 0;
 
 /**
  * 选主：租约表（scheduler_lease 单行）+ 原子条件更新 —— 2026-09-26 性能审计
@@ -267,7 +269,8 @@ async function runAllJobs(): Promise<void> {
         } else if (session.status === "expired") {
           const fresh = await prisma.order.findUnique({ where: { orderNumber: o.orderNumber } });
           if (fresh && fresh.status === "PENDING_PAYMENT") {
-            await cancelOrder(fresh, null);
+            // 网关会话过期（掉单对账确认未支付）：取消邮件用「未扣款」口径
+            await cancelOrder(fresh, null, { autoExpired: true });
           }
         }
       }
@@ -324,6 +327,30 @@ async function runAllJobs(): Promise<void> {
     if (n > 0) logger.info({ count: n }, "[cron] 邮件 outbox 已处理");
   } catch (err) {
     logger.error({ err }, "[cron] 邮件 outbox 扫描失败");
+  }
+
+  // 3d. 超时自动确认收货（业务闭环审计建议#1）：发货 N 天不确认 → DELIVERED
+  //     （通知 + COD 记 paidAt + 分销即时结算）。查询有 SHIPPED+shippedAt 过滤
+  //     且 take 50 上界，过期单稳态趋零。
+  try {
+    const { autoConfirmDeliveries } = await import("@/server/services/order.service");
+    const n = await autoConfirmDeliveries();
+    if (n > 0) logger.info({ count: n }, "[cron] 超时订单已自动确认收货");
+  } catch (err) {
+    logger.error({ err }, "[cron] 自动确认收货失败");
+  }
+
+  // 3e. 失败到货提醒重扫（业务闭环审计建议#4，10 分钟一轮）：发送失败的
+  //     draft 此前只能等下一次库存事件 —— 挂调度兜底，商品无新事件也能复活。
+  if (Date.now() - lastRestockRetryAt >= RESTOCK_RETRY_INTERVAL_MS) {
+    lastRestockRetryAt = Date.now();
+    try {
+      const { retryFailedRestockAlerts } = await import("@/server/services/notify-me.service");
+      const n = await retryFailedRestockAlerts();
+      if (n > 0) logger.info({ count: n }, "[cron] 到货提醒失败重扫已送达");
+    } catch (err) {
+      logger.error({ err }, "[cron] 到货提醒重扫失败");
+    }
   }
 
   // 4. 分销对账补偿（隔离模块）：补归属 / 补佣金 / 冲正退款单 / 到期结算。

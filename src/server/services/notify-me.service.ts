@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { sendMail } from "@/lib/mail";
 import { formatMoney } from "@/lib/utils";
 import { notifyAdmins } from "@/server/services/notification.service";
+import { logger } from "@/lib/logger";
 
 /**
  * 到货通知（Notify me）补货触发：
@@ -157,4 +158,32 @@ export async function notifyRestock(productId: string): Promise<number> {
     });
   }
   return sent;
+}
+
+/**
+ * 失败到货提醒重扫（业务闭环审计建议#4）：发送失败的登记保持 draft，此前
+ * 只能等「下一次库存事件」触发重试 —— 若商品再无库存变动（补货季一次售
+ * 完），失败行永远悬挂。这里由调度器周期性兜底：找仍有 draft 的商品，
+ * 复用 notifyRestock 全语义（在售/库存/变体匹配守卫 + 批量 keyset + 成败
+ * 汇报）。幂等：notified 行不再命中，稳态零成本。
+ */
+export async function retryFailedRestockAlerts(): Promise<number> {
+  const groups = await prisma.notifyMe.groupBy({
+    by: ["productId"],
+    where: { status: "draft" },
+    _count: { _all: true },
+    orderBy: { productId: "asc" },
+    take: 20,
+  });
+  let total = 0;
+  for (const g of groups) {
+    if (!g.productId) continue; // 商品已删（productId SetNull）：无从通知
+    try {
+      total += await notifyRestock(g.productId);
+    } catch (err) {
+      // 单商品失败不中断整批
+      logger.warn({ err, productId: g.productId }, "[restock-retry] 到货提醒重扫单商品失败");
+    }
+  }
+  return total;
 }

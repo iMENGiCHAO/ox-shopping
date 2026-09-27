@@ -55,6 +55,9 @@ export const SHIPPING_FEE = numOr(process.env.SHIPPING_FEE, 10);
 export const FREE_SHIPPING_THRESHOLD = numOr(process.env.FREE_SHIPPING_THRESHOLD, 99);
 export const TAX_RATE = numOr(process.env.TAX_RATE, 0);
 export const ORDER_EXPIRE_SECONDS = numOr(process.env.ORDER_EXPIRE_SECONDS, 1800);
+/** 发货后自动确认收货天数（0=关闭）。订单旅程闭合：顾客不点确认也不会
+ * 永停 SHIPPED；COD 单送达即记 paidAt（线上收款确认点），佣金结算解锁。 */
+export const AUTO_CONFIRM_DELIVERY_DAYS = numOr(process.env.AUTO_CONFIRM_DELIVERY_DAYS, 15);
 
 /** 上传 */
 export const UPLOAD_MAX_BYTES = numOr(process.env.UPLOAD_MAX_BYTES, 10 * 1024 * 1024);
