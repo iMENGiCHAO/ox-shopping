@@ -202,7 +202,7 @@
 | `db push` 生产回退路径 | 低 | ENTRYPOINT 无迁移历史时 fallback `db push`（有 migrations 目录时不会走到；生产 schema 漂移风险） |
 | 无容器资源限制 | 低 | 无 mem_limit/cpus |
 | `MAIL_FROM` 默认 example.com | 低 | compose 默认值，忘改则邮件投递受影响 |
-| 水平扩容阻碍点 | 低 | cron 咨询锁选主（OK）；内存降级限流与本地存储需全量切 Redis/S3（compose 生产已默认可配） |
+| 水平扩容阻碍点 | 低 | cron 租约表选主（2026-09-26 已从 5 分钟咨询锁长事务重构为 scheduler_lease 短事务抢租约 + 任务事务外执行）；内存降级限流与本地存储需全量切 Redis/S3（compose 生产已默认可配） |
 
 ---
 

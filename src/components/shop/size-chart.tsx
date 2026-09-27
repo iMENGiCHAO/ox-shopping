@@ -1,4 +1,4 @@
-import { getSizeChart, SizeChartAccordion } from "./size-chart-data";
+import { SizeChartAccordion } from "./size-chart-data";
 
-export { getSizeChart, SizeChartAccordion };
+export { SizeChartAccordion };
 export type { SizeChartTable } from "./size-chart-data";

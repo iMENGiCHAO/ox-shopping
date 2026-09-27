@@ -15,7 +15,7 @@ import { ProductCard } from "@/components/shop/product-card";
 import { firstImage, parseAttributes, toCardData, toNumberPrice } from "@/components/shop/types";
 import { getT } from "@/lib/shop-i18n-server";
 import { RelatedCarousel } from "@/components/shop/related-carousel";
-import { SizeChartAccordion, getSizeChart } from "@/components/shop/size-chart";
+import { SizeChartAccordion } from "@/components/shop/size-chart";
 import { getLang as getServerLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { pickName, pickDescription, buildAlternates } from "@/lib/shop-i18n";
@@ -153,7 +153,8 @@ export default async function ProductDetailPage(props: DetailPageProps) {
     "headers" in (product.sizeChart as object)
       ? (product.sizeChart as { headers: string[]; rows: string[][] })
       : null;
-  const sizeChart = dbChart ?? getSizeChart(product.slug);
+  // 数据孤岛迁移：只读 DB（后台编辑=前台所见）；无表即不渲染区块（诚实）
+  const sizeChart = dbChart;
   // 原网站 上游参考站 无 NEW/HOT/Sold out 标签，保持一致 — badges 已移除
   // 商品描述以纯文本保存与渲染(React 自动转义，天然防 XSS)，保留换行
   // 实际展示文本已通过上面的 productDesc + lang 选择

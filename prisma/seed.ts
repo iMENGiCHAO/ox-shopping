@@ -11,6 +11,7 @@ import "dotenv/config";
 import { PrismaClient, Prisma, Role, ProductStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { demoCategories, demoProducts } from "./demo-catalog";
+import { SIZE_CHARTS } from "./size-charts";
 import { demoCollections } from "./demo-collections";
 import { FAQ_DEFAULTS } from "../src/lib/faq-defaults";
 
@@ -186,6 +187,17 @@ async function seedProducts(categoryMap: Map<string, string>) {
     console.log(
       `⏭ 已存在 ${existingCount} 个商品，跳过目录种子（不覆盖运营数据；如需重建请显式设置 FORCE_RESEED=true）`,
     );
+    // 尺码表注册表迁移补填（幂等、非破坏）：不属于「目录种子」—— 既有库也要
+    // 补：仅对「注册表有数据且 DB 为空」的品补填，绝不覆盖运营已编辑的值。
+    let backfilled = 0;
+    for (const [slug, chart] of Object.entries(SIZE_CHARTS)) {
+      const res = await prisma.product.updateMany({
+        where: { slug, sizeChart: { equals: Prisma.DbNull } },
+        data: { sizeChart: chart as unknown as Prisma.InputJsonValue },
+      });
+      backfilled += res.count;
+    }
+    console.log(`✓ 尺码表迁移补填 ${backfilled} 个（仅空值，运营编辑不覆盖）`);
     return;
   }
   if (process.env.FORCE_RESEED === "true") {
@@ -236,6 +248,8 @@ async function seedProducts(categoryMap: Map<string, string>) {
       where: { slug: p.slug },
       update: {},
       create: {
+        // 演示品尺码表（数据孤岛迁移）：DB 为唯一事实源，后台编辑直接生效
+        ...(SIZE_CHARTS[p.slug] ? { sizeChart: SIZE_CHARTS[p.slug] as unknown as Prisma.InputJsonValue } : {}),
         name: p.name,
         nameEn: p.nameEn,
         slug: p.slug,
