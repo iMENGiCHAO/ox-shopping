@@ -874,6 +874,7 @@ const DICT: Dict = {
     zh: "已清空 {n} 条已读消息",
   } /* ── 页脚 ──────────────────────────────────────────────────────── */,
   Footer: { en: "Footer", zh: "页脚" },
+  Support: { en: "Support", zh: "客服" },
   "Your Privacy Choices": { en: "Your Privacy Choices", zh: "您的隐私选择" },
   /* 无障碍：跳到主内容（此前硬编码在 (shop)/layout.tsx） */
   "Skip to content": { en: "Skip to content", zh: "跳到主要内容" },

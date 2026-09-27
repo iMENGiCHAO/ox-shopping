@@ -133,8 +133,14 @@ export interface CheckoutFlowProps {
   signedIn: boolean;
   /** 登录用户的邮箱（预填 Contact 段） */
   defaultEmail: string;
-  /** 登录用户的已保存地址（可一键带入内联表单） */
+  /** 登录用户的已保存地址（可一键带入内缀表单） */
   savedAddresses: ShopAddress[];
+  /**
+   * 税率（0–1，服务端 TAX_RATE 环境量注入）。0=价格含税（VAT included），
+   * 不显示 Tax 行；>0 时结算摘要与服务端 computeOrderAmounts 同公式补 Tax 行
+   * （tax = subtotal × rate），杜绝「订单页有税、结算页没税」的前后端分叉。
+   */
+  taxRate: number;
 }
 
 function round2(n: number): number {
@@ -148,6 +154,7 @@ function isEmail(v: string): boolean {
 
 export function CheckoutFlow({
   buyNow,
+  taxRate,
   quantity,
   attrs,
   logoUrl,
@@ -369,6 +376,9 @@ export function CheckoutFlow({
   // 与服务端 order.service 的 tax 计算对应；若启用 TAX_RATE>0 需同步在此补 Tax 行。
   const shippingFee = freeShippingByThreshold ? 0 : baseShipping;
   const discountUsd = applied?.discountUsd ?? 0;
+  // 税费（口径与服务端 computeOrderAmounts 完全一致：折前小计 × 税率）。
+  // TAX_RATE=0（价格含税）时恒为 0，Tax 行不显示 —— 与订单详情页同规则。
+  const taxUsd = round2(subtotal * taxRate);
   // 原站结账页在 Information 步显示「Shipping: Calculated at next step」，且 Total 仍等于
   // 小计（实测：Subtotal $70.00 / Total USD $70.00，运费未计入）。选定配送方式后才计入运费。
   // 若此步就把默认运费加进 Total，会出现「Shipping 行说未计算、Total 却已多一笔」的自相矛盾。
@@ -385,6 +395,7 @@ export function CheckoutFlow({
     {
       subtotal,
       shipping: shippingKnown ? shippingFee : 0,
+      tax: taxUsd,
       discount: discountUsd,
     },
     rate,
@@ -861,6 +872,13 @@ export function CheckoutFlow({
                     label={t("Discount")}
                     value={`−${showUser(shown.discount)}`}
                     valueClassName="text-[#707070]"
+                  />
+                ) : null}
+                {taxRate > 0 ? (
+                  <SummaryRow
+                    className="mt-[11px]"
+                    label={t("Tax")}
+                    value={showUser(shown.tax)}
                   />
                 ) : null}
                 {/* Total 与 Shipping 间距 21：原站 Shipping 字形顶 220 → Total 字形顶 256（差 36），

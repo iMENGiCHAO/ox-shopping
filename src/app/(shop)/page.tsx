@@ -57,7 +57,9 @@ export default async function HomePage() {
   const bannerData = (index: number) => {
     const cat = featured[index];
     return {
-      image: cat?.image || `https://picsum.photos/seed/${cat?.slug ?? index}/1200/675`,
+      // 缺图时置 null：渲染层跳过 <Image>，横幅退为深色底（bg-ink）+ 渐变 +
+      // 文案 —— 绝不用外链随机图冒充分类图（picsum 占位曾可漏到生产首页）。
+      image: cat?.image || null,
       href: cat ? `/products?category=${cat.slug}` : "/products",
       title: cat ? catName(cat) : "",
       hasContent: Boolean(cat),
@@ -80,6 +82,7 @@ export default async function HomePage() {
                 href={bn.href}
                 className="group relative block aspect-[8/7] overflow-hidden bg-ink min-[700px]:aspect-[720/404]"
               >
+                {bn.image ? (
                 <Image
                   src={bn.image}
                   alt={bn.title}
@@ -93,6 +96,7 @@ export default async function HomePage() {
                   // 注：Tailwind 会扫描注释，故本注释刻意不写完整的类名字面量。
                   className="object-cover transition-transform ease-out [transition-duration:5000ms] group-hover:scale-[1.06]"
                 />
+                ) : null}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/25 to-black/10" />
 
                 {/* [ Name ] + Shop All — 左上角纵向排列：分类名称在上、按钮在名称下方，与原网站一致。

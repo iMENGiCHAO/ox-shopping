@@ -80,7 +80,7 @@ export const PUT = apiHandler(async (req, ctx) => {
 
 /** DELETE /api/admin/products/[id] — 物理删除（从列表彻底移除）
  *  订单历史安全：OrderItem 存有 name/image/sku/price 快照且 productId onDelete=SetNull，
- *  删除后历史订单仍完整展示；CartItem/Review 为 Cascade 一并清理；NotifyMe 引用会保留但失联。 */
+ *  删除后历史订单仍完整展示；CartItem 为 Cascade 一并清理；NotifyMe 引用会保留但失联。 */
 export const DELETE = apiHandler(async (req, ctx) => {
   const actor = await requireAdmin();
   const id = routeParam(ctx.params.id);

@@ -63,6 +63,7 @@ export async function Footer() {
           <CurrencySelect showCountry align="center" direction="up" />
           <p className="text-xs opacity-65">
             {siteName} © {year}
+            {settings.contactPhone ? ` · ${t("Support")} ${settings.contactPhone}` : null}
             {settings.icp ? ` · ${settings.icp}` : null}
           </p>
         </div>

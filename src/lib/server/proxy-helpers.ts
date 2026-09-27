@@ -29,8 +29,8 @@ export function buildCsp(nonce: string, isProd: boolean): string {
     ? `'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`
     : `'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com`;
   const imgSrc = isProd
-    ? "'self' data: blob: https://picsum.photos https://images.unsplash.com https://*.amazonaws.com"
-    : "'self' data: blob: https://picsum.photos https://images.unsplash.com http://localhost:*";
+    ? "'self' data: blob: https://*.amazonaws.com"
+    : "'self' data: blob: http://localhost:*";
   const connectSrc = isProd
     ? "'self' https://api.stripe.com"
     : "'self' https://api.stripe.com http://localhost:* ws:";

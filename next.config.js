@@ -62,8 +62,6 @@ const nextConfig = {
     dangerouslyAllowSVG: true,
     contentDispositionType: "inline",
     remotePatterns: [
-      { protocol: "https", hostname: "picsum.photos" },
-      { protocol: "https", hostname: "images.unsplash.com" },
       // AWS S3 直连的两种形态。此前是 `**.amazonaws.com` 全域通配（P1）：
       // 放行了任意 AWS 主机，优化器可被用作代理；项目本身并不引用 amazonaws 图源，
       // 仅为 S3 兼容部署预留。Cloudflare R2 / MinIO 自定义域名请按需追加

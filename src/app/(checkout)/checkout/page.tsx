@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CheckoutFlow } from "@/components/shop/checkout-flow";
 import { getSessionUser } from "@/lib/auth/session";
 import { prisma } from "@/lib/prisma";
+import { TAX_RATE } from "@/lib/constants";
 import { getSiteSettings } from "@/server/services/settings.service";
 import type { ShopAddress } from "@/components/shop/types";
 
@@ -73,6 +74,7 @@ export default async function CheckoutPage(props: CheckoutPageProps) {
       signedIn={!!user}
       defaultEmail={user?.email ?? ""}
       savedAddresses={savedAddresses}
+      taxRate={TAX_RATE}
     />
   );
 }
