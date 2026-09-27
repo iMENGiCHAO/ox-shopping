@@ -483,7 +483,9 @@ async function computeAdminOverview(): Promise<{
       by: ["status"],
       where: { status: { in: ["PENDING", "APPROVED"] } },
       _count: { _all: true },
-      _sum: { amount: true },
+      // 币种混算修复：Σ 各结算币种的 amount 会把 $100 当 ¥100 —— 合计走
+      // 申请时固化的 CNY 等值列（amountCny），跨币种可安全加总。
+      _sum: { amountCny: true },
     }),
   ]);
 
@@ -506,7 +508,7 @@ async function computeAdminOverview(): Promise<{
     commissionByStatus,
     pendingWithdraw: {
       count: withdrawGroup.reduce((s, g) => s + g._count._all, 0),
-      amountCny: round2(withdrawGroup.reduce((s, g) => s + Number(g._sum.amount ?? 0), 0)),
+      amountCny: round2(withdrawGroup.reduce((s, g) => s + Number(g._sum.amountCny ?? 0), 0)),
     },
   };
 }

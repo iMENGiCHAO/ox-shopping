@@ -471,6 +471,10 @@ export async function applyWithdraw(input: {
           amount,
           // 币种快照：账户结算币种变更不影响历史提现单的金额语义
           currency: settlementCurrency,
+          // CNY 等值快照（币种混算修复 2026-09-26）：管理端总览的「待打款合计」
+          // 由此列跨币种安全加总 —— 此前直接 Σ amount 把 $100 当 ¥100 计入。
+          // 汇率申请时固化（同佣金计提模式），此后波动不影响历史申请。
+          amountCny: round2(amount * cnyPerUnit),
           accountInfo: input.accountInfo?.trim() || null,
           remark: input.remark?.trim() || null,
           payeeName,

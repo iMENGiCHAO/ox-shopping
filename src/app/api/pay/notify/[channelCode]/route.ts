@@ -7,6 +7,7 @@ import { toCents } from "@/lib/utils";
 import { getChannelRuntimeByCode } from "@/lib/payment/channel.service";
 import { getProvider } from "@/lib/payment/providers";
 import { markOrderPaid } from "@/server/services/order.service";
+import { captureMessage } from "@/lib/monitoring";
 import { routeParam } from "@/app/api/_lib/params";
 
 export const runtime = "nodejs";
@@ -138,6 +139,59 @@ export const POST = apiHandler(async (req, ctx) => {
       })
       .catch(() => undefined);
   }
+
+  // 资金洞修复（业务闭环审计 D1）：已取消订单收到迟到支付 —— 订单 30 分钟
+  // 过期被自动取消（库存/券已回补），但支付宝/微信等渠道的支付凭据有效期
+  // 远长于 30 分钟，顾客在取消后完成支付时回调会打到本路由。此前直接
+  // markOrderPaid → 内部「非 PENDING_PAYMENT 静默返回」+ 本路由回 success
+  // = 钱被收走、货已回补给他人、不退款、无告警（Stripe 走 webhook 有
+  // paymentSessionId 分支兜底，渠道化支付没有）。这里全额原路退款：
+  // - 成功/受理 → 回 success 让网关停止重试（凭据已留在 paymentSessionId/paymentId 供对账）
+  // - 失败 → 回 fail 让网关按自身策略重发回调（即自动重试退款）+ error 告警人工介入
+  if (order.status === "CANCELLED") {
+    logger.error(
+      { channelCode, provider: channel.provider, orderNumber: order.orderNumber },
+      "[pay.notify] 已取消订单收到迟到支付，自动发起全额退款",
+    );
+    captureMessage(
+      `[pay.notify] 已取消订单 ${order.orderNumber} 收到迟到支付（${channel.provider}），已自动发起全额退款`,
+      "error",
+    );
+    try {
+      const refundRes = await provider.refund(
+        {
+          orderNumber: order.orderNumber,
+          amount: Number(order.total),
+          // 迟到支付的交易号（回调验签通过 + 金额已比对）：这就是要退的那笔钱
+          gatewayId: result.transactionId,
+          currency: order.currency,
+          // 固定幂等键：网关重发回调重进本分支时不会重复发起退款
+          idempotencyKey: `late-paid-${order.orderNumber}`,
+        },
+        channel.config,
+      );
+      if (refundRes.status === "failed") {
+        captureMessage(
+          `[pay.notify] 已取消订单 ${order.orderNumber} 迟到支付退款被拒（${refundRes.gatewayRefundId}），网关将重发回调重试，持续失败请人工退款`,
+          "error",
+        );
+        return replyFail(channel.provider);
+      }
+      logger.info(
+        { orderNumber: order.orderNumber, gatewayRefundId: refundRes.gatewayRefundId },
+        "[pay.notify] 已取消订单迟到支付退款已发起（原路全额）",
+      );
+      return replySuccess(channel.provider);
+    } catch (err) {
+      logger.error({ err, orderNumber: order.orderNumber }, "[pay.notify] 迟到支付自动退款异常");
+      captureMessage(
+        `[pay.notify] 已取消订单 ${order.orderNumber} 迟到支付自动退款异常，网关将重发回调重试：${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+      return replyFail(channel.provider);
+    }
+  }
+
   await markOrderPaid(result.orderNumber, result.transactionId);
 
   return replySuccess(channel.provider);

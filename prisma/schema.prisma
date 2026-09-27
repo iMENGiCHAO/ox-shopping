@@ -1127,6 +1127,10 @@ model WithdrawRecord {
   amount      Decimal        @db.Decimal(10, 2)
   /// 提现币种（账户 settlementCurrency 的申请时快照）
   currency    String         @default("CNY")
+  /// 申请金额折 CNY（申请时汇率快照固化，管理端总览跨币种合计用 —— 币种混算
+  /// 修复 2026-09-26：此前总览把不同结算币种的 amount 直接相加当 CNY 展示，
+  /// USD 分销商的 $100 会被当成 ¥100 计入待打款合计）
+  amountCny     Decimal        @default(0) @db.Decimal(12, 2)
   status      WithdrawStatus @default(PENDING)
   /// 收款账户信息（展示时脱敏）
   accountInfo String?

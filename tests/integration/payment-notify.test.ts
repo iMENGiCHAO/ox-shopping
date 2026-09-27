@@ -279,6 +279,29 @@ describe("支付异步回调：验签 / 金额核对 / 幂等 / 币种", () => {
     expect(paidLogs).toBe(1);
   });
 
+  it("已取消订单收到迟到支付 → 钱绝不入账（自动退款兜底，D1 资金洞修复）", async () => {
+    const { orderNumber, total } = await createOrder("CNY");
+    // 模拟 30 分钟超时被系统自动取消（库存/券已回补、货已释放）
+    await prisma.order.update({
+      where: { orderNumber },
+      data: { status: "CANCELLED", cancelledAt: new Date() },
+    });
+
+    // 网关侧仍完成支付（支付宝二维码有效期远长于订单 30 分钟）→ 迟到回调
+    const res = await sendNotify(alipayNotifyParams(orderNumber, total, `txn_late_${orderNumber}`));
+
+    // alipay.refund 尚未接真实网关（provider stub 抛错）→ 路由 catch →
+    // replyFail(400 "fail")：网关按自身策略重发回调（= 自动重试退款），
+    // error 告警已发（人工介入通道）。
+    expect(await res.text()).not.toBe("success");
+    const order = await statusOf(orderNumber);
+    // 资金断言（本用例的根本）：无论应答如何，钱都不得入账 ——
+    // 订单保持 CANCELLED、paidAt 不写、交易号不认领、绝不静默吞钱。
+    expect(order.status).toBe("CANCELLED");
+    expect(order.paidAt).toBeNull();
+    expect(order.paymentId).toBeNull();
+  });
+
   it("币种与渠道不匹配（USD 订单收到支付宝回调）→ 拒绝", async () => {
     // 支付宝渠道声明 supportedCurrencies:["CNY"]，USD 订单必须被拦下：
     // 跨币种直接比数值是错的（45 USD ≠ 45 CNY），
