@@ -1,4 +1,5 @@
 import { apiHandler, json, readJson } from "@/lib/api";
+import { badRequest } from "@/lib/errors";
 import { requireAdmin } from "@/lib/auth/session";
 import { serializeProduct } from "@/server/serializers";
 import { notifyRestock } from "@/server/services/notify-me.service";
@@ -16,7 +17,25 @@ export const PATCH = apiHandler(async (req, ctx) => {
   const id = routeParam(ctx.params.id);
   const input = await readJson(req, stockUpdateSchema);
 
-  const before = await prisma.product.findUnique({ where: { id }, select: { stock: true } });
+  // 业务连贯性守卫（大爷 2026-09-28）：有规格的商品，总库存必须是「各子规格之和」，
+  // 绝不能在这里直接改写 —— 否则商品级数字与组合明细脱节（大爷：「以后库存就出乱子」）。
+  const target = await prisma.product.findUnique({
+    where: { id },
+    select: { stock: true, attributes: true, specStock: true, isPresale: true },
+  });
+  const attrs = Array.isArray(target?.attributes)
+    ? (target.attributes as { values?: unknown; selectable?: unknown }[])
+    : [];
+  const hasSpecs =
+    attrs.some((a) => Array.isArray(a.values) && (a.values as unknown[]).length > 1) ||
+    (target?.specStock != null && typeof target.specStock === "object");
+  if (hasSpecs) {
+    throw badRequest(
+      "该商品有规格（颜色/尺码等）：总库存由各规格库存自动汇总，请在商品编辑页的「规格库存」里逐规格录入，不要直接修改总库存。",
+    );
+  }
+
+  const before = target;
 
   const product = await prisma.product.update({
     where: { id },

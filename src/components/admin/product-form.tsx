@@ -723,6 +723,13 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                       件
                     </span>
                   </div>
+                  {/* 列表头：让「哪列填什么」一眼可辨（大爷：排版要好读） */}
+                  <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_6.5rem] gap-2 border-b border-border px-1 pb-1.5 text-xs font-medium text-muted-foreground">
+                    <span>{groupable ? `规格（按${primaryGroup.name}分组）` : "规格"}</span>
+                    <span>库存 *</span>
+                    <span>覆盖价</span>
+                    <span>SKU</span>
+                  </div>
                   {primaryGroup.values.map((groupValue) => {
                     const rows = variantCombos.filter((combo) =>
                       combo.some((a) => a.name === primaryGroup.name && a.value === groupValue),
@@ -731,7 +738,11 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                     return (
                       <div
                         key={groupValue}
-                        className={groupable ? "rounded-md border border-border p-2.5" : "space-y-1.5"}
+                        className={
+                          groupable
+                            ? "space-y-2 rounded-lg border border-border bg-muted/30 p-3"
+                            : "space-y-1.5"
+                        }
                       >
                         {groupable ? (
                           <p className="mb-2 flex items-center justify-between text-[13px] font-medium">
