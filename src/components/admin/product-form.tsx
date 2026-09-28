@@ -315,6 +315,18 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       .sort()
       .join("|");
 
+  /**
+   * 分组维度 —— **完全动态、不硬编码任何属性名**（大爷 2026-09-28：
+   * 「不要硬编码，可以不是颜色来分组搭配规格的情况呢」）。
+   * 任意属性组都能当分组头（颜色/尺码/材质/容量…），默认取第一个组，运营可在
+   * 「分组方式」里切换；组内自动列出其余维度的组合。仅一个属性组时退化为平铺录入。
+   */
+  const [groupByName, setGroupByName] = React.useState<string>("");
+  const primaryGroup =
+    selectableGroups.find((g) => g.name === groupByName) ?? selectableGroups[0] ?? null;
+  /** 只有一个属性组时无需分组头（平铺即等价，避免多一层视觉噪音） */
+  const groupable = selectableGroups.length > 1;
+
   /** 矩阵草稿：{ 组合键: { stock: string; price: string; sku: string } } */
   const [matrixDraft, setMatrixDraft] = React.useState<
     Record<string, { stock: string; price: string; sku: string }>
@@ -643,55 +655,107 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
               <Switch id="pf-matrix" checked={matrixEnabled} onCheckedChange={setMatrixEnabled} />
             </div>
             {matrixEnabled ? (
-              variantCombos.length > 0 ? (
-                <div className="max-h-96 space-y-2 overflow-auto pr-1">
-                  <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_7rem] gap-2 text-xs text-muted-foreground">
-                    <span>组合</span>
-                    <span>库存</span>
-                    <span>覆盖价（选填）</span>
-                    <span>SKU（选填）</span>
-                  </div>
-                  {variantCombos.map((attrs) => {
-                    const key = comboKey(attrs);
-                    const d = matrixDraft[key] ?? { stock: "", price: "", sku: "" };
-                    const patch = (part: Partial<{ stock: string; price: string; sku: string }>) =>
-                      setMatrixDraft((prev) => ({
-                        ...prev,
-                        [key]: { ...(prev[key] ?? { stock: "", price: "", sku: "" }), ...part },
-                      }));
+              variantCombos.length > 0 && primaryGroup ? (
+                <>
+                  {groupable ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">分组方式</span>
+                      <select
+                        value={primaryGroup.name}
+                        onChange={(e) => setGroupByName(e.target.value)}
+                        className="h-8 rounded-md border border-border bg-background px-2 text-[13px]"
+                      >
+                        {selectableGroups.map((g) => (
+                          <option key={g.name} value={g.name}>
+                            按「{g.name}」分组
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : null}
+                <div className="max-h-96 space-y-3 overflow-auto pr-1">
+                  {primaryGroup.values.map((groupValue) => {
+                    const rows = variantCombos.filter((combo) =>
+                      combo.some((a) => a.name === primaryGroup.name && a.value === groupValue),
+                    );
+                    if (rows.length === 0) return null;
                     return (
                       <div
-                        key={key}
-                        className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_7rem] items-center gap-2"
+                        key={groupValue}
+                        className={groupable ? "rounded-md border border-border p-2.5" : "space-y-1.5"}
                       >
-                        <span className="truncate text-[13px]">
-                          {attrs.map((a) => a.value).join(" / ")}
-                        </span>
-                        <Input
-                          inputMode="numeric"
-                          placeholder="0"
-                          value={d.stock}
-                          onChange={(e) => patch({ stock: e.target.value.replace(/[^0-9]/g, "") })}
-                        />
-                        <Input
-                          inputMode="decimal"
-                          placeholder="默认价"
-                          value={d.price}
-                          onChange={(e) => patch({ price: e.target.value.replace(/[^0-9.]/g, "") })}
-                        />
-                        <Input
-                          placeholder="选填"
-                          value={d.sku}
-                          onChange={(e) => patch({ sku: e.target.value })}
-                        />
+                        {groupable ? (
+                          <p className="mb-2 flex items-center justify-between text-[13px] font-medium">
+                            <span>
+                              {primaryGroup.name}：{groupValue}
+                            </span>
+                            <span className="text-xs font-normal text-muted-foreground">
+                              {rows.length} 个组合
+                            </span>
+                          </p>
+                        ) : null}
+                        <div className="space-y-1.5">
+                          {rows.map((attrs) => {
+                            const key = comboKey(attrs);
+                            const label =
+                              attrs
+                                .filter((a) => a.name !== primaryGroup.name)
+                                .map((a) => a.value)
+                                .join(" / ") || "默认";
+                            const d = matrixDraft[key] ?? { stock: "", price: "", sku: "" };
+                            const patch = (
+                              part: Partial<{ stock: string; price: string; sku: string }>,
+                            ) =>
+                              setMatrixDraft((prev) => ({
+                                ...prev,
+                                [key]: {
+                                  ...(prev[key] ?? { stock: "", price: "", sku: "" }),
+                                  ...part,
+                                },
+                              }));
+                            return (
+                              <div
+                                key={key}
+                                className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_6.5rem] items-center gap-2"
+                              >
+                                <span className="truncate text-[13px]">{label}</span>
+                                <Input
+                                  inputMode="numeric"
+                                  placeholder="0"
+                                  value={d.stock}
+                                  onChange={(e) =>
+                                    patch({ stock: e.target.value.replace(/[^0-9]/g, "") })
+                                  }
+                                />
+                                <Input
+                                  inputMode="decimal"
+                                  placeholder="默认价"
+                                  value={d.price}
+                                  onChange={(e) =>
+                                    patch({ price: e.target.value.replace(/[^0-9.]/g, "") })
+                                  }
+                                />
+                                <Input
+                                  placeholder="SKU"
+                                  value={d.sku}
+                                  onChange={(e) => patch({ sku: e.target.value })}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     );
                   })}
                   <p className="text-xs text-muted-foreground">
-                    商品级「总库存」在保存时自动汇总为各组合之和；
-                    留空库存按 0 计（该组合售罄，前台划线）。
+                    {groupable
+                      ? `按「${primaryGroup.name}」分组录入：每组下面列出它的其余规格与库存。`
+                      : "逐规格录入库存。"}
+                    商品级「总库存」保存时自动汇总为各组合之和；留空按 0 计（该组合售罄，前台划线）。
+                    前台选择器用同一套组合联动 —— 选了某个{primaryGroup.name}，只会显示它真实存在的规格。
                   </p>
                 </div>
+                </>
               ) : (
                 <p className="text-xs text-muted-foreground">请先在上方填写属性的可选值。</p>
               )
