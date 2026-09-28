@@ -382,6 +382,12 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initial?.variants, initial?.specStock]);
 
+  /** 组合库存实时汇总（上方「库存（自动汇总）」与矩阵区共用同一口径） */
+  const matrixTotal = variantCombos.reduce((sum, attrs) => {
+    const raw = matrixDraft[comboKey(attrs)]?.stock;
+    return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
+  }, 0);
+
   // 草稿 → form.variants（提交校验与后端落库都用它）；未启用矩阵则清空
   React.useEffect(() => {
     if (!matrixEnabled) {
@@ -579,15 +585,19 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             {t("Stock")}
             {hasSpecGroups ? "（自动汇总）" : " *"}
           </Label>
-          <Input
-            id="pf-stock"
-            type="number"
-            min="0"
-            placeholder={hasSpecGroups ? "在下方「规格库存」填写后自动汇总" : "0"}
-            readOnly={hasSpecGroups}
-            className={cn(hasSpecGroups && "bg-muted text-muted-foreground")}
-            {...form.register("stock")}
-          />
+          {hasSpecGroups ? (
+            /* 有规格：此处**只读展示实时汇总**（= 下方各组合库存之和），
+               大爷实测指出此前绑的是静态表单值，改明细后这个数字不动 */
+            <Input
+              id="pf-stock"
+              value={String(matrixTotal)}
+              readOnly
+              className={cn("bg-muted text-muted-foreground")}
+              tabIndex={-1}
+            />
+          ) : (
+            <Input id="pf-stock" type="number" min="0" placeholder="0" {...form.register("stock")} />
+          )}
           {hasSpecGroups ? (
             <p className="text-xs text-muted-foreground">
               该商品有可选规格：总库存由各规格库存自动汇总（各组之和取最小值），
@@ -715,13 +725,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                   {/* 商品级总库存 = 全部组合之和（只读；避免与矩阵明细两套口径） */}
                   <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-[13px]">
                     <span className="text-muted-foreground">商品总库存（自动汇总，不可手写）</span>
-                    <span className="font-medium">
-                      {variantCombos.reduce((sum, attrs) => {
-                        const raw = matrixDraft[comboKey(attrs)]?.stock;
-                        return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
-                      }, 0)}{" "}
-                      件
-                    </span>
+                    <span className="font-medium">{matrixTotal} 件</span>
                   </div>
                   {/* 大爷（2026-09-28）：子组**横着排**，且去掉「覆盖价 / SKU」——
                       同一商品同价同 SKU，没必要逐组合单独编辑；只保留「规格 + 库存」。 */}

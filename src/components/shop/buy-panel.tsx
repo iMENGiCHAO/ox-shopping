@@ -143,6 +143,30 @@ export function BuyPanel({
         others.every(([n, vv]) => v.attributes.some((a) => a.name === n && a.value === vv)),
     );
   };
+  /**
+   * 值级售罄判定（大爷 2026-09-28：「选中的没有库存也没有显示售罄，前后端没打通」）：
+   * 变体模式下必须**结合当前已选的其他维度**实时判定 —— 例如已选「黑」时，
+   * 黑/M 这个组合无库存 → M 立即画斜线；而不是只看该值在所有组合里是否都售罄
+   * （静态判定会让「黑/M 售罄但白/M 有货」的 M 不划线，顾客点了才知道买不了）。
+   */
+  const isValueSoldOut = (groupName: string, value: string, staticSoldOut: string[]): boolean => {
+    if (!variantMode) return staticSoldOut.includes(value) || disabled;
+    // **父维度（第一个属性组，即大爷说的「第一个添加的属性」）用静态口径**：
+    // 只要该值还有**任一组合**有货就不划线 —— 否则「白/M 有货但白/S 售罄」会把
+    // 整个「白」划掉，顾客以为这个颜色不能买（Playwright 实拍发现的误判）。
+    const groupIndex = selectableAttributes.findIndex((x) => x.name === groupName);
+    if (groupIndex <= 0) return staticSoldOut.includes(value) || disabled;
+    // 子维度：按当前已选的父维度动态判定（选了黑 → 黑/M 无货则 M 划线）
+    const others = Object.entries(selections).filter(([n]) => n !== groupName);
+    const matched = variants!.find(
+      (v) =>
+        v.attributes.some((a) => a.name === groupName && a.value === value) &&
+        others.every(([n, vv]) => v.attributes.some((a) => a.name === n && a.value === vv)),
+    );
+    // 组合不存在 或 该组合无库存 → 售罄
+    return !matched || matched.stock <= 0;
+  };
+
   /** 当前所选组合对应的变体（变体模式下用于库存/售罄判定） */
   const selectedVariant = (() => {
     if (!variantMode) return null;
@@ -208,7 +232,7 @@ export function BuyPanel({
                       const active = selections[g.name] === v;
                       /* 售罄但**仍可点**：选中后整页按钮切到货提醒（大爷反馈的核心交互）。
                          售罄仅用反斜杠 + title 提示，不 disabled，保证可选中登记到货通知。 */
-                      const out = soldOut.includes(v) || disabled;
+                      const out = isValueSoldOut(g.name, v, soldOut);
                       return (
                         <button
                           key={v}
@@ -258,14 +282,18 @@ export function BuyPanel({
                       align="center"
                       className="select-content-full w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
                     >
-                      {g.values.map((v) => (
+                      {g.values
+                        .filter((v) => valueExistsWithSelection(g.name, v))
+                        .map((v) => (
                         <SelectItem
                           key={v}
                           value={v}
                           /* 售罄选项仍可选（选中后切到货提醒） */
                           className="text-sm"
                         >
-                          {soldOut.includes(v) ? `${v} — ${t("Sold out")}` : v}
+                          {isValueSoldOut(g.name, v, soldOut)
+                            ? `${v} — ${t("Sold out")}`
+                            : v}
                         </SelectItem>
                       ))}
                     </SelectContent>

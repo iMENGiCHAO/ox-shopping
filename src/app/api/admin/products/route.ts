@@ -64,7 +64,9 @@ export const GET = apiHandler(async (req) => {
   const [rows, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      include: { category: true },
+      // _count.variants：列表库存列的「组合汇总」判定（有组合的商品库存只读展示，
+      // 编辑入口统一收敛到商品编辑页的规格矩阵，避免出现第二个库存口径）
+      include: { category: true, _count: { select: { variants: true } } },
       orderBy: { createdAt: "desc" },
       skip,
       take,
