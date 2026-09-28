@@ -282,9 +282,10 @@ export function BuyPanel({
                       align="center"
                       className="select-content-full w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
                     >
-                      {g.values
-                        .filter((v) => valueExistsWithSelection(g.name, v))
-                        .map((v) => (
+                      {/* ⚠️ 这里**不要**按已选父维度过滤选项：Radix Select 若找不到
+                          当前 value 对应的 item，触发器会渲染成空白框（实拍发现）。
+                          售罄用文案标注即可（下方 isValueSoldOut），不做隐藏。 */}
+                      {g.values.map((v) => (
                         <SelectItem
                           key={v}
                           value={v}
