@@ -80,7 +80,7 @@ export function CurrencySelect({
         <ul
           role="listbox"
           className={cn(
-            "currency-sheet absolute z-50 max-h-80 w-56 overflow-auto border border-white/10 bg-ink text-ink-foreground shadow-lg",
+            "currency-sheet absolute z-50 max-h-80 w-64 overflow-auto border border-white/10 bg-ink text-ink-foreground shadow-lg",
             direction === "up" ? "bottom-full mb-2" : "top-full mt-2",
             align === "right" && "right-0",
             align === "left" && "left-0",
@@ -105,7 +105,9 @@ export function CurrencySelect({
                     : "text-ink-foreground/70"
                 }`}
               >
-                <span className="flex items-center gap-2.5">
+                {/* nowrap：长国名（"United Kingdom (GBP £)"）在选中态再叠 ✓ 时的
+                    组合宽度会贴满菜单，绝不允许换行破样式；w-64 已覆盖最长组合。 */}
+                <span className="flex shrink-0 items-center gap-2.5 whitespace-nowrap">
                   <img
                     src={`/flags/${c.flagCode}.svg`}
                     alt=""
@@ -116,7 +118,9 @@ export function CurrencySelect({
                   />
                   {c.country} ({c.code} {c.symbol})
                 </span>
-                {c.code === code ? <span className="text-ink-foreground">✓</span> : null}
+                {c.code === code ? (
+                  <span className="shrink-0 text-ink-foreground">✓</span>
+                ) : null}
               </button>
             </li>
           ))}
