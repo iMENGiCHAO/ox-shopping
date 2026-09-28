@@ -20,6 +20,7 @@ import { getLang as getServerLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { pickName, pickDescription, buildAlternates } from "@/lib/shop-i18n";
 import { env, brandFallback } from "@/lib/env";
+import { selectableGroupsFromVariants } from "@/server/services/variant-stock";
 
 export const dynamic = "force-dynamic";
 
@@ -136,10 +137,40 @@ export default async function ProductDetailPage(props: DetailPageProps) {
       }
       return { name, values, soldOutValues };
     });
+  /* SKU 矩阵（组合粒度）：有 active 变体时，可选值与售罄**以真实组合为准** ——
+     某组的值只在「至少存在一个含它的组合」时出现（红色没有 L 组合 → L 不出现），
+     值与「已选其他组」的联动过滤在客户端 BuyPanel 内完成（需要实时选择状态）。
+     无变体的商品继续用上面的维度池推导（存量零影响）。 */
+  const activeVariants = (product.variants ?? [])
+    .filter((v) => v.isActive)
+    .map((v) => ({
+      id: v.id,
+      isActive: true as const,
+      attributes: (Array.isArray(v.attributes) ? v.attributes : []) as {
+        name: string;
+        value: string;
+      }[],
+      stock: v.stock,
+    }));
+  const variantMode = activeVariants.length > 0;
+  const selectableForPanel = variantMode
+    ? selectableGroupsFromVariants(activeVariants).map((g) => ({
+        name: g.name,
+        values: g.values,
+        // 售罄 = 该值的**所有**组合都无库存（只要还有一个组合有货就不划线）
+        soldOutValues: g.values.filter((v) =>
+          activeVariants
+            .filter((x) => x.attributes.some((a) => a.name === g.name && a.value === v))
+            .every((x) => x.stock <= 0),
+        ),
+      }))
+    : null;
+
   // 预售商品按预订售卖：不因整件/规格库存为 0 而禁选规格
+  const baseSelectable = selectableForPanel ?? selectableAttributes;
   const effectiveSelectable = product.isPresale
-    ? selectableAttributes.map((g) => ({ ...g, soldOutValues: [] as string[] }))
-    : selectableAttributes;
+    ? baseSelectable.map((g) => ({ ...g, soldOutValues: [] as string[] }))
+    : baseSelectable;
   const price = toNumberPrice(product.price);
   const inStock = product.stock > 0;
   const priceText = await formatPrice(price);
@@ -220,6 +251,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
               defaultEmail={user?.email ?? undefined}
               productName={productName}
               selectableAttributes={effectiveSelectable}
+              variants={variantMode ? activeVariants : undefined}
               descriptionSlot={
                 productDesc ? (
                   <div className="desc-prose">

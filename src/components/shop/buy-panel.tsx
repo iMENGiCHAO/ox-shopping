@@ -24,6 +24,8 @@ export interface SpecGroup {
 }
 
 export interface BuyPanelProps {
+  /** 组合粒度变体（可选）：{ attributes, stock }[]，attributes 为该组合的属性快照 */
+  variants?: { attributes: { name: string; value: string }[]; stock: number }[];
   productId: string;
   stock: number;
   /** 预售：0 库存仍可下单 */
@@ -106,6 +108,12 @@ export function BuyPanel({
   isPresale = false,
   presaleNote,
   selectableAttributes = [],
+  /**
+   * SKU 矩阵（组合粒度）：有值时前台按**真实存在的组合**联动过滤 ——
+   * 选定颜色后，只渲染与该颜色共同存在的规格值（红色没有 L → 不出现 L），
+   * 彻底消除「能选不能买」；售罄与数量上限也以当前组合的库存为准。
+   */
+  variants,
   descriptionSlot,
   className,
   defaultEmail,
@@ -124,7 +132,32 @@ export function BuyPanel({
     return init;
   });
 
-  const max = isPresale ? Math.min(5, MAX_PRESALE_QTY) : Math.min(99, Math.max(1, stock));
+  /* SKU 矩阵联动：某组的某值是否与「其他组已选值」构成真实存在的组合 */
+  const variantMode = (variants?.length ?? 0) > 0;
+  const valueExistsWithSelection = (groupName: string, value: string): boolean => {
+    if (!variantMode) return true;
+    const others = Object.entries(selections).filter(([n]) => n !== groupName);
+    return variants!.some(
+      (v) =>
+        v.attributes.some((a) => a.name === groupName && a.value === value) &&
+        others.every(([n, vv]) => v.attributes.some((a) => a.name === n && a.value === vv)),
+    );
+  };
+  /** 当前所选组合对应的变体（变体模式下用于库存/售罄判定） */
+  const selectedVariant = (() => {
+    if (!variantMode) return null;
+    const entries = Object.entries(selections).filter(([, v]) => v);
+    if (entries.length === 0) return null;
+    return (
+      variants!.find((v) =>
+        entries.every(([n, vv]) => v.attributes.some((a) => a.name === n && a.value === vv)),
+      ) ?? null
+    );
+  })();
+  // 变体模式：数量上限用**当前组合**的库存（商品级只是汇总）
+  const effectiveStock = selectedVariant ? selectedVariant.stock : stock;
+
+  const max = isPresale ? Math.min(5, MAX_PRESALE_QTY) : Math.min(99, Math.max(1, effectiveStock));
   /* 整件售罄（非预售）：数量输入禁用、整页按钮切到货提醒 */
   const disabled = stock <= 0 && !isPresale;
 
@@ -140,6 +173,8 @@ export function BuyPanel({
      决定按钮形态：选中组合有货 → 「加入购物车」，选中售罄 → 「到货提醒」；
      这是大爷指出的核心诉求——售罄规格仍可选，选后切到货提醒，而不是点不动。 */
   const selectedSoldOut =
+    // 变体模式：所选组合不存在或该组合库存为 0 → 走「到货提醒」
+    (variantMode && (!selectedVariant || selectedVariant.stock <= 0)) ||
     disabled ||
     selectableAttributes.some((g) => (g.soldOutValues ?? []).includes(selections[g.name] ?? ""));
 
@@ -167,7 +202,9 @@ export function BuyPanel({
                 {colorMode ? (
                   /* Round swatches — 官方 34px,active 黑环;售罄加正斜杠 */
                   <div className="flex flex-wrap gap-2.5">
-                    {g.values.map((v) => {
+                    {g.values
+                      .filter((v) => valueExistsWithSelection(g.name, v))
+                      .map((v) => {
                       const active = selections[g.name] === v;
                       /* 售罄但**仍可点**：选中后整页按钮切到货提醒（大爷反馈的核心交互）。
                          售罄仅用反斜杠 + title 提示，不 disabled，保证可选中登记到货通知。 */
