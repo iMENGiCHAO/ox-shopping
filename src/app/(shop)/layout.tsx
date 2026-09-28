@@ -57,15 +57,15 @@ export default async function ShopLayout({ children }: { children: React.ReactNo
             <HeaderShell>
               <Header />
             </HeaderShell>
-            {/* main 只做 flex 列布局，**不给 `flex-1`**。
-                2026-09-21 对齐原站：原站短页面（购物车空态）页脚**紧跟内容**，
-                页脚下方留白 —— 实测 375 下页脚 465..747、页高 748，视口 812 时下方 64px 白。
-                此前给 main 加 `flex-1` 会把页脚顶到视口底（同视口下页脚顶变成 530），
-                与原站差 65px。去掉后短页面与原站一致；`min-h-screen` 仍保留，
-                保证底色铺满视口（视觉结果与原站相同：都是"页脚之下留白"）。
-                ⚠️ 页面根节点上的 `flex-1` 从此不再有撑高效果（如 /coupons），
-                需要整块底色铺到页脚时改用 `min-h-[...]` 显式给高度。 */}
-            <main id="main-content" className="flex flex-col">
+            {/* main 必须 `flex-1`：**页脚贴底，页脚下方不留任何空白**。
+                2026-09-28 大爷反馈：「分类页没有商品时，底栏下方有露白，不允许」——
+                空态/短页面下 main 撑满剩余高度，footer 被顶到视口底部，容器底色不再
+                从页脚下方漏出来。
+                ⚠️ 历史沿革（勿再改回）：2026-09-21 曾为对齐上游参考站「短页面页脚紧跟
+                内容、页脚之下留白 64px」而**刻意去掉** flex-1。该对齐已被大爷否决——
+                商业站不允许页脚下方出现色带。`(distribution)/layout.tsx` 一直是
+                `flex-1`（贴底），本条修改把两处布局统一。 */}
+            <main id="main-content" className="flex flex-1 flex-col">
               {children}
             </main>
             <Footer />
