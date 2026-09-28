@@ -282,6 +282,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
         void load();
       } else {
         const list = readGuestEntries();
+        // 边界审计补齐：登录车服务端限 50 条，游客端此前无检查——超 50 条后
+        // 下单被 items max(50) 拒且报错文案不友好。加购前置闸门，同口径 50。
+        if (!list.some((e) => e.productId === productId && specKey(e.attributes) === specKey(attributes)) && list.length >= 50) {
+          throw new Error(t("Shopping bag is full (max 50 items). Remove some items first."));
+        }
         const existing = list.find(
           (e) => e.productId === productId && specKey(e.attributes) === specKey(attributes),
         );

@@ -105,6 +105,10 @@ export const orderCreateSchema = z
     channelCode: z.string().trim().min(1).max(64).optional(),
     /** 折扣码（券码）。空 = 不使用折扣。 */
     couponCode: couponCodeSchema,
+    /** 下单幂等键（客户端 crypto.randomUUID）：防「双击下单=两张单扣两份库存」。
+     *  网络失败重试时客户端复用同一 key——服务端命中唯一约束直接返回首张单；
+     *  不传（老客户端）为 NULL 不参与约束，行为与从前一致。 */
+    idempotencyKey: z.string().uuid().optional(),
   })
   .superRefine((val, ctx) => {
     if (!val.addressId && !val.shippingAddress) {

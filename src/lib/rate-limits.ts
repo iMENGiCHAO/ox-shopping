@@ -75,6 +75,8 @@ export const RATE_LIMITS = {
   /** 退款申请：单订单 3 次/10 分钟——每笔申请都会 notifyAdmins 刷后台待办，
    * 攻击者持 N 个游客单 token 可无限刷管理员通知队列（权限审计修复） */
   refundRequest: { limit: 3, windowSeconds: 600 },
+  /** 地址簿变更：正常使用远低于此——双击/脚本灌地址簿的兜底闸门 */
+  addressMutation: { limit: 10, windowSeconds: 60 },
   /** 分销绑定关系变更：单用户 10 次/小时 */
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */

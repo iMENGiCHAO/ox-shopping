@@ -88,6 +88,8 @@ export interface CheckoutAddressInput {
 export interface CreateOrderInput {
   /** 下单用户；游客结账为 null（此时必须提供 contactEmail，并二选一提供地址） */
   userId: string | null;
+  /** 下单幂等键（边界审计：双击/重试防重复建单）；不传为 NULL 不参与唯一约束 */
+  idempotencyKey?: string;
   /**
    * 订单联系邮箱。登录单缺省时取用户邮箱；游客单必填。
    * 该字段是订单确认/发货/退款邮件的收件人，也是游客单「每人限次券」的统计口径。
@@ -346,7 +348,33 @@ async function resolveContactEmail(input: CreateOrderInput): Promise<string | nu
  * - 清空Shopping Bag中已下单商品（游客单无购物袋，跳过）
  * - 游客单生成订单查询令牌
  */
+/**
+ * 下单幂等包装（边界态审计修复）：P2002 = 同一 idempotencyKey 的重复提交
+ * （双击/网络超时重试），事务已整体回滚无副作用——直接回读首张单返回。
+ * 失败重提复用 key、成功后客户端跳转组件卸载即失效，老客户端不传 key
+ * 为 NULL 不受约束，行为与从前完全一致。
+ */
 export async function createOrder(input: CreateOrderInput): Promise<OrderWithItems> {
+  try {
+    return await createOrderTx(input);
+  } catch (err) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      (err as { code?: string }).code === "P2002" &&
+      input.idempotencyKey
+    ) {
+      const existing = await prisma.order.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+        include: { items: true },
+      });
+      if (existing) return existing;
+    }
+    throw err;
+  }
+}
+
+async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
   // 商品与地址校验(事务外)
   // 注意：items 可能含同一商品的多条规格行（如同款 Size S + Size M），
   // 必须用去重后的 productId 数量与查询结果比较，否则会误判"部分商品不存在"。
@@ -563,6 +591,8 @@ export async function createOrder(input: CreateOrderInput): Promise<OrderWithIte
     const created = await tx.order.create({
       data: {
         orderNumber,
+        // 下单幂等键（边界审计：双击=两张单扣两份库存的唯一根治）
+        idempotencyKey: input.idempotencyKey ?? null,
         userId: input.userId,
         // 订单联系邮箱：游客单的唯一联系方式，也是游客查单与「每人限次券」的凭据
         contactEmail,

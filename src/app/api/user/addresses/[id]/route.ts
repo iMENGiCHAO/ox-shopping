@@ -1,9 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { apiHandler, json, readJson } from "@/lib/api";
-import { notFound } from "@/lib/errors";
+import { badRequest, notFound } from "@/lib/errors";
 import { requireUser } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { addressContentHash } from "@/lib/server/address-hash";
 import { addressUpdateSchema } from "@/lib/validations/address";
 import { routeParam } from "@/app/api/_lib/params";
 
@@ -35,7 +36,11 @@ export const PUT = apiHandler(async (req, ctx) => {
               data: { isDefault: false },
             });
           }
-          return tx.address.update({ where: { id }, data: input });
+          // 内容指纹随内容同步更新（改后的内容与另一条相同 → P2002 → 400）
+          return tx.address.update({
+            where: { id },
+            data: { ...input, contentHash: addressContentHash({ ...existing, ...input }) },
+          });
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
@@ -43,6 +48,9 @@ export const PUT = apiHandler(async (req, ctx) => {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
         throw notFound("Address not found");
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw badRequest("This address already exists in your address book.");
       }
       if (!isRetryableAddressWrite(error) || attempt === 2) throw error;
     }
@@ -87,6 +95,9 @@ export const DELETE = apiHandler(async (req, ctx) => {
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
         throw notFound("Address not found");
+      }
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw badRequest("This address already exists in your address book.");
       }
       if (!isRetryableAddressWrite(error) || attempt === 2) throw error;
     }

@@ -76,7 +76,10 @@ export function parsePagination(
 ): { page: number; pageSize: number; skip: number; take: number } {
   const rawPage = Number(searchParams.get("page") ?? defaults.page);
   const rawSize = Number(searchParams.get("pageSize") ?? defaults.pageSize);
-  const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : defaults.page;
+  // page 加 1e6 上限：page=1e18 时 skip 超 int64 会触发 Prisma 校验错 500
+  // （实测阈值 ~7.7e17），既无数据风险又只产 Sentry 噪音——上限即消音
+  const page =
+    Number.isInteger(rawPage) && rawPage > 0 ? Math.min(rawPage, 1_000_000) : defaults.page;
   const pageSize =
     Number.isInteger(rawSize) && rawSize > 0 ? Math.min(rawSize, maxPageSize) : defaults.pageSize;
   return { page, pageSize, skip: (page - 1) * pageSize, take: pageSize };

@@ -100,6 +100,18 @@ export function apiHandler(handler: Handler): RouteHandler {
       return res;
     } catch (err) {
       const apiError = toApiError(err);
+      // 唯一约束冲突（并发双击/TOCTOU 输家）统一转 409：check-then-create 竞态下
+      // 第二次写入撞 P2002，此前落 500 + Sentry 告警——数据没坏但体验与告警全是噪音
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        (err as { code?: string }).code === "P2002" &&
+        apiError.status >= 500
+      ) {
+        apiError.status = 409;
+        apiError.code = "CONFLICT";
+        apiError.message = "Duplicate submission: the record already exists";
+      }
       // 按状态分级：4xx 客户端错误不打堆栈（401 未登录属正常噪音，降为 debug）
       logApiFailure(err, req, {
         status: apiError.status,

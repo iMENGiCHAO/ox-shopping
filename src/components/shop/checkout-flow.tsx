@@ -192,6 +192,8 @@ export function CheckoutFlow({
 
   /** 最近一次「券试算」所用的物流方式：物流变了要重算（免邮券的减免额 = 运费） */
   const couponForMethodRef = useRef<string | null>(null);
+  // 下单幂等键（边界审计：双击/重试防重复建单扣库存）；NULL = 尚未生成
+  const idemKeyRef = useRef<string | null>(null);
 
   const country = getCountry(addr.country);
   const states = countryStates(addr.country);
@@ -586,6 +588,10 @@ export function CheckoutFlow({
   };
 
   const handleSubmit = async () => {
+    // 下单幂等键：失败重试复用同一 key（服务端撞唯一约束返回首张单而非再开一张
+    // 扣一份库存）；成功跳转后组件卸载即失效。ref 变更不触发重渲染。
+    const idemKey = idemKeyRef.current ?? crypto.randomUUID();
+    idemKeyRef.current = idemKey;
     if (lines.length === 0) {
       toast.error(t("Your order has no items"));
       return;
@@ -606,6 +612,7 @@ export function CheckoutFlow({
         method: "POST",
         body: JSON.stringify({
           items: orderItems(),
+          idempotencyKey: idemKey,
           // 结账页一律用内联地址（原站形态）；地址簿只用于「一键带入」表单
           shippingAddress: {
             country: addr.country,
