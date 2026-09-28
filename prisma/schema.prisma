@@ -90,6 +90,11 @@ enum WebhookEventStatus {
 ///  - PERCENTAGE：按折前小计打折（value=1..100 的百分数，可用 maxDiscount 封顶）
 ///  - FIXED：固定减免金额（value 为基础币种 USD 金额）
 ///  - FREE_SHIPPING：免运费（value 忽略，减免额 = 订单运费）
+enum ReviewStatus {
+  APPROVED
+  REJECTED
+}
+
 enum CouponType {
   PERCENTAGE
   FIXED
@@ -134,6 +139,8 @@ model User {
   cartItems                    CartItem[]
   orders                       Order[]                   @relation("UserOrders")
   assignedOrders               Order[]                   @relation("OrderAssignee")
+  reviews                      Review[]
+  favorites                    Favorite[]
   refunds                      Refund[]
   couponRedemptions            CouponRedemption[]
   auditLogs                    AuditLog[]
@@ -214,6 +221,10 @@ model Address {
   /// 邮编。历史数据为 null。
   postalCode    String?
   isDefault     Boolean  @default(false)
+  /// 内容指纹（sha256 规范化全字段）：防「双击保存=两条相同地址」与脚本灌地址簿。
+  /// 既有行迁移后为 NULL（PG unique 对 NULL 不去重，兼容存量数据）；
+  /// 新增/编辑时由服务层计算写入，同 userId+同指纹 → P2002 → 服务层转 400。
+  contentHash   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -221,8 +232,47 @@ model Address {
 
   /// 部分唯一索引 addresses_one_default_per_user（PostgreSQL migration 维护）：
   /// `WHERE "isDefault" = true` 时每个 userId 最多一条默认地址。
+  @@unique([userId, contentHash])
   @@index([userId])
   @@map("addresses")
+}
+
+model Review {
+  id          String       @id @default(cuid())
+  productId   String
+  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // 绑定订单行 = 真实购买凭证（verified purchase）：没买过就不能评（防刷评）。
+  // 一行一评；一人一品重购再评走「更新已有评价」（productId+userId 唯一约束）
+  orderItemId String       @unique
+  orderItem   OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  rating      Int
+  title       String?      @db.VarChar(120)
+  content     String       @db.Text
+  // 默认过审（真实购买门槛已高，即时展示）；admin 可 REJECTED 下架（重算聚合）
+  status      ReviewStatus @default(APPROVED)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId, status, createdAt])
+  @@index([userId])
+  @@map("reviews")
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+  @@map("favorites")
 }
 
 model RefreshToken {
@@ -322,6 +372,12 @@ model Product {
   costPrice      Decimal?      @db.Decimal(10, 2)
   stock          Int           @default(0)
   soldCount      Int           @default(0)
+  // 评价聚合冗余（列表页性能：免每卡片子查询）：仅 APPROVED 评价计入，
+  // 增/改/删/上下架时由 review.service 重算（单商品级 O(该品评价数)）
+  ratingAvg      Float         @default(0)
+  ratingCount    Int           @default(0)
+  reviews        Review[]
+  favorites      Favorite[]
   /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
   isPresale      Boolean       @default(false)
   /// 预售提示文案（多语言，可选）。为空时使用站级默认（SiteSetting: presale_note_zh/en）。
@@ -381,6 +437,9 @@ model CartItem {
 model Order {
   id               String      @id @default(cuid())
   orderNumber      String      @unique
+  /// 下单幂等键（客户端 uuid）：防「双击下单=两张单扣两份库存」。NULL 不约束
+  /// （存量单与老客户端兼容）；重发命中唯一约束 → 返回首张单（真幂等）。
+  idempotencyKey   String?     @unique
   /// 下单用户；游客结账时为 null（此时联系邮箱见 contactEmail）
   userId           String?
   /// 订单联系邮箱：登录单取用户邮箱，游客单取结账页填写的邮箱。
@@ -463,7 +522,7 @@ model Order {
 }
 
 model OrderItem {
-  id            String  @id @default(cuid())
+  id            String   @id @default(cuid())
   orderId       String
   productId     String?
   productName   String
@@ -471,19 +530,20 @@ model OrderItem {
   // 下单规格快照（[{ name, value }]）
   attributes    Json?
   sku           String
-  price         Decimal @db.Decimal(10, 2)
+  price         Decimal  @db.Decimal(10, 2)
   quantity      Int
-  subtotal      Decimal @db.Decimal(10, 2)
+  subtotal      Decimal  @db.Decimal(10, 2)
   // 下单时的商品成本价快照（分销「利润分成」模式的计佣基数用）。
   // 快照而非引用：之后修改成本价不影响已下单订单的利润口径；商品被删后仍可对账。
   costPrice     Decimal? @db.Decimal(10, 2)
   // 实际从商品库存扣减的数量（预售可少于 quantity，取消时精确回补）
-  stockDeducted Int     @default(0)
+  stockDeducted Int      @default(0)
   // 实际从规格库存(specStock)扣减的映射 { "组名/值": n }（取消时精确回补）
   specDeducted  Json?
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  review  Review?
 
   @@index([orderId])
   @@index([productId])
@@ -1060,20 +1120,20 @@ model CommissionLog {
 /// 余额的币种 = `settlementCurrency`（账户级结算币种，分销客自选，默认 CNY，
 /// 让非人民币区域的分销客不必被迫接受 CNY 结算）。
 model DistributorAccount {
-  userId          String    @id
+  userId             String    @id
   /// 分销商等级（0=普通，1..N 越高越优）；等级可命中差异化佣金规则
-  tier            Int       @default(0)
+  tier               Int       @default(0)
   /// 首次确认《分销规则》的时间（提现前必须确认；合规留痕）
-  termsAcceptedAt DateTime?
+  termsAcceptedAt    DateTime?
   /// 结算币种（佣金入账与提现的记账币种；默认 CNY 与历史口径兼容）
-  settlementCurrency String @default("CNY")
+  settlementCurrency String    @default("CNY")
   /// 可提现余额（按 settlementCurrency 计价）
-  balance         Decimal   @default(0) @db.Decimal(12, 2)
+  balance            Decimal   @default(0) @db.Decimal(12, 2)
   /// 提现冻结（已申请未打款）
-  frozen          Decimal   @default(0) @db.Decimal(12, 2)
+  frozen             Decimal   @default(0) @db.Decimal(12, 2)
   /// 累计已结算佣金（含已提现）
-  totalCommission Decimal   @default(0) @db.Decimal(12, 2)
-  updatedAt       DateTime  @updatedAt
+  totalCommission    Decimal   @default(0) @db.Decimal(12, 2)
+  updatedAt          DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -1130,7 +1190,7 @@ model WithdrawRecord {
   /// 申请金额折 CNY（申请时汇率快照固化，管理端总览跨币种合计用 —— 币种混算
   /// 修复 2026-09-26：此前总览把不同结算币种的 amount 直接相加当 CNY 展示，
   /// USD 分销商的 $100 会被当成 ¥100 计入待打款合计）
-  amountCny     Decimal        @default(0) @db.Decimal(12, 2)
+  amountCny   Decimal        @default(0) @db.Decimal(12, 2)
   status      WithdrawStatus @default(PENDING)
   /// 收款账户信息（展示时脱敏）
   accountInfo String?
@@ -1183,12 +1243,12 @@ model OrderAttribution {
 /// 短事务抢锁（毫秒级）→ 任务在**事务外**执行，崩溃后租约自然过期，
 /// 其他实例下轮接管。
 model SchedulerLease {
-  id          Int       @id @default(1)
+  id          Int      @id @default(1)
   /// 租约到期时间；到期后任何实例可抢占
   lockedUntil DateTime
   /// 当前持有者标识（实例随机 id，仅排障用）
   holder      String?
-  updatedAt   DateTime  @updatedAt
+  updatedAt   DateTime @updatedAt
 
   @@map("scheduler_lease")
 }

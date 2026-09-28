@@ -129,6 +129,63 @@ const DICT: Dict = {
   "Out of stock": { en: "Out of stock", zh: "缺货" },
   /* 大爷需求：库存即时友好提示——加购时即提示，不等结账 */
   "Only {n} left": { en: "Only {n} left", zh: "仅剩 {n} 件" },
+  "Customer Reviews": { en: "Customer Reviews", zh: "顾客评价" },
+  "{n} reviews": { en: "{n} reviews", zh: "{n} 条评价" },
+  "Showing latest {n} of {total} reviews": {
+    en: "Showing latest {n} of {total} reviews",
+    zh: "已显示最新 {n} 条，共 {total} 条评价",
+  },
+  Reviews: { en: "Reviews", zh: "评价" },
+  "Write a review": { en: "Write a review", zh: "写评价" },
+  "Already reviewed": { en: "Already reviewed", zh: "已评价" },
+  "Submit review": { en: "Submit review", zh: "提交评价" },
+  "Submitting…": { en: "Submitting…", zh: "提交中…" },
+  "Rating": { en: "Rating", zh: "评分" },
+  "Review title (optional)": { en: "Review title (optional)", zh: "评价标题（选填）" },
+  "Share your experience with this product…": {
+    en: "Share your experience with this product…",
+    zh: "分享您对这件商品的使用感受…",
+  },
+  "Thank you! Your review has been published.": {
+    en: "Thank you! Your review has been published.",
+    zh: "感谢评价！您的评价已发布。",
+  },
+  "Review content must be at least 5 characters": {
+    en: "Review content must be at least 5 characters",
+    zh: "评价内容至少 5 个字符",
+  },
+  "Failed to submit review": { en: "Failed to submit review", zh: "评价提交失败" },
+  "Add to wishlist": { en: "Add to wishlist", zh: "加入收藏" },
+  "Remove from wishlist": { en: "Remove from wishlist", zh: "取消收藏" },
+  "My Wishlist": { en: "My Wishlist", zh: "我的收藏" },
+  Wishlist: { en: "Wishlist", zh: "收藏" },
+  "Wishlist is empty": { en: "Wishlist is empty", zh: "收藏夹还是空的" },
+  "Tap the heart on a product page to save it here.": {
+    en: "Tap the heart on a product page to save it here.",
+    zh: "在商品页点爱心，就能把喜欢的商品存在这里。",
+  },
+  "Failed to load wishlist": { en: "Failed to load wishlist", zh: "收藏加载失败" },
+  "Failed to remove": { en: "Failed to remove", zh: "移除失败" },
+  "My Reviews": { en: "My Reviews", zh: "我的评价" },
+  "No reviews yet": { en: "No reviews yet", zh: "还没有评价" },
+  "After an order is delivered, you can review it from the order page.": {
+    en: "After an order is delivered, you can review it from the order page.",
+    zh: "订单确认收货后，可在订单页对商品进行评价。",
+  },
+  "Failed to load reviews": { en: "Failed to load reviews", zh: "评价加载失败" },
+  "Review deleted": { en: "Review deleted", zh: "评价已删除" },
+  "Failed to delete review": { en: "Failed to delete review", zh: "评价删除失败" },
+  "Hidden by moderation": { en: "Hidden by moderation", zh: "已被管理员隐藏" },
+  Delete: { en: "Delete", zh: "删除" },
+  Cancel: { en: "Cancel", zh: "取消" },
+  "Includes reversed {m}": {
+    en: "Includes reversed {m}",
+    zh: "含已冲正 {m}",
+  },
+  "Shopping bag is full (max 50 items). Remove some items first.": {
+    en: "Shopping bag is full (max 50 items). Remove some items first.",
+    zh: "购物车已满（最多 50 件商品），请先移除部分商品",
+  },
   "Insufficient stock, only {n} left": {
     en: "Insufficient stock, only {n} left",
     zh: "库存不足，当前仅剩 {n} 件",
@@ -158,7 +215,6 @@ const DICT: Dict = {
   Variant: { en: "Variant", zh: "规格" },
   Switch: { en: "Switch", zh: "轴体" },
   Submit: { en: "Submit", zh: "提交" },
-  "Submitting…": { en: "Submitting…", zh: "提交中…" },
   /* ── Cookie consent banner ──────────────────────────────────────
      句子在组件里由「前半句 + <Link>Cookie Policy</Link> + .」拼成，
      因此词条要写到 `See our` 为止，拼出来才是
@@ -521,7 +577,6 @@ const DICT: Dict = {
   "Address updated": { en: "Address updated", zh: "地址已更新" },
   "Address deleted": { en: "Address deleted", zh: "地址已删除" },
   "This cannot be undone.": { en: "This cannot be undone.", zh: "删除后无法恢复。" },
-  Cancel: { en: "Cancel", zh: "取消" },
   "Failed to delete, please try again later": {
     en: "Failed to delete, please try again later",
     zh: "删除失败，请稍后重试",
@@ -866,7 +921,6 @@ const DICT: Dict = {
     en: "All marked as read ({n})",
     zh: "已全部标为已读（{n} 条）",
   },
-  Delete: { en: "Delete", zh: "删除" },
   Deleted: { en: "Deleted", zh: "已删除" },
   "Clear read": { en: "Clear read", zh: "清空已读" },
   "Cleared {n} read messages": {

@@ -16,6 +16,10 @@ import { firstImage, parseAttributes, toCardData, toNumberPrice } from "@/compon
 import { getT } from "@/lib/shop-i18n-server";
 import { RelatedCarousel } from "@/components/shop/related-carousel";
 import { SizeChartAccordion } from "@/components/shop/size-chart";
+import { ProductReviews } from "@/components/shop/product-reviews";
+import { FavoriteButton } from "@/components/shop/favorite-button";
+import { Stars } from "@/components/shop/stars";
+import { isFavorite } from "@/server/services/favorite.service";
 import { getLang as getServerLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { pickName, pickDescription, buildAlternates } from "@/lib/shop-i18n";
@@ -153,6 +157,9 @@ export default async function ProductDetailPage(props: DetailPageProps) {
     "headers" in (product.sizeChart as object)
       ? (product.sizeChart as { headers: string[]; rows: string[][] })
       : null;
+  // 收藏初始态（未登录恒 false；登录用户查一次唯一索引点查）
+  const favInitial = user ? await isFavorite(user.id, product.id) : false;
+
   // 数据孤岛迁移：只读 DB（后台编辑=前台所见）；无表即不渲染区块（诚实）
   const sizeChart = dbChart;
   // 原网站 上游参考站 无 NEW/HOT/Sold out 标签，保持一致 — badges 已移除
@@ -176,6 +183,18 @@ export default async function ProductDetailPage(props: DetailPageProps) {
       availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
       url: `${env.SITE_URL.replace(/\/$/, "")}/products/${product.slug}`,
     },
+    // 评价富摘要（Google rich results）：有真实评价才输出，不伪造评分
+    ...(product.ratingCount > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: product.ratingAvg.toFixed(1),
+            reviewCount: product.ratingCount,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
   };
 
   return (
@@ -195,9 +214,12 @@ export default async function ProductDetailPage(props: DetailPageProps) {
           </div>
 
           <div className="flex flex-col gap-4 min-[1000px]:sticky min-[1000px]:top-24 min-[1000px]:col-start-2 min-[1000px]:row-start-1 min-[1000px]:self-start">
-            <h1 className="text-[length:var(--pdp-title-size)] font-normal leading-normal tracking-[0.01em] text-foreground">
-              {productName}
-            </h1>
+            <div className="flex items-start justify-between gap-3">
+              <h1 className="text-[length:var(--pdp-title-size)] font-normal leading-normal tracking-[0.01em] text-foreground">
+                {productName}
+              </h1>
+              <FavoriteButton productId={product.id} initial={favInitial} loggedIn={!!user} />
+            </div>
 
             {/* Price — small regular, right under title; 官方 Sale price：现价 + 划线原价，价格灰色 */}
             <div className="flex items-baseline gap-2.5">
@@ -206,6 +228,18 @@ export default async function ProductDetailPage(props: DetailPageProps) {
                 <span className="text-[14px] text-foreground/40 line-through">{compareText}</span>
               ) : null}
             </div>
+
+            {product.ratingCount > 0 ? (
+              <a
+                href="#reviews"
+                className="flex items-center gap-2 text-xs text-foreground/60 hover:text-foreground"
+              >
+                <Stars value={Math.round(product.ratingAvg)} />
+                <span>
+                  {product.ratingAvg.toFixed(1)} · {t("{n} reviews", { n: product.ratingCount })}
+                </span>
+              </a>
+            ) : null}
 
             {/* 官方 separator：价格与介绍之间 1px #DDD 分割线（间距由列 gap 提供） */}
             <Separator />
@@ -243,6 +277,10 @@ export default async function ProductDetailPage(props: DetailPageProps) {
             </div>
           ) : null}
         </div>
+      </div>
+
+      <div id="reviews" className="scroll-mt-24">
+        <ProductReviews slug={product.slug} />
       </div>
 
       {/* Related recommendations — 上游参考站 横向滑动轮播（一屏 4 张，左右箭头，可滑动浏览更多） */}

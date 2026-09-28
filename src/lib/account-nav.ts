@@ -27,6 +27,8 @@ export function buildAccountNav(t: (key: string) => string): AccountNavItem[] {
       icon: "map-pin",
     },
     { href: "/orders", label: t("My Orders"), shortLabel: t("Orders"), icon: "orders" },
+    { href: "/account/wishlist", label: t("My Wishlist"), shortLabel: t("Wishlist"), icon: "heart" },
+    { href: "/account/reviews", label: t("My Reviews"), shortLabel: t("Reviews"), icon: "star" },
     { href: "/account/coupons", label: t("My Coupons"), shortLabel: t("Coupons"), icon: "ticket" },
     {
       href: "/account/notifications",

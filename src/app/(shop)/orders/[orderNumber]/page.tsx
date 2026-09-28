@@ -15,6 +15,7 @@ import {formatOrderAmount } from "@/components/shop/currency-server";
 import { formatSpecValues } from "@/components/shop/types";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { OrderActions } from "@/components/shop/order-actions";
+import { OrderReviewSection } from "@/components/shop/review-form";
 import { OrderStatusTimeline } from "@/components/shop/order-status-timeline";
 import { RefundEntry } from "@/components/shop/refund-entry";
 import { getT } from "@/lib/shop-i18n-server";
@@ -197,6 +198,9 @@ export default async function OrderDetailPage(props: OrderDetailPageProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* 确认收货后可评价（内部自带可评判断：非 DELIVERED/游客单静默不渲染） */}
+      <OrderReviewSection orderNumber={order.orderNumber} />
 
       {/* Items */}
       <Card>
