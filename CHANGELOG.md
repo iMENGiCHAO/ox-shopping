@@ -9,6 +9,29 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-28（日）· 首页/分类横幅换原站 hero + 商品页 404 事故复盘
+
+### 横幅本地化（大爷：「把横栏图也加上去」）
+- 新增 `scripts/fetch-shop-banners.mjs`：抓原站首页 hero（`X_Model_v4.jpg`
+  1440×807 与 `xAI_Model.png`，均 16:9）→ sharp 压到宽 2400 / jpeg q88 →
+  落盘 `public/images/demo/banner-shop-{1,2}.jpg` → 4 个分类的
+  image/bannerImage/cardImage 轮换指向（首页轮播 + 分类页大图同步生效）
+- **技术点（重要）**：hero 图在**店铺域名**（`shop.x.com/cdn/...`）上，被墙；
+  Playwright 的 `ctx.request` **不走浏览器网络栈**（ECONNRESET）。必须用
+  **页面上下文内 fetch**（`page.evaluate(fetch)` + base64 回传）才能过墙。
+  而商品图在 `cdn.shopify.com`（本身可达）故可直接下载——两者差异就在域名。
+
+### 事故复盘：加 ProductVariant 后 dev server 未重启 → 全部商品页 404
+- 现象：商品详情页全部 404（「我们找不到您要访问的页面」）
+- 根因：`npx prisma generate` 重新生成了 Client，但 **dev server 进程仍持有旧
+  Client 模块**（Node require 缓存）→ `include: { variants: ... }` 运行时报
+  `Unknown field 'variants' for include statement on model 'Product'` →
+  被 service 兜底成 notFound → 404。日志里有完整 Prisma 报错可查。
+- 修复：重启 dev server（重新加载 Client）
+- **运维教训（已写入本节）**：**任何 schema 变更（新增模型/字段）后必须重启
+  dev server / 生产进程**，`prisma generate` 只更新磁盘产物，不影响已加载的进程。
+  排查手法：`tail` dev 日志找 `Unknown field` / `Unknown arg` 类 Prisma 报错。
+
 ## 2026-09-28（日）· 商品图片本地化：换用原站商品图（大爷要求「看效果」）
 
 > 大爷要求：「把商品的图片都换成原网站的」「下载到本地，不要用网上的 url」「主要看效果」。
