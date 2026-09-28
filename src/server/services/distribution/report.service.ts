@@ -141,7 +141,9 @@ export async function getMyCustomers(
         fromUserId: { in: ids },
         status: { in: ["PENDING", "SETTLED"] },
       },
-      _sum: { amountCny: true },
+      // 净额口径（数据链审计）：部分退款冲正后的流水按「计提 − 冲正」计，
+      // 与账户余额/报表页一致，消除门户内「客户佣金合计>账户卡」的勾稽矛盾
+      _sum: { amountCny: true, reversedCny: true },
     }),
   ]);
 
@@ -159,7 +161,10 @@ export async function getMyCustomers(
     });
   }
   const commissionByUser = new Map(
-    commissions.map((c) => [c.fromUserId ?? "", Number(c._sum.amountCny ?? 0)]),
+    commissions.map((c) => [
+      c.fromUserId ?? "",
+      Math.max(0, Number(c._sum.amountCny ?? 0) - Number(c._sum.reversedCny ?? 0)),
+    ]),
   );
 
   const liveBinds = binds.filter(
@@ -234,11 +239,17 @@ export async function getMyTeamOrders(
   const myLogs = orderIds.length
     ? await prisma.commissionLog.findMany({
         where: { orderId: { in: orderIds }, toUserId: distributorId },
-        select: { orderId: true, amountCny: true, status: true },
+        select: { orderId: true, amountCny: true, reversedCny: true, status: true },
       })
     : [];
   const commissionByOrder = new Map(
-    myLogs.map((l) => [l.orderId, l.status === "REVERSED" ? 0 : Number(l.amountCny)]),
+    myLogs.map((l) => [
+      l.orderId,
+      // 净额口径（数据链审计）：REVERSED=已全冲；部分冲正按「计提−冲正」
+      l.status === "REVERSED"
+        ? 0
+        : Math.max(0, Number(l.amountCny) - Number(l.reversedCny ?? 0)),
+    ]),
   );
 
   return {
@@ -390,7 +401,7 @@ async function getTeamStatsLive(
         createdAt: { gte: from },
         status: { in: ["PENDING", "SETTLED"] },
       },
-      select: { createdAt: true, amountCny: true },
+      select: { createdAt: true, amountCny: true, reversedCny: true },
     }),
     currentUsdToCny(),
   ]);
@@ -422,7 +433,8 @@ async function getTeamStatsLive(
 
   let myTotal = 0;
   for (const c of commissions) {
-    const v = Number(c.amountCny);
+    // 净额口径（数据链审计）：部分退款冲正后不得按计提全额计入团队曲线
+    const v = Math.max(0, Number(c.amountCny) - Number(c.reversedCny ?? 0));
     myTotal += v;
     bump(dayKey(c.createdAt), { commissionCny: v });
   }
@@ -477,7 +489,10 @@ async function computeAdminOverview(): Promise<{
     prisma.commissionLog.groupBy({
       by: ["status"],
       _count: { _all: true },
-      _sum: { amountCny: true },
+      // 口径统一（数据链审计）：只加 amountCny 会把部分冲正后的流水按原始
+      // 全额计入——与 getAdminReport/账户余额的净额口径勾稽不上。同时取
+      // 冲正列，PENDING/SETTLED 桶按净额出数（REVERSED 桶保留原额=已冲正展示）
+      _sum: { amountCny: true, reversedCny: true },
     }),
     prisma.withdrawRecord.groupBy({
       by: ["status"],
@@ -495,9 +510,12 @@ async function computeAdminOverview(): Promise<{
     REVERSED: { count: 0, amountCny: 0 },
   };
   for (const g of grouped) {
+    const gross = Number(g._sum.amountCny ?? 0);
+    const reversed = Number(g._sum.reversedCny ?? 0);
     commissionByStatus[g.status] = {
       count: g._count._all,
-      amountCny: round2(Number(g._sum.amountCny ?? 0)),
+      // REVERSED = 全额冲正行（原额即冲正额）；其余桶净额 = 计提 − 已冲正
+      amountCny: round2(g.status === "REVERSED" ? gross : Math.max(0, gross - reversed)),
     };
   }
 
@@ -1315,7 +1333,9 @@ export async function rollupDistributionDailyStats(
       prisma.commissionLog.groupBy({
         by: ["toUserId"],
         where: { createdAt: { gte: dayStart, lt: dayEnd }, toUserId: { not: null } },
-        _sum: { amountCny: true },
+        // 净额口径（数据链审计）：此前只加 amountCny，REVERSED 全冲正行也按
+        // 全额计入——与函数注释「冲正的记为 0」直接矛盾
+        _sum: { amountCny: true, reversedCny: true },
       }),
       prisma.distributionRelation.groupBy({
         by: ["ancestorId"],
@@ -1364,7 +1384,11 @@ export async function rollupDistributionDailyStats(
     const commission = new Map(
       commissionRows
         .filter((c) => !!c.toUserId)
-        .map((c) => [c.toUserId!, round2(Number(c._sum.amountCny ?? 0))]),
+        // 净额口径：部分冲正按「计提−冲正」；REVERSED 全冲行净额自然归 0
+        .map((c) => [
+          c.toUserId!,
+          round2(Math.max(0, Number(c._sum.amountCny ?? 0) - Number(c._sum.reversedCny ?? 0))),
+        ]),
     );
     const team = new Map(distributors.map((t) => [t.ancestorId, t._count._all]));
 

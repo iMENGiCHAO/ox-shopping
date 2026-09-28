@@ -205,6 +205,10 @@ export interface CommissionRow {
   /** 结算币种（账户记账币种）与按其折算的金额（我的佣金页展示口径） */
   settleCurrency: string;
   amountSettle: number;
+  /** 累计已冲正（数据链审计：部分退款冲正后行上显示净额+标注，消除
+   *  「佣金明细合计>账户卡」的勾稽矛盾） */
+  reversedAmount: number;
+  reversedSettle: number;
   status: CommissionState;
   createdAt: string;
   settledAt: string | null;

@@ -142,7 +142,14 @@ export default function DistributionCommissionsPage() {
                     {money(row.amount, row.currency)}
                   </TableCell>
                   <TableCell className="text-right text-sm tabular-nums">
-                    {money(row.amountSettle, row.settleCurrency)}
+                    {/* 净额口径（数据链审计）：进账数与账户卡勾稽一致；部分冲正
+                        行附标注，透明呈现计提与冲正两数 */}
+                    {money(Math.max(0, row.amountSettle - row.reversedSettle), row.settleCurrency)}
+                    {row.reversedSettle > 0 ? (
+                      <span className="block text-xs text-muted-foreground">
+                        {t("Includes reversed {m}", { m: money(row.reversedSettle, row.settleCurrency) })}
+                      </span>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <CommissionStatusBadge status={row.status} />

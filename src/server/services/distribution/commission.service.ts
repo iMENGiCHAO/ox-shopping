@@ -832,6 +832,8 @@ export async function listMyCommissions(
       /** 结算币种口径（账户入账金额；老数据回填后与 amountCny 相同币种语义） */
       settleCurrency: l.settleCurrency,
       amountSettle: Number(l.amountSettle),
+      reversedAmount: Number(l.reversedAmount ?? 0),
+      reversedSettle: Number(l.reversedSettle ?? 0),
       status: l.status as CommissionState,
       createdAt: l.createdAt.toISOString(),
       settledAt: l.settledAt?.toISOString() ?? null,
