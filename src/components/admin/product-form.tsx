@@ -129,6 +129,24 @@ export interface ProductFormProps {
 
 /** Product create/edit form (used with Dialog) */
 export function ProductForm({ initial, categories, loading, onSubmit }: ProductFormProps) {
+  // 大爷提问（2026-09-28）：「编辑产品价格以什么货币为准？」—— 此前标签只写
+  // 「价格」，运营无法判断币种。这里从汇率接口读取站点基准币种并显式标注；
+  // 前台按访客所选币种换算展示，录库的是基准币种金额。
+  const [baseCurrency, setBaseCurrency] = React.useState<string>("");
+  React.useEffect(() => {
+    let alive = true;
+    fetch("/api/currency/rates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const base = (d?.data?.base ?? d?.base) as string | undefined;
+        if (alive && base) setBaseCurrency(base);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   const t = useT();
 
   const isEdit = Boolean(initial);
@@ -171,6 +189,11 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
 
   // 规格库存（每个可选组独立维护，0 = 该规格售罄；颜色/尺码等一视同仁）
   const attrWatch = form.watch("attributes");
+  // 大爷反馈（2026-09-28）：添加颜色/规格后库存录入框「再加一个才出现」——
+  // 根因是 useMemo 依赖的是 form.watch("attributes") 的**数组引用**，而 RHF 在字段
+  // 输入过程中会返回同一引用（引用未变 → 不重算 → 派生列表慢一拍）。
+  // 改为依赖**内容签名**：内容一变立即重算，库存框即时出现。
+  const attrSignature = JSON.stringify(attrWatch ?? []);
   const selectableGroups = React.useMemo(
     () =>
       (attrWatch ?? [])
@@ -183,7 +206,8 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           selectable: a.selectable,
         }))
         .filter((a) => a.selectable && a.name && a.values.length > 0),
-    [attrWatch],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 以内容签名为准（见上）
+    [attrSignature],
   );
   const initialSpecAll = (initial?.specStock ?? {}) as Record<string, Record<string, number>>;
   /** { 组名: { 规格值: 输入框字符串 } }，"" = 未追踪 */
@@ -363,7 +387,10 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="pf-price">{t("Price (amount)")} *</Label>
+          <Label htmlFor="pf-price">
+            {t("Price (amount)")}
+            {baseCurrency ? `（${baseCurrency}）` : ""} *
+          </Label>
           <Input
             id="pf-price"
             type="number"
@@ -378,7 +405,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="pf-compare">{t("Compare-at price (amount, optional)")}</Label>
+          <Label htmlFor="pf-compare">{t("Compare-at price (amount, optional)")}{baseCurrency ? `（${baseCurrency}）` : ""}</Label>
           <Input
             id="pf-compare"
             type="number"
@@ -395,7 +422,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="pf-cost">{t("Cost price (amount, optional)")}</Label>
+          <Label htmlFor="pf-cost">{t("Cost price (amount, optional)")}{baseCurrency ? `（${baseCurrency}）` : ""}</Label>
           <Input
             id="pf-cost"
             type="number"
