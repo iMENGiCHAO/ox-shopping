@@ -1,5 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { badRequest, conflict, unauthorized } from "@/lib/errors";
+import { badRequest, conflict, rateLimited, unauthorized } from "@/lib/errors";
+import { RATE_LIMITS } from "@/lib/rate-limits";
+import { rateLimit } from "@/lib/rate-limit";
 import { verifyPassword } from "@/lib/auth/password";
 import { issueSession, requireUser, revokeAllUserTokens, setAuthCookies } from "@/lib/auth/session";
 import { signEmailToken } from "@/lib/auth/jwt";
@@ -18,6 +20,9 @@ export const runtime = "nodejs";
  */
 export const PUT = apiHandler(async (req) => {
   const user = await requireUser();
+  // 安全审计 D4：同改密 —— 换邮箱的口令复核此前零限流，猜中即账号接管
+  const rl = await rateLimit({ key: `email-verify:${user.id}`, ...RATE_LIMITS.passwordVerify });
+  if (!rl.ok) throw rateLimited("Too many attempts, please try again later");
   const input = await readJson(req, changeEmailSchema);
 
   const full = await prisma.user.findUnique({ where: { id: user.id } });

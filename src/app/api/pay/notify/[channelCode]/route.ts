@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { apiHandler } from "@/lib/api";
 import { badRequest, notFound } from "@/lib/errors";
+import { audit } from "@/lib/audit";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
 import { toCents } from "@/lib/utils";
@@ -127,6 +128,29 @@ export const POST = apiHandler(async (req, ctx) => {
       "[pay.notify] 回调金额与订单应付金额不一致，已拒绝（订单未置为已付）",
     );
     return replyFail(channel.provider);
+  }
+
+  // 报文合法但当前不应认账（资金审计 D3）：如 Stripe 异步支付方式在客户提交收银台
+  // 瞬间就发 completed、payment_status 仍为 unpaid。回 success 让网关停止重试，
+  // 但**绝不置 PAID、绝不触发退款**（钱都还没到账）；等后续到账事件驱动。
+  if (result.skipReason) {
+    await audit({
+      action: "PAY_NOTIFY_SKIPPED",
+      entity: "Order",
+      entityId: order.id,
+      meta: {
+        channelCode,
+        provider: channel.provider,
+        orderNumber: order.orderNumber,
+        reason: result.skipReason,
+      },
+      req,
+    });
+    logger.warn(
+      { orderNumber: order.orderNumber, reason: result.skipReason },
+      "[pay.notify] 报文受理但未到账，不认账（等待到账事件）",
+    );
+    return replySuccess(channel.provider);
   }
 
   // 幂等：重复回调 / 已支付订单由 markOrderPaid 内部原子认领保证安全。

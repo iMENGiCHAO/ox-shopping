@@ -326,6 +326,13 @@ export interface MailSendResult {
 }
 
 /** 发送邮件。发送失败只记录日志，不阻断既有业务流程，并返回可供重试判断的结果。 */
+/** 日志用邮箱脱敏（a***@example.com）：日志系统不需要完整收件人身份（安全审计） */
+function maskForLog(email: string): string {
+  const [name, domain] = email.split("@");
+  if (!domain) return "***";
+  return `${(name ?? "").slice(0, 1)}***@${domain}`;
+}
+
 export async function sendMail<T extends MailTemplate>(
   input: SendMailInput<T>,
 ): Promise<MailSendResult> {
@@ -356,12 +363,13 @@ export async function sendMail<T extends MailTemplate>(
     if (channel === "console") {
       return { delivered: false, channel };
     }
-    logger.info({ to: input.to, template: input.template, channel }, "邮件已发送");
+    // PII 最小化（安全审计）：收件人邮箱脱敏后再落日志，避免订单/找回密码等全链路邮箱入 ELK
+    logger.info({ to: maskForLog(input.to), template: input.template, channel }, "邮件已发送");
     return { delivered: true, channel };
   } catch (err) {
     // 邮件失败不改变既有「不抛异常」行为，但把失败显式交给到货提醒等服务做重试判断。
     const error = err instanceof Error ? err.message : String(err);
-    logger.error({ err, to: input.to, template: input.template }, "邮件发送失败");
+    logger.error({ err, to: maskForLog(input.to), template: input.template }, "邮件发送失败");
     return { delivered: false, channel, error };
   }
 }

@@ -2,6 +2,7 @@ import { apiHandler, json, readJson } from "@/lib/api";
 import { badRequest, notFound } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
+import { serializeOrder } from "@/server/serializers";
 import { prisma } from "@/lib/prisma";
 import { shipOrderSchema } from "@/lib/validations/admin";
 import { routeParam } from "@/app/api/_lib/params";
@@ -47,5 +48,7 @@ export const PUT = apiHandler(async (req, ctx) => {
     req,
   });
 
-  return json({ order: updated });
+  // 营销审计修复：此前直接返回 Prisma 原始行 —— 游客单的 accessToken（查单凭据）
+  // 会随响应发给运营/staff，等于把任意游客订单的访问令牌散出去。统一走序列化。
+  return json({ order: serializeOrder(updated) });
 });

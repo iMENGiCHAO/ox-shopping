@@ -1,3 +1,4 @@
+import { forbidden } from "@/lib/errors";
 import { apiHandler, json, jsonPaginated, readJson, searchParam } from "@/lib/api";
 import { badRequest, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
@@ -92,6 +93,15 @@ export const POST = apiHandler(async (req) => {
   });
   if (!rl.ok) throw rateLimited();
 
+  // 安全审计 D2（高危）：邮箱未验证不得下单 —— 未验证邮箱意味着订单确认信/发货通知/
+  // 退款通知全部可能寄到不存在或他人信箱，客诉与坏账都无法处理。注册后验证前
+  // 的窗口用「重新发送验证邮件」出口（/api/auth/verify-email/resend）放行。
+  if (user && !user.emailVerified) {
+    throw forbidden(
+      "Please verify your email address before placing an order. Check your inbox for the verification link.",
+    );
+  }
+
   // 已登录时忽略前端传来的 contactEmail，一律以账号邮箱为准（防止伪造收件人）
   const contactEmail = user ? user.email : (input.contactEmail ?? null);
 
@@ -108,6 +118,9 @@ export const POST = apiHandler(async (req) => {
       note: input.note ?? null,
       channelCode: input.channelCode ?? null,
       couponCode: input.couponCode ?? null,
+      // 下单幂等键（边界审计）：此前 schema/service/前端都接了、唯独这里漏传 ——
+      // orders.idempotencyKey 恒 NULL，唯一索引形同虚设，双击/重试仍会开两张单。
+      idempotencyKey: input.idempotencyKey ?? undefined,
     });
   } catch (err) {
     // 券校验失败：把原因码翻成当前语言的文案。

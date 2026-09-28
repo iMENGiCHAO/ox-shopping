@@ -77,6 +77,8 @@ export const RATE_LIMITS = {
   refundRequest: { limit: 3, windowSeconds: 600 },
   /** 地址簿变更：正常使用远低于此——双击/脚本灌地址簿的兜底闸门 */
   addressMutation: { limit: 10, windowSeconds: 60 },
+  /** 敏感口令复核（改密/换邮箱的 currentPassword 校验）：防在线爆破当前口令 */
+  passwordVerify: { limit: 5, windowSeconds: 900 },
   /** 分销绑定关系变更：单用户 10 次/小时 */
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */

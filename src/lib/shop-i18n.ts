@@ -129,6 +129,18 @@ const DICT: Dict = {
   "Out of stock": { en: "Out of stock", zh: "缺货" },
   /* 大爷需求：库存即时友好提示——加购时即提示，不等结账 */
   "Only {n} left": { en: "Only {n} left", zh: "仅剩 {n} 件" },
+  "No products found in this collection yet.": {
+    en: "No products found in this collection yet.",
+    zh: "该分类下暂无商品。",
+  },
+  "No products available yet. Please check back soon.": {
+    en: "No products available yet. Please check back soon.",
+    zh: "暂无在售商品，敬请期待。",
+  },
+  "No collections to browse right now.": {
+    en: "No collections to browse right now.",
+    zh: "暂无可浏览的分类。",
+  },
   "Includes reversed {m}": {
     en: "Includes reversed {m}",
     zh: "含已冲正 {m}",

@@ -16,6 +16,29 @@ export const logger = pino({
   level: env.LOG_LEVEL,
   base: { service: "ecommerce" },
   timestamp: pino.stdTimeFunctions.isoTime,
+  // 安全审计修复：REDACT 兜底 —— 任何误把凭据/PII 放进日志对象字段的调用点，
+  // 在此统一抹除，不依赖每个调用者自觉（收件人邮箱已在 mail 层脱敏，这里是第二道闸）。
+  redact: {
+    paths: [
+      "password",
+      "*.password",
+      "token",
+      "*.token",
+      "authorization",
+      "*.authorization",
+      "cookie",
+      "*.cookie",
+      "secret",
+      "*.secret",
+      "apiKey",
+      "*.apiKey",
+      "email",
+      "*.email",
+      "phone",
+      "*.phone",
+    ],
+    censor: "[REDACTED]",
+  },
 });
 
 /** 从请求头提取请求 ID(由 middleware 注入) */

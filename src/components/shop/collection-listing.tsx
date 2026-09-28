@@ -1,6 +1,6 @@
 import { listCategoryTree, listProducts } from "@/server/services/product.service";
 import { pickName } from "@/lib/shop-i18n";
-import { getLang } from "@/lib/shop-i18n-server";
+import { getLang, getT } from "@/lib/shop-i18n-server";
 import { ProductCard } from "@/components/shop/product-card";
 import { ProductGrid } from "@/components/shop/product-grid";
 import { toCardData } from "@/components/shop/types";
@@ -16,6 +16,7 @@ import { OFFICIAL_LISTING_EXCLUDE_SLUGS } from "@/lib/catalog";
  * 由 `/collections/[slug]` 与旧链接 `/products?category=<slug>` 共用。
  */
 export async function CollectionListing({ categorySlug }: { categorySlug: string }) {
+  const tEmpty = await getT();
   const [categories, { rows }] = await Promise.all([
     listCategoryTree(),
     listProducts({
@@ -81,11 +82,18 @@ export async function CollectionListing({ categorySlug }: { categorySlug: string
 
       {/* 横幅底 → 首行卡片顶：原站实测 48px（477→525），此前 40px */}
       <div className={cn("shell plp-shell", heroImage ? "mt-12" : "mt-[var(--plp-head-gap)]")}>
-        <ProductGrid>
-          {rows.map((product, i) => (
-            <ProductCard key={product.id} product={toCardData(product)} priority={i < 3} />
-          ))}
-        </ProductGrid>
+        {/* 空态（前台体验审计 P0）：此前 0 商品时只剩横幅 + 空白 grid，页面像坏了 */}
+        {rows.length === 0 ? (
+          <p className="py-20 text-center text-sm text-muted-foreground">
+            {tEmpty("No products found in this collection yet.")}
+          </p>
+        ) : (
+          <ProductGrid>
+            {rows.map((product, i) => (
+              <ProductCard key={product.id} product={toCardData(product)} priority={i < 3} />
+            ))}
+          </ProductGrid>
+        )}
       </div>
     </div>
   );

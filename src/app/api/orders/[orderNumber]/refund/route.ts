@@ -57,7 +57,9 @@ export const POST = apiHandler(async (req, ctx) => {
     const sumResult = await tx.refund.aggregate({
       where: {
         orderId: order.id,
-        status: { in: ["REQUESTED", "APPROVED", "REFUNDED", "FAILED"] },
+        // PENDING（网关已受理待确认）必须计入占用：审批端与整单退款端口径都含它，
+        // 漏掉会让用户看到「可退额度」大于实际可批准额度 —— 提出永远批不过的申请
+        status: { in: ["REQUESTED", "APPROVED", "PENDING", "REFUNDED", "FAILED"] },
       },
       _sum: { amount: true },
     });

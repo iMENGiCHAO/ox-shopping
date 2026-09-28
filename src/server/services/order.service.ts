@@ -965,7 +965,9 @@ export async function markOrderPaid(
       const piId =
         typeof session?.payment_intent === "string" ? session.payment_intent : null;
       if (piId) {
-        await createStripeRefund(piId, Number(order.total));
+        // 幂等键（资金审计 D2）：同一取消单可能收到多个不同 event.id 的支付完成
+        // 事件（或人工重放）——固定键让网关侧去重，不依赖「已退满」被动兜底
+        await createStripeRefund(piId, Number(order.total), undefined, `late-paid-${order.orderNumber}`);
         logger.info(
           { orderId: order.id, paymentIntent: piId, amount: Number(order.total) },
           "[pay] 已取消订单退款已发起（原路全额）",

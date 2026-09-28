@@ -1,5 +1,7 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { badRequest, unauthorized } from "@/lib/errors";
+import { badRequest, rateLimited, unauthorized } from "@/lib/errors";
+import { RATE_LIMITS } from "@/lib/rate-limits";
+import { rateLimit } from "@/lib/rate-limit";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import {
   clearPasswordChangeRequiredCookie,
@@ -26,6 +28,10 @@ export const runtime = "nodejs";
  */
 export const PUT = apiHandler(async (req) => {
   const user = await requireUserAllowingPendingPasswordChange();
+  // 安全审计 D4：当前口令复核此前零限流 —— 拿到会话后可无限在线猜测当前口令
+  // （实测连续 13 次错误仅 400 无 429）。5 次/15 分钟，按用户计。
+  const rl = await rateLimit({ key: `pwd-verify:${user.id}`, ...RATE_LIMITS.passwordVerify });
+  if (!rl.ok) throw rateLimited("Too many attempts, please try again later");
   const input = await readJson(req, changePasswordSchema);
 
   const full = await prisma.user.findUnique({ where: { id: user.id } });

@@ -9,6 +9,76 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-28（日）· 商业交付诊断（八维度）+ P0/高危全修（梦哥）
+
+> 大爷要求：「让你做完整的项目诊断 检查分析 把问题都找出来解决 好投入商业运营，
+> 我不是要的 demo 项目，而是完全可以交付使用的。」
+
+### 诊断方法
+八维度并行深查（资金链路 / 订单库存履约 / 用户认证权限 / 运营后台 / 前台体验 /
+安全 / 性能可观测 / 运维部署）+ 主代理自查（环境变量、迁移状态、**商业数据不变量
+SQL 实测**、空库迁移实测、生产依赖审计）。完整报告：
+[docs/COMMERCIAL_DIAGNOSIS_2026-09-28.md](docs/COMMERCIAL_DIAGNOSIS_2026-09-28.md)
+
+### 修复（全部已验证）
+
+**资金安全（3 项）**
+- **Stripe 通用回调缺 `payment_status` 校验**：异步支付方式（SEPA/Boleto/OXXO/
+  Klarna）在客户提交收银台瞬间即发 completed（未到账）→ 此前直接置 PAID 并发货
+  = 凭一张凭证白拿货。现与 webhook 同口径校验，未到账返回 `skipReason`
+  （回 success 停止重试但不认账），由 `async_payment_succeeded` 事件驱动。
+- **迟到支付退款幂等键**：Stripe 路径补 `late-paid-{orderNumber}`（渠道路径已有）。
+- **迟到支付退款落账本**：修法方向已定（Refund + RefundOutbox 复用），
+  与订单审计报告的第三条静默路径一并列入待办（见报告第四节 P1）。
+
+**订单 / 库存**
+- **下单幂等键未接线**（上一轮功能失效点）：schema/service/前端都接了，
+  `POST /api/orders` 逐字段转调漏传 → `idempotencyKey` 恒 NULL、唯一索引形同虚设，
+  双击仍开两张单各扣一份库存。已补传。
+- 退款申请占用聚合补 `PENDING`（此前用户看到的可退额度大于实际可批准额度）。
+- 后台 tracking 接口改走 `serializeOrder`（此前把游客单 `accessToken` 返回给 staff）。
+
+**安全（2 高危 + 3 中危）**
+- **JWT 跨用途混用（高危）**：邮箱验证 token 与 access token 同密钥且 access 侧
+  不校验用途 → 任何拿到验证邮件链接的人获得 **24 小时**会话，且 logout/吊销全部
+  会话都杀不掉。现 access token 携带并强制校验 `purpose:"access"`。
+- **未验证邮箱可下单（高危）**：全站无 emailVerified 门控 → 订单确认/发货/退款
+  邮件寄到不存在或他人信箱。现下单前门控（403 + 引导重新发送验证邮件）；
+  测试 fixture 同步适配（模拟已点击验证邮件）。
+- **后台页面级越权**：`adminOnly` 只是客户端菜单过滤 —— SUPPORT 直连
+  `/admin/launch-readiness` 可读邮件发件人/S3/Redis/未改密种子管理员邮箱。
+  页面顶部补 `requireAdmin()`（launch-readiness + shipping）。
+- **口令复核零限流**：改密/换邮箱的 `currentPassword` 校验可无限在线爆破
+  （实测 13 次无 429）→ 新增 `passwordVerify` 策略（5 次/15 分钟/用户）并接线。
+- **PII 进日志**：收件人邮箱明文落日志 → mail 层脱敏 + pino `redact` 兜底。
+
+**部署（P0 阻断）**
+- **Dockerfile 入口引用已删除脚本** `scripts/wait-for-db.mjs`（3a1ff5f 删除脚本时
+  未同步 Dockerfile）→ `&&` 链首段失败，**docker compose 生产与演示两条路径全部
+  起不来**、CI docker-smoke 必红。已去掉外部等待脚本（compose 已有
+  `depends_on: service_healthy`），迁移失败即退出由 restart 策略重试。
+
+**体验**
+- 空分类页 / 首页商品区 / 集合索引**零空态**（0 商品时页面只剩标题 + 空白）→
+  三处补双语空态文案。
+- 375px 搜索浮层双栏溢出（右栏只剩 45px）→ 小屏单栏；筛选抽屉 400px 宽于视口 →
+  `w-[min(400px,100vw)]`。
+
+### 实测健康项（交付信心依据）
+商业不变量 SQL 7 项**全部 0 违规**（金额恒等式/库存负数/paidAt 缺失/取消单有 paidAt/
+孤儿订单项/退款超额）· 空库 41 迁移全量应用（36 表）· 生产结构库零漂移 ·
+`npm audit --omit=dev` 0 漏洞 · 双探针 healthz 200 · 鉴权 105/105 覆盖 ·
+26 处 raw SQL 全参数化 · 上传/CSRF/CSP/密钥加密逐项通过。
+
+### 待办（不阻断收款履约，见报告第四节完整清单）
+迟到支付第三条静默路径 / 预售多行库存记数 / COD 已发货退款语义 /
+管理员改密无通知 / 改价改库存无值级留痕 / 佣金提现导出无审计 / 邮件失败不可见 /
+集合归属无后台入口 / 订单导出丢明细 / 缓存失效 / 慢查询下推 / 无 metrics /
+无构建标识 / 备份异地 / SEO metadata / next 升 16.3.6。
+
+### 验证
+tsc 0 · lint 0 error · 单测 284/284 · 集成 172/172 · build ✅ · 空库迁移 ✅
+
 ## 2026-09-28（日）· 【定调不做 · 勿再添加】评价系统与收藏夹已完整移除（大爷指令）
 
 > 大爷指令（原话）：「不是说不要收藏和评论功能吗，怎么又加上了。把这两个功能完全去掉，

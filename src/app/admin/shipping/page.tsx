@@ -2,11 +2,15 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ShippingMethodsManager } from "@/components/admin/shipping-methods-manager";
 import { listAllShippingMethods } from "@/server/services/shipping.service";
 import { env } from "@/lib/env";
+import { requireAdmin } from "@/lib/auth/session";
 
 export const dynamic = "force-dynamic";
 
 /** 后台：物流方式管理（前台结账页的配送模板） */
 export default async function AdminShippingPage() {
+  // 安全审计 D3：adminOnly 只是客户端菜单过滤，不是授权边界 ——
+  // 页面必须自己再挡一次，否则 SUPPORT 直连 URL 即可读到敏感运维配置
+  await requireAdmin();
   const methods = await listAllShippingMethods();
   return (
     <div className="space-y-6">

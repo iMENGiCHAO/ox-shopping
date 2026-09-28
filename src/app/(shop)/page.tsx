@@ -128,11 +128,18 @@ export default async function HomePage() {
           </h2>
         </Reveal>
         <div className="shell plp-shell mt-[var(--home-grid-mt)]">
-          <ProductGrid variant="home">
-            {rows.map((product, i) => (
-              <ProductCard key={product.id} product={toCardData(product)} priority={i < 3} />
-            ))}
-          </ProductGrid>
+          {/* 空态（前台体验审计 P0）：新库/清库后此前是「All Products 标题 + 全空白」 */}
+          {rows.length === 0 ? (
+            <p className="py-20 text-center text-sm text-muted-foreground">
+              {t("No products available yet. Please check back soon.")}
+            </p>
+          ) : (
+            <ProductGrid variant="home">
+              {rows.map((product, i) => (
+                <ProductCard key={product.id} product={toCardData(product)} priority={i < 3} />
+              ))}
+            </ProductGrid>
+          )}
         </div>
       </section>
 

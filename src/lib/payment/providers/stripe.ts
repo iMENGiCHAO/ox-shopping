@@ -71,12 +71,24 @@ export const stripeProvider: PaymentProvider = {
     const signature = req.headers.get("stripe-signature") ?? "";
     try {
       const event = constructWebhookEvent(payload, signature, keysFrom(config));
-      if (event.type === "checkout.session.completed") {
+      // 资金审计 D3 修复：通用回调路径此前缺少 payment_status 校验 —— 而 provider
+      // 文档明确把「走通用回调 /api/pay/notify/stripe」列为可用配置。异步支付方式
+      // （SEPA 借记/Boleto/OXXO/Klarna/ACH）在客户提交收银台的瞬间即触发
+      // checkout.session.completed，此刻 payment_status 仍是 unpaid、钱未到账
+      // （凭证类甚至可能永远不到账）——不校验就置 PAID 并发货 = 客户凭一张凭证白拿货。
+      // 与 webhook 路径（src/app/api/webhooks/stripe/route.ts 的 UNPAID 分支）同口径：
+      // 未到账返回 skipReason（调用方回 success 停止重试但不认账），由后续
+      // async_payment_succeeded 事件驱动。
+      if (
+        event.type === "checkout.session.completed" ||
+        event.type === "checkout.session.async_payment_succeeded"
+      ) {
         const session = event.data.object as {
           id: string;
           payment_intent?: string | { id: string } | null;
           amount_total?: number | null;
           currency?: string | null;
+          payment_status?: string | null;
           metadata?: Record<string, string> | null;
         };
         const orderNumber = session.metadata?.orderNumber ?? "";
@@ -85,7 +97,7 @@ export const stripeProvider: PaymentProvider = {
             ? session.payment_intent
             : session.payment_intent?.id;
         if (!orderNumber || !paymentIntentId) return null;
-        return {
+        const result = {
           orderNumber,
           // Checkout Session 是会话，不是支付交易。paymentId 只能保存 PaymentIntent。
           transactionId: paymentIntentId,
@@ -93,6 +105,10 @@ export const stripeProvider: PaymentProvider = {
           currency: session.currency ?? undefined,
           sessionId: session.id,
         };
+        if (session.payment_status !== "paid") {
+          return { ...result, skipReason: `unpaid:${session.payment_status ?? "unknown"}` };
+        }
+        return result;
       }
       if (event.type === "payment_intent.succeeded") {
         const intent = event.data.object as {

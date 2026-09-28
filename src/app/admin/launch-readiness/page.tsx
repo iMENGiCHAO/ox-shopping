@@ -8,6 +8,7 @@ import {
   getLaunchReadiness,
   type ReadinessStatus,
 } from "@/server/services/launch-readiness.service";
+import { requireAdmin } from "@/lib/auth/session";
 import { getT } from "@/lib/admin-i18n-server";
 
 export const dynamic = "force-dynamic";
@@ -47,6 +48,9 @@ const STATUS_META: Record<
  * （见 launch-readiness.service.ts），不是写死的清单项。
  */
 export default async function LaunchReadinessPage() {
+  // 安全审计 D3：adminOnly 只是客户端菜单过滤，不是授权边界 ——
+  // 页面必须自己再挡一次，否则 SUPPORT 直连 URL 即可读到敏感运维配置
+  await requireAdmin();
   const t = await getT();
   const { items, counts, readyToLaunch } = await getLaunchReadiness();
   const ordered = [...items].sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status]);

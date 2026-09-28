@@ -50,6 +50,13 @@ export interface VerifyNotifyResult {
   currency?: string;
   /** Stripe Checkout Session id（只用于会话维度对账，不写入 paymentId）。 */
   sessionId?: string;
+  /**
+   * 报文验签合法、但**当前不应认账**（如 Stripe 异步支付方式 SEPA/Boleto/OXXO/
+   * Klarna 在客户提交收银台瞬间就发 completed，payment_status 仍是 unpaid）。
+   * 调用方语义：回 success 让网关停止重试，但**不置 PAID**；等待后续到账事件
+   * （async_payment_succeeded）驱动。资金审计 D3 修复。
+   */
+  skipReason?: string;
 }
 
 export interface RefundInput {

@@ -55,6 +55,13 @@ async function registerUser(tag: string, refCode?: string): Promise<Actor> {
   jar.absorb(res);
   const data = (await getData(res)) as { user: { id: string } };
 
+  // 邮箱验证门控（安全审计 D2）：未验证邮箱不得下单 —— 测试直接模拟「已点击验证邮件」，
+  // 把 fixture 置为已验证（生产路径由 /api/auth/verify-email 完成同一步）。
+  await prisma.user.update({
+    where: { id: data.user.id },
+    data: { emailVerified: true },
+  });
+
   await prisma.address.create({
     data: {
       userId: data.user.id,

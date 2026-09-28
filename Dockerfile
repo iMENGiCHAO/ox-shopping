@@ -50,7 +50,12 @@ ENV HOSTNAME=0.0.0.0
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# 等待数据库 → 只允许 migrate deploy → 可选 seed → 启动。
+# 运维 P0 修复（2026-09-28）：此前入口调用 `node scripts/wait-for-db.mjs`，
+# 而该脚本已在 3a1ff5f「删除 37 个僵尸脚本」中移除 → ENTRYPOINT 的 && 链首段即失败，
+# **docker compose 生产/演示两条路径全部起不来**（CI docker-smoke 必红）。
+# 现在改为：不依赖外部等待脚本 —— compose 已用 depends_on: condition: service_healthy
+# 等到 postgres/redis 就绪；裸 `docker run` 时 migrate 失败即退出，由 restart 策略重试。
+# 只允许 migrate deploy → 可选 seed → 启动。
 # 缺少迁移目录时必须失败，禁止生产镜像回退 db push（db push 可能造成不可审计的数据破坏）。
 # seed 默认不执行（生产运营数据不得被种子覆盖）；本地演示可设 SEED_ON_START=true。
-ENTRYPOINT ["/bin/sh", "-c", "node scripts/wait-for-db.mjs && test -n \"$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit)\" && npx prisma migrate deploy && if [ \"$SEED_ON_START\" = \"true\" ]; then npx prisma db seed; fi && exec node server.js"]
+ENTRYPOINT ["/bin/sh", "-c", "test -n \"$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit)\" || { echo '[entrypoint] prisma/migrations 缺失，拒绝启动'; exit 1; }; npx prisma migrate deploy || { echo '[entrypoint] 迁移失败（数据库不可用或迁移出错），容器退出等待编排重启'; exit 1; }; if [ \"$SEED_ON_START\" = \"true\" ]; then npx prisma db seed; fi; exec node server.js"]

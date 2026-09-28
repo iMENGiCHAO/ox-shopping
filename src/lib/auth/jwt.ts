@@ -40,7 +40,11 @@ export interface EmailTokenPayload extends JWTPayload {
 }
 
 export async function signAccessToken(payload: AccessTokenPayload): Promise<string> {
-  return new SignJWT(payload)
+  // 安全审计 D1（高危）：此前 access token 与邮箱验证 token 共用 JWT_ACCESS_SECRET
+  // 且 access 侧不校验用途 —— 任何拿到验证邮件链接的人可把该 token 当 access token
+  // 使用，获得 24 小时（而非 15 分钟）完整顾客会话，且 logout/吊销全部会话都杀不掉
+  // （它不在 refreshToken 表里）。现在 access token 携带 purpose 并在校验侧强制比对。
+  return new SignJWT({ ...payload, purpose: "access" })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setIssuedAt()
     .setExpirationTime(`${env.ACCESS_TOKEN_TTL}s`)
@@ -50,6 +54,8 @@ export async function signAccessToken(payload: AccessTokenPayload): Promise<stri
 export async function verifyAccessToken(token: string): Promise<AccessTokenPayload | null> {
   try {
     const { payload } = await jwtVerify(token, encoder.encode(env.JWT_ACCESS_SECRET));
+    // 用途必须匹配：邮箱/刷新等其他用途的 token 即使密钥相同也绝不当会话用
+    if (payload.purpose !== "access") return null;
     return payload as unknown as AccessTokenPayload;
   } catch {
     return null;

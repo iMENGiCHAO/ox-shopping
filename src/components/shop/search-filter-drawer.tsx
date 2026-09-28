@@ -118,7 +118,7 @@ export function SearchFilterDrawer() {
               {/* 遮罩（原站抽屉背后页面被压暗） */}
               <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
               {/* 右侧 400 宽黑色面板 */}
-              <div className="absolute inset-y-0 right-0 flex w-[var(--search-drawer-w)] flex-col bg-black text-white">
+              <div className="absolute inset-y-0 right-0 flex w-[min(var(--search-drawer-w),100vw)] flex-col bg-black text-white">
                 <div className="flex h-[var(--search-drawer-head-h)] shrink-0 items-center justify-between px-[var(--search-drawer-pad)]">
                   <p className="text-[length:var(--search-drawer-title-fs)]">{t("Filters")}</p>
                   <button

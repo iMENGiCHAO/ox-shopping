@@ -209,7 +209,7 @@ export function SearchOverlay() {
                     按钮居中到 534 —— 两处都因此错位。 */}
                 {q.length >= 2 ? (
                   <div className="shell pb-12">
-                    <div className="grid grid-cols-[var(--search-sidebar-w)_1fr] gap-x-[var(--search-col-gap)]">
+                    <div className="grid grid-cols-1 gap-x-[var(--search-col-gap)] min-[700px]:grid-cols-[var(--search-sidebar-w)_1fr]">
                       <p className="border-b border-[var(--search-divider)] pb-[var(--search-tab-pad-b)] pt-6 text-[12px] leading-5 text-white/65">
                         {t("Suggestions")}
                       </p>

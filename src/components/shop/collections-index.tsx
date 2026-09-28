@@ -31,6 +31,12 @@ export async function CollectionsIndex() {
           {t("All collections")}
         </h1>
 
+        {/* 空态（前台体验审计 P0）：collections 已过滤 0 商品集合，空目录时此前只剩 h1 */}
+        {collections.length === 0 ? (
+          <p className="py-20 text-center text-sm text-muted-foreground">
+            {t("No collections to browse right now.")}
+          </p>
+        ) : null}
         <div className="collection-grid mt-[var(--collection-head-gap)]">
           {collections.map((c) => {
             const name = pickName(c.name, c.nameEn ?? null, lang);
