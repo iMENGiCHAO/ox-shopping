@@ -36,7 +36,9 @@ export const POST = apiHandler(async (req, ctx) => {
   // 资金往来 —— 顾客没付过钱，走「退款」会被置成 SUCCEEDED（拿一张假的
   // 「已退款」凭证）。正确语义是取消（订单/库存/券回补），取消入口本来就
   // 支持 COD PROCESSING —— 在申请入口直接引导。
-  if (order.isCashOnDelivery && order.status === "PROCESSING") {
+  // SHIPPED 也纳入（订单审计缺陷5）：货在途且未收款，系统标「已退款」会同时
+  // 触发库存回补 → 账实不符、可能重复销售；正确语义是先拦截包裹再取消。
+  if (order.isCashOnDelivery && ["PROCESSING", "SHIPPED"].includes(order.status)) {
     throw badRequest(
       "Cash-on-delivery orders that have not shipped have no payment to refund — please cancel the order instead",
     );

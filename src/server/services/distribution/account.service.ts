@@ -5,6 +5,7 @@ import { notifyWithdrawStatus } from "./notify.service";
 import { logger } from "@/lib/logger";
 import { captureMessage } from "@/lib/monitoring";
 import { audit } from "@/lib/audit";
+import { notifyAdmins } from "@/server/services/notification.service";
 import { badRequest, conflict, notFound } from "@/lib/errors";
 import { round2 } from "@/lib/distribution/rules";
 import { maskAccountInfo } from "@/lib/distribution/mask";
@@ -504,6 +505,17 @@ export async function applyWithdraw(input: {
     amountSettle: amount,
     settleCurrency: settlementCurrency,
   }).catch(() => undefined);
+
+  // 运营审计 5-1：提现是纯资金出账，此前只写审计 —— 申请躺在列表无人知，客户等钱。
+  void notifyAdmins({
+    type: "system",
+    title: "新的提现申请",
+    titleEn: "New withdrawal request",
+    body: `有新的提现申请待审核，请及时处理。`,
+    bodyEn: `A new withdrawal request is awaiting review.`,
+    link: "/admin/distribution/withdrawals",
+    meta: { userId: input.userId },
+  }).catch(() => {});
 
   await audit({
     userId: input.userId,

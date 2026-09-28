@@ -11,7 +11,9 @@ import { config as loadEnvFile } from "dotenv";
 import { PrismaClient } from "@prisma/client";
 
 loadEnvFile({ path: path.resolve(process.cwd(), ".env") });
-process.env.NODE_ENV ||= "production";
+// next 16.3.6 起 process.env.NODE_ENV 的类型为只读（Next 类型声明收紧）——
+// 用可写视图赋值，语义不变（仅本地 preflight 兜底默认值）
+(process.env as Record<string, string | undefined>).NODE_ENV ||= "production";
 
 const isProd = process.env.NODE_ENV === "production";
 const report: { ok: boolean; title: string; detail: string }[] = [];

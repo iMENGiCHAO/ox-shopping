@@ -35,7 +35,7 @@ export const PATCH = apiHandler(async (req, ctx) => {
     action: "ADMIN_PRODUCT_STOCK",
     entity: "Product",
     entityId: id,
-    meta: { stock: input.stock },
+    meta: { stockBefore: before?.stock ?? null, stockAfter: input.stock },
     req,
   });
   return json({ product: serializeProduct(product) });

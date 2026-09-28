@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { Prisma } from "@prisma/client";
 import type { Order, OrderItem, OrderStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { invalidateProductsCache } from "@/lib/cache";
 import { env, brandFallback } from "@/lib/env";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { getLang } from "@/lib/shop-i18n-server";
@@ -203,6 +204,7 @@ export async function quoteOrderAmounts(input: {
   const byId = new Map(products.map((p) => [p.id, p]));
 
   let subtotalUsd = 0;
+
   for (const item of input.items) {
     const p = byId.get(item.productId);
     if (!p || p.status !== "ACTIVE") {
@@ -356,7 +358,11 @@ async function resolveContactEmail(input: CreateOrderInput): Promise<string | nu
  */
 export async function createOrder(input: CreateOrderInput): Promise<OrderWithItems> {
   try {
-    return await createOrderTx(input);
+    const created = await createOrderTx(input);
+    // 性能审计：下单即扣库存/加销量 —— 必须清商品列表缓存，否则售罄后最长
+    // CACHE_TTL(60s) 列表仍显示可买（与未缓存的 PDP 自相矛盾）
+    void invalidateProductsCache();
+    return created;
   } catch (err) {
     if (
       typeof err === "object" &&
@@ -449,6 +455,8 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
 
     // 0. 金额计算全部以锁行后的最新数据为准（杜绝改价窗口内按旧价成交）
     let subtotal = 0;
+    // 预售同商品多行的已记扣量（见预售分支注释）
+    const presaleDeductedTotal = new Map<string, number>();
     for (const item of input.items) {
       const fresh = freshById.get(item.productId);
       if (!fresh || fresh.status !== "ACTIVE") {
@@ -547,9 +555,15 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
 
       let stockDeducted: number;
       if (fresh.isPresale) {
+        // 预售库存记数（订单审计缺陷2）：`fresh` 是循环外读一次的**同一份快照** ——
+        // 同商品多行（不同规格行）各自 min(fresh.stock, qty) 会重复计入，而 SQL 只
+        // 实际减一次 → 取消时按记录回补会凭空造库存。这里维护「本次已记扣量」递减。
         // 预售：允许 0 库存下单，只扣实际可扣部分(下限 0)，销量照常累计；
         // 实扣量记入订单行，取消时精确回补（杜绝凭空造库存）
-        stockDeducted = Math.min(Math.max(fresh.stock, 0), item.quantity);
+        const presaleKey = item.productId ?? "";
+        const alreadyRecorded = presaleDeductedTotal.get(presaleKey) ?? 0;
+        stockDeducted = Math.min(Math.max(fresh.stock - alreadyRecorded, 0), item.quantity);
+        presaleDeductedTotal.set(presaleKey, alreadyRecorded + stockDeducted);
         await tx.$executeRaw`UPDATE products SET stock = GREATEST(stock - ${stockDeducted}, 0), "soldCount" = "soldCount" + ${item.quantity} WHERE id = ${item.productId}`;
       } else {
         stockDeducted = item.quantity;
@@ -936,6 +950,83 @@ export async function createPaymentUrl(
  * 才继续执行副作用（资金流水 / 订单确认信 / 审计 / 管理员站内通知），
  * 重复回调与并发双击均安全。
  */
+/**
+ * 二次支付原路退回（资金审计 D1）：Stripe 用固定幂等键退第二笔；其他渠道
+ * 记 error 告警 + PaymentLog 供人工（四家渠道未接真实收款，无实际资金风险）。
+ */
+async function refundDuplicatePayment(order: Order, duplicatePaymentId: string): Promise<void> {
+  await logPayment({
+    orderId: order.id,
+    provider: order.paymentProvider ?? "stripe",
+    event: "duplicate_payment_refund",
+    amount: Number(order.total),
+    gatewayId: duplicatePaymentId,
+    payload: { originalPaymentId: order.paymentId, source: "duplicate_detection" },
+  });
+  if (order.paymentProvider === "stripe" || order.paymentProvider == null) {
+    try {
+      await createStripeRefund(
+        duplicatePaymentId,
+        Number(order.total),
+        undefined,
+        `double-paid-${order.orderNumber}-${duplicatePaymentId}`,
+      );
+    } catch (err) {
+      captureMessage(
+        `[pay] 订单 ${order.orderNumber} 二次支付自动退款失败，请人工退款（${duplicatePaymentId}）：${err instanceof Error ? err.message : String(err)}`,
+        "error",
+      );
+    }
+  }
+}
+
+/**
+ * 迟到支付退款登记（资金审计 D4/R1）：把「已取消单收到的钱」登记为正式账本 ——
+ * Refund(APPROVED) + RefundOutbox(PENDING)，由既有 outbox 机制重试到成功，
+ * 财务在退款列表可见（此前只有 logger，对账时这笔出账无处可查）。
+ */
+export async function registerLatePaidRefund(
+  order: Order,
+  opts: { paymentId?: string | null } = {},
+): Promise<void> {
+  const idempotencyKey = `late-paid-${order.orderNumber}`;
+  const existing = await prisma.refund.findUnique({ where: { idempotencyKey } });
+  if (existing) return;
+  try {
+    const refund = await prisma.$transaction(async (tx) => {
+      const created = await tx.refund.create({
+        data: {
+          orderId: order.id,
+          userId: order.userId,
+          reason: "迟到支付自动退款（订单已取消后收到支付）",
+          amount: order.total,
+          status: "APPROVED",
+          idempotencyKey,
+        },
+      });
+      await tx.refundOutbox.create({
+        data: { refundId: created.id, status: "PENDING", uniqueKey: idempotencyKey },
+      });
+      return created;
+    });
+    await logPayment({
+      orderId: order.id,
+      provider: order.paymentProvider ?? "stripe",
+      event: "late_paid_refund_registered",
+      amount: Number(order.total),
+      gatewayId: opts.paymentId ?? null,
+      payload: { refundId: refund.id, source: "late_payment" },
+    });
+  } catch (err) {
+    // 并发重复登记（唯一键冲突）视为已完成；其他错误上报告警由 cron 兜底
+    logger.error({ err, orderNumber: order.orderNumber }, "[pay] 迟到支付退款登记失败");
+    captureMessage(
+      `[pay] 订单 ${order.orderNumber} 迟到支付退款登记失败，请人工核对：${err instanceof Error ? err.message : String(err)}`,
+      "error",
+    );
+  }
+}
+
 export async function markOrderPaid(
   orderNumber: string,
   paymentId?: string,
@@ -988,7 +1079,43 @@ export async function markOrderPaid(
     return order;
   }
 
-  if (order.status !== "PENDING_PAYMENT") return order;
+  if (order.status !== "PENDING_PAYMENT") {
+    // 资金审计（订单报告缺陷3）：此前**任何**非 PENDING_PAYMENT 状态都静默返回 ——
+    // 若 paymentSessionId 落库失败（尽力写 .catch(()=>{})），CANCELLED 单收到迟到
+    // 支付时上面的兜底分支进不去，这里直接 return：钱被收走、库存已回补给他人、
+    // 不退款、不告警（注释宣称已修的事故重现）。现在对有真实交易号的到位支付
+    // 一律登记退款（Refund + Outbox，复用重试/终态通知/冲正机制）。
+    if (paymentId && order.status === "CANCELLED") {
+      logger.error(
+        { orderId: order.id, orderNumber: order.orderNumber, paymentId },
+        "[pay] 已取消订单收到支付确认（无会话兜底路径），登记全额退款",
+      );
+      captureMessage(
+        `[pay] 已取消订单 ${order.orderNumber} 收到支付确认，已登记全额退款（无支付会话兜底路径）`,
+        "error",
+      );
+      await registerLatePaidRefund(order, { paymentId });
+    } else if (
+      paymentId &&
+      order.paymentId &&
+      paymentId !== order.paymentId &&
+      ["PAID", "PROCESSING", "SHIPPED", "DELIVERED", "REFUNDED"].includes(order.status)
+    ) {
+      // 二次支付检测（资金审计 D1 收款侧）：同一订单被付了两次（并发生成多个
+      // 支付会话后各付一次）→ 多收的钱必须原路退回，否则在本系统内无解
+      // （退款申请封顶 order.total，第二笔无凭证）。
+      logger.error(
+        { orderId: order.id, orderNumber: order.orderNumber, first: order.paymentId, second: paymentId },
+        "[pay] 检测到同一订单的二次支付，自动原路退回第二笔",
+      );
+      captureMessage(
+        `[pay] 订单 ${order.orderNumber} 被重复支付（${order.paymentId} / ${paymentId}），已自动退回第二笔`,
+        "error",
+      );
+      await refundDuplicatePayment(order, paymentId);
+    }
+    return order;
+  }
 
   // 原子认领：并发场景只有一个调用方能把状态推进到 PAID。
   // 上方幂等出口已处理所有「已支付/已取消」的重复回调（原样返回，不重发副作用）；
