@@ -45,6 +45,18 @@ export const productFormSchema = z
     compareAtPrice: z.string().optional().or(z.literal("")),
     costPrice: z.string().optional().or(z.literal("")),
     stock: z.string().min(1, "请填写库存"),
+    // SKU 矩阵由矩阵区维护（见下方 matrixDraft → setValue 同步）
+    variants: z
+      .array(
+        z.object({
+          attributes: z.array(z.object({ name: z.string(), value: z.string() })),
+          stock: z.number().int().min(0),
+          price: z.number().min(0).nullable(),
+          sku: z.string().nullable(),
+          isActive: z.boolean(),
+        }),
+      )
+      .optional(),
     isPresale: z.boolean(),
     /** 预售提示文案（多语言）。留空 = 使用站级默认（站点设置中可改）。 */
     presaleNoteZh: z.string().max(200).optional().or(z.literal("")),
@@ -112,6 +124,16 @@ export interface ProductFormPayload {
   isHot?: boolean;
   sizeChart?: { headers: string[]; rows: string[][] } | null;
   specStock?: Record<string, Record<string, number>> | null;
+  /** SKU 矩阵（组合粒度）：非空时前台只列真实组合 */
+  variants?: {
+    id?: string;
+    attributes: { name: string; value: string }[];
+    stock: number;
+    price?: number | null;
+    sku?: string | null;
+    image?: string | null;
+    isActive?: boolean;
+  }[] | null;
   images: string[];
   attributes: { name: string; values: string[]; selectable?: boolean }[];
   status: AdminProductStatus;
@@ -272,6 +294,72 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
     }
     return sums.length > 0 ? Math.min(...sums) : null;
   }, [hasSpecGroups, selectableGroups, specMaps]);
+
+  /* ── SKU 矩阵（组合粒度）────────────────────────────────────────────
+     大爷诉求：不同颜色有不同尺码范围时，顾客必须只看到真实存在的组合。
+     这里把「颜色 × 尺码」展开为完整矩阵，逐格录入库存（可选覆盖价/SKU），
+     提交时写入 form.variants（后端按组合粒度落库并汇总商品级库存）。 */
+  const variantCombos = React.useMemo(() => {
+    if (selectableGroups.length === 0) return [] as { name: string; value: string }[][];
+    return selectableGroups.reduce<{ name: string; value: string }[][]>(
+      (acc, g) => acc.flatMap((combo) => g.values.map((v) => [...combo, { name: g.name, value: v }])),
+      [[]],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 依赖内容签名（见 selectableGroups）
+  }, [attrSignature, selectableGroups]);
+
+  /** 组合键（与后端 signature 同构：属性按名排序拼 "名:值|名:值"） */
+  const comboKey = (attrs: { name: string; value: string }[]) =>
+    attrs
+      .map((a) => `${a.name.trim()}:${a.value.trim()}`)
+      .sort()
+      .join("|");
+
+  /** 矩阵草稿：{ 组合键: { stock: string; price: string; sku: string } } */
+  const [matrixDraft, setMatrixDraft] = React.useState<
+    Record<string, { stock: string; price: string; sku: string }>
+  >({});
+  const [matrixEnabled, setMatrixEnabled] = React.useState<boolean>(
+    () => (initial?.variants?.length ?? 0) > 0,
+  );
+  // 编辑回填：把已存变体灌进草稿（仅初始化一次，避免覆盖用户输入）
+  const matrixInitRef = React.useRef(false);
+  React.useEffect(() => {
+    if (matrixInitRef.current) return;
+    matrixInitRef.current = true;
+    const saved = initial?.variants ?? [];
+    if (saved.length === 0) return;
+    const draft: Record<string, { stock: string; price: string; sku: string }> = {};
+    for (const v of saved) {
+      draft[comboKey(v.attributes)] = {
+        stock: String(v.stock),
+        price: v.price == null ? "" : String(v.price),
+        sku: v.sku ?? "",
+      };
+    }
+    setMatrixDraft(draft);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial?.variants]);
+
+  // 草稿 → form.variants（提交校验与后端落库都用它）；未启用矩阵则清空
+  React.useEffect(() => {
+    if (!matrixEnabled) {
+      form.setValue("variants", [], { shouldDirty: true });
+      return;
+    }
+    const rows = variantCombos.map((attrs) => {
+      const d = matrixDraft[comboKey(attrs)];
+      return {
+        attributes: attrs,
+        stock: Math.max(0, Math.floor(Number(d?.stock ?? "0") || 0)),
+        price: d?.price && d.price.trim() !== "" ? Number(d.price) : null,
+        sku: d?.sku?.trim() || null,
+        isActive: true,
+      };
+    });
+    form.setValue("variants", rows, { shouldDirty: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matrixDraft, matrixEnabled, variantCombos]);
   React.useEffect(() => {
     if (specSum != null) form.setValue("stock", String(specSum), { shouldDirty: true });
   }, [specSum, form]);
@@ -534,6 +622,82 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             />
           </div>
         </div>
+
+        {/* ── SKU 矩阵（组合粒度）─────────────────────────────────────────
+            大爷诉求：不同颜色有不同尺码范围时，顾客必须只看到真实存在的组合。
+            开启后每个「颜色×尺码」组合独立库存；前台选择器按组合过滤
+            （选红色后不会出现红色没有的尺码）。关闭 = 回落下面的维度池规格库存。 */}
+        {selectableGroups.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-border p-3 sm:col-span-2">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <Label htmlFor="pf-matrix" className="cursor-pointer">
+                  规格矩阵（推荐：每组合独立库存）
+                </Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  开启后逐「组合」录入库存：顾客只会看到真实存在的组合 ——
+                  例如红色只有 S/M、蓝色才有 L 时，选红色不会出现 L（解决「能选不能买」）。
+                  关闭则回落到下方「规格库存」的维度池模式（各维度独立计数）。
+                </p>
+              </div>
+              <Switch id="pf-matrix" checked={matrixEnabled} onCheckedChange={setMatrixEnabled} />
+            </div>
+            {matrixEnabled ? (
+              variantCombos.length > 0 ? (
+                <div className="max-h-96 space-y-2 overflow-auto pr-1">
+                  <div className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_7rem] gap-2 text-xs text-muted-foreground">
+                    <span>组合</span>
+                    <span>库存</span>
+                    <span>覆盖价（选填）</span>
+                    <span>SKU（选填）</span>
+                  </div>
+                  {variantCombos.map((attrs) => {
+                    const key = comboKey(attrs);
+                    const d = matrixDraft[key] ?? { stock: "", price: "", sku: "" };
+                    const patch = (part: Partial<{ stock: string; price: string; sku: string }>) =>
+                      setMatrixDraft((prev) => ({
+                        ...prev,
+                        [key]: { ...(prev[key] ?? { stock: "", price: "", sku: "" }), ...part },
+                      }));
+                    return (
+                      <div
+                        key={key}
+                        className="grid grid-cols-[minmax(0,1fr)_5.5rem_5.5rem_7rem] items-center gap-2"
+                      >
+                        <span className="truncate text-[13px]">
+                          {attrs.map((a) => a.value).join(" / ")}
+                        </span>
+                        <Input
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={d.stock}
+                          onChange={(e) => patch({ stock: e.target.value.replace(/[^0-9]/g, "") })}
+                        />
+                        <Input
+                          inputMode="decimal"
+                          placeholder="默认价"
+                          value={d.price}
+                          onChange={(e) => patch({ price: e.target.value.replace(/[^0-9.]/g, "") })}
+                        />
+                        <Input
+                          placeholder="选填"
+                          value={d.sku}
+                          onChange={(e) => patch({ sku: e.target.value })}
+                        />
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-muted-foreground">
+                    商品级「总库存」在保存时自动汇总为各组合之和；
+                    留空库存按 0 计（该组合售罄，前台划线）。
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">请先在上方填写属性的可选值。</p>
+              )
+            ) : null}
+          </div>
+        ) : null}
 
         {/* 规格级库存（不同尺寸 = 单独规格商品，0 = 售罄）：直接内嵌在表单里逐规格编辑，
           无需额外弹窗（大爷诉求：把详细库存在一个表单里直接填写） */}

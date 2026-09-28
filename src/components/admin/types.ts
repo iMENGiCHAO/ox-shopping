@@ -58,6 +58,16 @@ export interface AdminCategoryFlat {
 }
 
 export interface AdminProduct {
+  /** SKU 矩阵（组合粒度库存）：非空时前台只列真实存在的组合 */
+  variants?: {
+    id: string;
+    attributes: { name: string; value: string }[];
+    stock: number;
+    price: number | null;
+    sku: string | null;
+    image: string | null;
+    isActive: boolean;
+  }[] | null;
   id: string;
   name: string;
   nameEn?: string | null;

@@ -95,9 +95,6 @@ export const GET = apiHandler(async (req) => {
   });
 
   const csv = toCsv(normalizeRows(rows));
-  const truncatedHeader: Record<string, string> = truncated
-    ? { "X-Export-Truncated": "true" }
-    : {};
   // 权限审计补痕：全量订单导出含收货人/邮箱 PII，SUPPORT 可拉取——外带必须留痕
   await audit({
     userId: actor.id,
