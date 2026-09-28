@@ -723,13 +723,8 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                       件
                     </span>
                   </div>
-                  {/* 列表头：让「哪列填什么」一眼可辨（大爷：排版要好读） */}
-                  <div className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_6.5rem] gap-2 border-b border-border px-1 pb-1.5 text-xs font-medium text-muted-foreground">
-                    <span>{groupable ? `规格（按${primaryGroup.name}分组）` : "规格"}</span>
-                    <span>库存 *</span>
-                    <span>覆盖价</span>
-                    <span>SKU</span>
-                  </div>
+                  {/* 大爷（2026-09-28）：子组**横着排**，且去掉「覆盖价 / SKU」——
+                      同一商品同价同 SKU，没必要逐组合单独编辑；只保留「规格 + 库存」。 */}
                   {primaryGroup.values.map((groupValue) => {
                     const rows = variantCombos.filter((combo) =>
                       combo.some((a) => a.name === primaryGroup.name && a.value === groupValue),
@@ -741,31 +736,29 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                         className={
                           groupable
                             ? "space-y-2 rounded-lg border border-border bg-muted/30 p-3"
-                            : "space-y-1.5"
+                            : "space-y-2"
                         }
                       >
                         {groupable ? (
-                          <p className="mb-2 flex items-center justify-between text-[13px] font-medium">
+                          <p className="flex items-center justify-between text-[13px] font-medium">
                             <span>
                               {primaryGroup.name}：{groupValue}
                             </span>
-                            {/* 大爷（2026-09-28）：分组头**不能手写**，必须是子组合的汇总 ——
-                                父组数字与子组之和永远一致，库存不会出现两套口径 */}
+                            {/* 父组只读：库存合计由子组决定（不能手写） */}
                             <span className="text-xs font-normal text-muted-foreground">
                               库存合计 {rows.reduce((sum, attrs) => {
                                 const raw = matrixDraft[comboKey(attrs)]?.stock;
                                 return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
                               }, 0)}
-                              {" · "}
-                              {rows.length} 个组合
                             </span>
                           </p>
                         ) : null}
-                        <div className="space-y-1.5">
+                        {/* 子组**横排**（大爷 2026-09-28）：每个规格是一个竖着的小单元
+                            —— 上面库存框、下面规格名，单元之间横向并排；只保留库存，
+                            不再逐组合填「覆盖价 / SKU」（同商品同价同 SKU）。 */}
+                        <div className="flex flex-wrap gap-3">
                           {rows.map((attrs) => {
                             const key = comboKey(attrs);
-                            // 行标签：多组时列「分组维度之外」的规格；**只有一组时显示该组的值**
-                            // （此前单组会被 filter 掉 → 标签退化成「默认」，运营看着一头雾水）
                             const label = groupable
                               ? attrs
                                   .filter((a) => a.name !== primaryGroup.name)
@@ -773,44 +766,28 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                                   .join(" / ") || "默认"
                               : attrs.map((a) => a.value).join(" / ");
                             const d = matrixDraft[key] ?? { stock: "", price: "", sku: "" };
-                            const patch = (
-                              part: Partial<{ stock: string; price: string; sku: string }>,
-                            ) =>
-                              setMatrixDraft((prev) => ({
-                                ...prev,
-                                [key]: {
-                                  ...(prev[key] ?? { stock: "", price: "", sku: "" }),
-                                  ...part,
-                                },
-                              }));
                             return (
-                              <div
-                                key={key}
-                                className="grid grid-cols-[minmax(0,1fr)_5rem_5rem_6.5rem] items-center gap-2"
-                              >
-                                <span className="truncate text-[13px]">{label}</span>
+                              <label key={key} className="flex w-20 flex-col items-stretch gap-1">
                                 <Input
                                   inputMode="numeric"
                                   placeholder="0"
                                   value={d.stock}
                                   onChange={(e) =>
-                                    patch({ stock: e.target.value.replace(/[^0-9]/g, "") })
+                                    setMatrixDraft((prev) => ({
+                                      ...prev,
+                                      [key]: {
+                                        ...(prev[key] ?? { stock: "", price: "", sku: "" }),
+                                        stock: e.target.value.replace(/[^0-9]/g, ""),
+                                      },
+                                    }))
                                   }
+                                  className="h-8 px-1 text-center tabular-nums"
+                                  aria-label={`${groupValue} ${label} 库存`}
                                 />
-                                <Input
-                                  inputMode="decimal"
-                                  placeholder="默认价"
-                                  value={d.price}
-                                  onChange={(e) =>
-                                    patch({ price: e.target.value.replace(/[^0-9.]/g, "") })
-                                  }
-                                />
-                                <Input
-                                  placeholder="SKU"
-                                  value={d.sku}
-                                  onChange={(e) => patch({ sku: e.target.value })}
-                                />
-                              </div>
+                                <span className="truncate text-center text-xs text-muted-foreground">
+                                  {label}
+                                </span>
+                              </label>
                             );
                           })}
                         </div>
