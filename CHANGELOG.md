@@ -9,6 +9,89 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-28（日）· 大爷点名项交付：评价系统 + 收藏夹 + 边界洞根治 + 分销口径统一（梦哥）
+
+> 大爷要求：「子智能体很多没完成，是不是偷懒了，要彻底解决所有问题检查」
+> 「评价系统/收藏夹是没有的」「把上面没有做完的任务做完，中途中断很多次了，不要有遗漏」
+
+### 一、评价系统（从零建设，非半成品）
+
+此前项目**没有评价功能**（schema 无模型、前台无 UI —— 审计如实报告为「功能不存在」
+而非伪功能）。大爷点名为交付缺口，本轮按商业标准建设：
+
+- **反刷评闭环**：仅登录用户 + 仅 **DELIVERED 订单行**可评（orderItemId 绑定=真实
+  购买凭证，未收货 400、非本人订单 404）；一人一品一评（`@@unique([productId,userId])`），
+  重购同品再评 = 更新已有评价而非新增
+- **聚合冗余列**：`Product.ratingAvg/ratingCount`（列表页免子查询），增评/改评/删评/
+  下架/恢复全程由 review.service 统一重算（唯一写入点）
+- **admin 审核**：默认 APPROVED 即时展示（真实购买门槛已高）；管理端可 REJECTED 下架
+  （前台即时不可见 + 聚合同步），`/admin/reviews` 页面 + 侧边栏入口 + 审计日志
+- **前台**：PDP 评分概览（★4.8 · 36 条，点击锚点跳评价区）+ 评价列表（服务端渲染，
+  姓名脱敏「张*」）+ 订单详情「写评价」区块（可评行清单 + 星级表单 + 已评价徽标）
+  + `/account/reviews` 我的评价（含删除）
+- **SEO**：商品 JSON-LD 输出 `aggregateRating`（有真实评价才输出，不伪造）
+- **通知**：新评价 notifyAdmins 站内通知（含后台深链）
+- **测试**：`reviews-favorites.test.ts` 6 用例（未收货拒评/归属校验/公开可见+聚合/
+  更新不新增/admin 下架恢复/可评行清单）
+
+### 二、收藏夹（从零建设）
+
+- `Favorite` 模型（`@@unique([userId,productId])`）—— toggle 走唯一约束 upsert 语义，
+  双击天然幂等（边界审计口径）
+- PDP 心形（client 乐观更新，失败回滚；未登录跳登录页带回跳）+ `/account/wishlist`
+  收藏列表（商品卡网格 + 移除）+ 账户侧边栏入口（heart 图标）
+- 测试：toggle 幂等（加入→列表快照→移除）、游客 401 登录墙
+
+### 三、边界态审计洞根治（补审 subagent 实测发现）
+
+此前创建订单**无任何幂等兜底** —— 双击下单 = 两张单各扣一份库存（对比：支付/退款
+链路幂等完整，唯独创建链路裸奔）：
+- **订单幂等键**：`Order.idempotencyKey @unique` + 前端 `crypto.randomUUID()` 随单提交
+  （失败重试复用同一 key，跳转后自然失效）；服务端撞唯一约束 → 事务已回滚 → 回读
+  首张单返回（真幂等，不重复扣库存）；老客户端不传 key 为 NULL 不受约束
+- **地址防重**：`Address.contentHash`（sha256 规范化内容，剔除 isDefault）+ 
+  `@@unique([userId,contentHash])` + 创建/更新双路径写入 + 撞约束转 400 诚实提示 +
+  **地址簿上限 20 条** + 限流 10 次/分钟（此前无限流、无上限、无去重）
+- **分页上限**：`parsePagination` page 封顶 1e6（此前 page=1e18 → skip 超 int64 →
+  Prisma 校验错 500，无数据风险但产 Sentry 噪音）
+- **P2002 统一映射**：apiHandler 把唯一约束冲突从 500 转 409 CONFLICT（admin 券/商品
+  check-then-create 并发双击输家此前落 500 + 误告警）
+- **游客购物车上限**：加购前置 50 条闸门（与登录车服务端口径一致，此前超限后才在
+  下单环节被通用校验拒绝，报错不友好）
+
+### 四、数据链审计：分销金额三口径统一（实锤不一致）
+
+总览页（毛额）vs 我的佣金（毛额）vs 账户余额（净额）三处勾稽不上 —— 部分退款冲正后
+管理员与分销商看到的佣金数互相矛盾：
+- `computeAdminOverview` 桶改净额（计提 − 冲正），与同文件 getAdminReport 口径统一；
+  REVERSED 桶保留原额作「已冲正」展示
+- `listMyCommissions` 行下发 `reversedAmount/reversedSettle` + 前端显示净额并附
+  「含已冲正 {m}」标注（明细与账户卡可勾稽）
+- `getMyCustomers`/`getMyTeamOrders`/`getTeamStatsLive`/rollup 日汇总全部净额化
+  （rollup 此前把 REVERSED 全冲正流水按全额计入，与自身注释「冲正的记为 0」矛盾）
+- 总览页口径说明文案同步修正（净额口径 + 部分冲正语义）
+
+### 五、两路补审的其他结论（均已核验，无需改动）
+
+- **仪表盘 stats vs 列表页口径** ✓ 完全一致（pendingRefund=REQUESTED、
+  pendingShip=PAID+PROCESSING 两侧逐字段对账；唯一差异是 30s 缓存时效，设计内）
+- **通知 link 字段** ✓ 11 个目标全部指向存在页面（含新增 /admin/reviews）
+- **邮件模板 vs MailData** ✓ 13 键 ↔ 13 组件一一对应，三个新模板字段齐备
+- **金额精度/分页越界/购物车数量上限/多标签页** ✓ 实测稳健（多标签页 last-write-wins
+  非资损：下单金额全部服务端按 DB 现价重算）
+
+### 六、样式修复
+
+顶栏币种下拉在长国名（"United Kingdom (GBP £)"）叠加选中态 ✓ 时换行破版：
+菜单 w-56→w-64（最长组合 181px < 194px 文本区）+ 文本 `whitespace-nowrap` +
+两侧 `shrink-0` 防御。
+
+### 七、验证
+
+- tsc 0 错 · lint 0 error（17 警告，均为既有基线类）· 单测 284/284 · 集成 180/180
+  （21 文件，含新增 reviews-favorites 8 用例）· build ✅ · 双库 migration（
+  review_favorite / order_idem_address_dedup）已 apply
+
 ## 2026-09-26（五）· 交付级终审：四路专项审计 + 资金洞/通知断链/数据孤岛全修复（梦哥）
 
 > 大爷要求：「通盘检查所有 bug，发现 bug 解决 bug。不要伪功能、不要数据孤岛、
