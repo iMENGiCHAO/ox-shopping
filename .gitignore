@@ -74,3 +74,6 @@ Thumbs.db
 *.swp
 *.swo
 
+
+# 原站商品抓取缓存（脚本 fetch-shop-images.mjs 的中间产物，不入库）
+.shop-scrape/

@@ -9,6 +9,31 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-28（日）· 商品图片本地化：换用原站商品图（大爷要求「看效果」）
+
+> 大爷要求：「把商品的图片都换成原网站的」「下载到本地，不要用网上的 url」「主要看效果」。
+
+### 关键突破：curl 过不去、浏览器过得去
+本机命令行到 `shop.x.com`（SpaceX/xAI 官方商店，Shopify 托管）被 TLS reset（HTTP 301
+强制 HTTPS、服务端代理工具与 web_fetch 均不通），但 **Playwright Chromium 走系统
+VPN → 200**（实测 title「Official SpaceXAI Shop」）。据此用浏览器上下文抓取。
+
+### 落地
+- 新增 `scripts/fetch-shop-images.mjs`：浏览器内 `fetch /products.json` 取全量商品与
+  图片 URL → 按**品类关键词**（tee/hoodie/hat/beanie/tumbler/sock/shirt）把原站商品池
+  映射到本地演示商品（同品类轮转，避免 T 恤配帽子）→ 逐图下载（浏览器上下文带
+  UA/cookie 最稳）→ `sharp` 压缩为 WebP（最长边 1600, q82）→ 落盘
+  `public/images/products/<slug>/<n>.webp` → 更新 `Product.images`
+- 另留 `scripts/import-product-images.ts`：从**本地文件夹**导入（按文件名含 slug 匹配），
+  供「浏览器另存图片」的离线路径使用
+- 结果：**28/29 个商品**换为原站图（每个 2–6 张，共 14MB 本地 WebP）；唯一未换的是
+  `ox-remove-before-flight-keychain`（钥匙扣）——**原站无此品类**，保持本地演示图
+  （不硬塞无关图）
+
+### ⚠️ 合规口径（必须遵守）
+这些图片版权归原站所有，**仅可用于内测看效果**。商业发布前必须替换为自有素材或取得
+授权——已写入 `docs/COMMERCIAL_DIAGNOSIS_2026-09-28.md` 上线前置清单与本节。
+
 ## 2026-09-28（日）· 交付诊断续修：P1 批次（资金残留 + 库存 + 账实 + 可用性）
 
 > 承接同日八维度诊断报告第四节待办清单，本轮清掉其中影响交付使用的项。
