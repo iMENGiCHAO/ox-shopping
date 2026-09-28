@@ -46,10 +46,20 @@ export function serializeOrder(
 }
 
 export function serializeProduct<
-  T extends { price: unknown; compareAtPrice?: unknown | null; costPrice?: unknown | null },
+  T extends {
+    price: unknown;
+    compareAtPrice?: unknown | null;
+    costPrice?: unknown | null;
+    variants?: { price?: unknown | null }[] | null;
+  },
 >(product: T) {
   return {
     ...product,
+    // 变体覆盖价是 Decimal → 前端要 number（JSON 序列化会变字符串，表单校验会误判）
+    variants: (product.variants ?? []).map((v) => ({
+      ...v,
+      price: v.price == null ? null : num(v.price),
+    })),
     price: num(product.price),
     compareAtPrice: product.compareAtPrice == null ? null : num(product.compareAtPrice),
     costPrice: product.costPrice == null ? null : num(product.costPrice),

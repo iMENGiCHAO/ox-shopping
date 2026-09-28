@@ -4,6 +4,7 @@ import { requireAdmin, requireStaff } from "@/lib/auth/session";
 import { getProductById } from "@/server/services/product.service";
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { aggregateTrackedStock } from "@/server/services/spec-stock";
+import { variantSignature } from "@/server/services/variant-stock";
 import { serializeProduct } from "@/server/serializers";
 import { invalidateProductsCache } from "@/lib/cache";
 import { audit } from "@/lib/audit";
@@ -42,7 +43,8 @@ export const PUT = apiHandler(async (req, ctx) => {
     if (dup) throw conflict("slug 已存在");
   }
 
-  const { sizeChart, specStock, ...rest } = input;
+  // variants 不是 Product 的列（独立表），必须从展开对象里剔除后单独处理
+  const { sizeChart, specStock, variants, ...rest } = input;
   // 一致性兜底：带规格库存时总库存强制 = min(各组之和)，杜绝整件数与规格数漂移
   const summedStock = specStock !== undefined ? aggregateTrackedStock(specStock) ?? undefined : undefined;
   // description 入库前净化
@@ -57,13 +59,31 @@ export const PUT = apiHandler(async (req, ctx) => {
       ...(summedStock !== undefined ? { stock: summedStock } : {}),
       ...(sizeChart !== undefined ? { sizeChart: sizeChart ?? Prisma.DbNull } : {}),
       ...(specStock !== undefined ? { specStock: specStock ?? Prisma.DbNull } : {}),
+      // SKU 矩阵：全量替换（表单提交完整矩阵）；同时把商品级 stock 同步为 Σ 变体库存
+      ...(variants !== undefined
+        ? {
+            stock: variants.length > 0 ? variants.reduce((sum, v) => sum + v.stock, 0) : (summedStock ?? existing.stock),
+            variants: {
+              deleteMany: {},
+              create: variants.map((v) => ({
+                attributes: v.attributes as unknown as Prisma.InputJsonValue,
+                signature: variantSignature(v.attributes),
+                stock: v.stock,
+                price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
+                sku: v.sku?.trim() || null,
+                image: v.image?.trim() || null,
+                isActive: v.isActive,
+              })),
+            },
+          }
+        : {}),
     },
     include: { category: true },
   });
 
   // 涉及库存/规格库存的更新：触发到货通知（服务内部按客户登记的规格逐条匹配，
   // 覆盖"某个规格单独回货而总量未变"的场景）
-  if (input.stock !== undefined || specStock !== undefined) {
+  if (input.stock !== undefined || specStock !== undefined || variants !== undefined) {
     void notifyRestock(id);
   }
 

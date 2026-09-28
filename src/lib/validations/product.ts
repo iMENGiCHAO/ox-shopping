@@ -26,6 +26,7 @@ function checkSpecStockConsistency(
   val: {
     specStock?: Record<string, Record<string, number>> | null;
     attributes?: { name: string; values: string[] }[] | null;
+    variants?: { attributes: { name: string; value: string }[] }[] | null;
   },
   ctx: z.RefinementCtx,
 ): void {
@@ -37,6 +38,38 @@ function checkSpecStockConsistency(
     const set = attrByName.get(a.name) ?? new Set<string>();
     for (const v of a.values) set.add(v);
     attrByName.set(a.name, set);
+  }
+
+  // 变体一致性（同一请求同时给出 attributes 与 variants 时）：
+  // 组合里的组/值必须来自商品属性，否则前台选择器根本无法产生该组合（孤儿变体）
+  const variants = (val as { variants?: { attributes: { name: string; value: string }[] }[] })
+    .variants;
+  if (variants && val.attributes) {
+    const seen = new Set<string>();
+    for (const [i, v] of variants.entries()) {
+      for (const a of v.attributes) {
+        const allowed = attrByName.get(a.name);
+        if (!allowed || !allowed.has(a.value)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["variants", i],
+            message: `组合「${a.name}:${a.value}」不在商品属性可选值中`,
+          });
+        }
+      }
+      const sig = v.attributes
+        .map((a) => `${a.name}:${a.value}`)
+        .sort()
+        .join("|");
+      if (seen.has(sig)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["variants", i],
+          message: `组合重复：${v.attributes.map((a) => `${a.name}:${a.value}`).join(" / ")}`,
+        });
+      }
+      seen.add(sig);
+    }
   }
 
   for (const [group, values] of Object.entries(val.specStock)) {
@@ -97,6 +130,27 @@ const productBaseSchema = z.object({
   specStock: z
     .record(z.string(), z.record(z.string(), z.number().int().min(0)))
     .nullable()
+    .optional(),
+  /**
+   * SKU 矩阵（组合粒度）：每个「颜色×尺码」组合一条，独立库存。
+   * 非空时前台只列真实存在的组合（解决「不同颜色有不同尺码」时顾客选到不存在组合）。
+   * 传空数组 = 清空回落到 specStock 维度池模式。
+   */
+  variants: z
+    .array(
+      z.object({
+        attributes: z
+          .array(z.object({ name: z.string().trim().min(1), value: z.string().trim().min(1) }))
+          .min(1, "组合至少需要一个属性")
+          .max(4),
+        stock: z.number().int().min(0).max(1_000_000),
+        price: z.number().min(0).nullable().optional(),
+        sku: z.string().trim().max(64).nullable().optional(),
+        image: z.string().max(500).nullable().optional(),
+        isActive: z.boolean().default(true),
+      }),
+    )
+    .max(500, "组合数不能超过 500")
     .optional(),
   images: z.array(imageUrlSchema).max(20, "最多 20 张图片").default([]),
   attributes: z.array(productAttributeSchema).max(30).default([]),

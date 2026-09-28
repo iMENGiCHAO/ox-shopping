@@ -29,6 +29,12 @@ import { getProvider } from "@/lib/payment/providers";
 import { str } from "@/lib/payment/provider";
 import { effectivePaymentMode, mockPaymentAllowedInProd } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
+import {
+  findVariant,
+  parseVariantAttributes,
+  planVariantDeduction,
+  type VariantLike,
+} from "@/server/services/variant-stock";
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { logPayment } from "@/server/services/payment-log.service";
 import { sanitizePlainText } from "@/lib/sanitize";
@@ -517,10 +523,36 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
       exchangeRate,
     );
 
+    // SKU 矩阵（ProductVariant）：有变体的商品走**组合粒度**（颜色×尺码各自独立库存，
+    // 可表达「不同颜色有不同尺码范围」）；无变体回落规格维度池（specStock，兼容存量）。
+    // 一次批量读取，避免每行一次查询。
+    const variantProductIds = [...new Set(input.items.map((i) => i.productId).filter(Boolean))];
+    const variantRows = variantProductIds.length
+      ? await tx.productVariant.findMany({
+          where: { productId: { in: variantProductIds }, isActive: true },
+        })
+      : [];
+    const variantsByProduct = new Map<string, VariantLike[]>();
+    for (const v of variantRows) {
+      const list = variantsByProduct.get(v.productId) ?? [];
+      list.push({
+        id: v.id,
+        attributes: parseVariantAttributes(v.attributes),
+        stock: v.stock,
+        isActive: v.isActive,
+        price: v.price == null ? null : Number(v.price),
+        image: v.image,
+        sku: v.sku,
+      });
+      variantsByProduct.set(v.productId, list);
+    }
+
     // 1. 库存扣减（商品级 + 规格级；普通单不足即失败，预售允许缺口并记录实际扣减量）
     interface ItemDeduction {
       stockDeducted: number;
       specDeducted: Record<string, number>;
+      /** 变体模式扣减凭据（组合粒度回补用） */
+      variantDeducted: { variantId: string; qty: number } | null;
     }
     const plans: ItemDeduction[] = [];
     // 规格库存写回计划（商用审计 H-1 修复）：同商品多行必须**链式聚合**——
@@ -534,6 +566,51 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
       const snapshot = productById.get(item.productId)!;
       if (!fresh || fresh.status !== "ACTIVE")
         throw badRequest(`"${snapshot.name}" is no longer available`);
+
+      // —— 变体模式（组合粒度）——
+      const productVariants = variantsByProduct.get(item.productId ?? "") ?? [];
+      if (productVariants.length > 0) {
+        const variant = findVariant(productVariants, item.attributes ?? []);
+        const vplan = planVariantDeduction(variant, item.quantity, fresh.isPresale);
+        if (!vplan.ok) {
+          const label = variant
+            ? variant.attributes.map((a) => `${a.name}:${a.value}`).join(" / ")
+            : (item.attributes ?? []).map((a) => `${a.name}:${a.value}`).join(" / ");
+          throw badRequest(
+            vplan.reason === "NOT_FOUND"
+              ? `"${snapshot.name}" is not available in the selected option (${label})`
+              : `"${snapshot.name}" (${label}) is out of stock — only ${vplan.available} left`,
+          );
+        }
+        if (vplan.deducted > 0 && variant) {
+          // 条件更新：并发下任一请求不得把库存扣成负数（DB 侧谓词兜底）
+          const upd = await tx.productVariant.updateMany({
+            where: { id: variant.id, stock: { gte: vplan.deducted } },
+            data: { stock: { decrement: vplan.deducted } },
+          });
+          if (upd.count === 0) {
+            throw badRequest(`"${snapshot.name}" is out of stock — please refresh and try again`);
+          }
+        }
+        plans.push({
+          stockDeducted: 0,
+          specDeducted: {},
+          variantDeducted: variant ? { variantId: variant.id, qty: vplan.deducted } : null,
+        });
+        // 商品级库存 = Σ 变体库存（冗余汇总口径，供列表页/售罄判定使用）
+        const rest = await tx.productVariant.aggregate({
+          where: { productId: item.productId!, isActive: true },
+          _sum: { stock: true },
+        });
+        await tx.product.update({
+          where: { id: item.productId! },
+          data: {
+            stock: Math.max(0, rest._sum.stock ?? 0),
+            soldCount: { increment: item.quantity },
+          },
+        });
+        continue;
+      }
 
       // 规格级校验与扣减计划（未追踪的组/值视为可用）；
       // 聚合基准 = 同商品上一行的扣减结果，保证多行扣减全部生效
@@ -586,7 +663,7 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
         specWrites.set(item.productId, { deducted: merged, next: plan.next });
       }
 
-      plans.push({ stockDeducted, specDeducted: plan.deducted });
+      plans.push({ stockDeducted, specDeducted: plan.deducted, variantDeducted: null });
     }
 
     // 规格库存落库：每商品一次写回（JSON 整体覆盖；行锁 + 聚合保证无并发/多行丢失更新）
@@ -671,6 +748,11 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
               specDeducted:
                 Object.keys(plan.specDeducted).length > 0
                   ? (plan.specDeducted as unknown as Prisma.InputJsonValue)
+                  : undefined,
+              // 变体模式扣减凭据（组合粒度回补用；与 specDeducted 互斥）
+              variantDeducted:
+                plan.variantDeducted && plan.variantDeducted.qty > 0
+                  ? (plan.variantDeducted as unknown as Prisma.InputJsonValue)
                   : undefined,
               attributes:
                 item.attributes && item.attributes.length > 0
@@ -1211,6 +1293,37 @@ export async function markOrderPaid(
 }
 
 /** 取消订单(按下单时的实际扣减记录精确恢复库存) */
+
+/**
+ * 变体模式回补（SKU 矩阵）：按订单行记录的 { variantId, qty } 精确回补组合库存，
+ * 并把商品级 stock 重算为 Σ 变体库存（商品级只是冗余汇总，真相在变体行）。
+ * 返回 true 表示该行走的是变体模式（调用方跳过维度池回补）。
+ */
+async function restoreVariantStock(
+  tx: Prisma.TransactionClient,
+  item: { productId: string | null; variantDeducted: unknown },
+): Promise<boolean> {
+  const vd = item.variantDeducted as { variantId?: unknown; qty?: unknown } | null;
+  if (!vd || typeof vd.variantId !== "string" || typeof vd.qty !== "number" || vd.qty <= 0) {
+    return false;
+  }
+  await tx.productVariant.update({
+    where: { id: vd.variantId },
+    data: { stock: { increment: vd.qty } },
+  });
+  if (item.productId) {
+    const rest = await tx.productVariant.aggregate({
+      where: { productId: item.productId, isActive: true },
+      _sum: { stock: true },
+    });
+    await tx.product.update({
+      where: { id: item.productId },
+      data: { stock: Math.max(0, rest._sum.stock ?? 0) },
+    });
+  }
+  return true;
+}
+
 export async function cancelOrder(
   order: Order,
   byUserId?: string | null,
@@ -1260,6 +1373,14 @@ export async function cancelOrder(
       const p = productMap.get(item.productId);
       // 精确回补：新订单以 stockDeducted 记录为准；
       // 历史订单(无记录)保守处理——普通单全额回补，预售单不回补(宁少勿造)
+      // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径
+      if (await restoreVariantStock(tx, item as { productId: string | null; variantDeducted: unknown })) {
+        await tx.product.update({
+          where: { id: item.productId! },
+          data: { soldCount: { decrement: item.quantity } },
+        });
+        continue;
+      }
       const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
       const restoreQty =
         !hasRecord && p?.isPresale ? 0 : hasRecord ? item.stockDeducted : item.quantity;
@@ -2056,7 +2177,15 @@ export async function markOrderRefundedByGateway(
       for (const item of order.items) {
         if (!item.productId) continue;
         const p = map.get(item.productId);
-        const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
+        // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径
+      if (await restoreVariantStock(tx, item as { productId: string | null; variantDeducted: unknown })) {
+        await tx.product.update({
+          where: { id: item.productId! },
+          data: { soldCount: { decrement: item.quantity } },
+        });
+        continue;
+      }
+      const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
         const restoreQty =
           !hasRecord && p?.isPresale ? 0 : hasRecord ? item.stockDeducted : item.quantity;
         if (restoreQty > 0) {

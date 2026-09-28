@@ -162,7 +162,7 @@ export async function listProducts(params: ListProductsParams) {
 export async function getProductBySlug(slug: string) {
   // DB 故障时同样走 notFound（渲染品牌 404 页），避免错误边界 500
   const product = await prisma.product
-    .findUnique({ where: { slug }, include: { category: true } })
+    .findUnique({ where: { slug }, include: { category: true, variants: { orderBy: { createdAt: "asc" } } } })
     .catch((err: unknown) => {
       logger.warn({ err: (err as Error).message }, "[catalog] 商品详情读取失败");
       return null;
@@ -174,7 +174,8 @@ export async function getProductBySlug(slug: string) {
 export async function getProductById(id: string) {
   const product = await prisma.product.findUnique({
     where: { id },
-    include: { category: true },
+    // SKU 矩阵（组合粒度库存）：后台编辑表单与前台选择器都依赖它
+    include: { category: true, variants: { orderBy: { createdAt: "asc" } } },
   });
   if (!product) throw notFound("Product not found");
   return product;

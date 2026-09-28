@@ -315,36 +315,40 @@ model ProductCollection {
 }
 
 model Product {
-  id             String        @id @default(cuid())
+  id             String           @id @default(cuid())
   name           String // zh (fallback when nameEn is null)
   nameEn         String? // optional English name
-  slug           String        @unique
+  slug           String           @unique
   description    String // zh description
   descriptionEn  String? // optional English description
-  sku            String        @unique
-  price          Decimal       @db.Decimal(10, 2)
-  compareAtPrice Decimal?      @db.Decimal(10, 2)
-  costPrice      Decimal?      @db.Decimal(10, 2)
-  stock          Int           @default(0)
-  soldCount      Int           @default(0)
+  sku            String           @unique
+  price          Decimal          @db.Decimal(10, 2)
+  compareAtPrice Decimal?         @db.Decimal(10, 2)
+  costPrice      Decimal?         @db.Decimal(10, 2)
+  stock          Int              @default(0)
+  soldCount      Int              @default(0)
   /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
-  isPresale      Boolean       @default(false)
+  isPresale      Boolean          @default(false)
   /// 预售提示文案（多语言，可选）。为空时使用站级默认（SiteSetting: presale_note_zh/en）。
   presaleNoteZh  String?
   presaleNoteEn  String?
   /// 运营标签：新品上市 / 热卖（前台徽标）
-  isNew          Boolean       @default(false)
-  isHot          Boolean       @default(false)
+  isNew          Boolean          @default(false)
+  isHot          Boolean          @default(false)
   /// 尺码参数表（官方 Size Chart）：{ headers: string[]; rows: string[][] }
   sizeChart      Json?
   /// 规格级库存：{ "Size": { "S": 3, "M": 0 } }，值为 0 = 该规格售罄
   specStock      Json?
-  images         Json          @default("[]") // string[]
-  attributes     Json          @default("[]") // { name: string; values: string[] }[]
-  status         ProductStatus @default(DRAFT)
+  /// SKU 矩阵（颜色×尺码等组合粒度库存）：非空时**优先于 specStock**——
+  /// 组合粒度可表达「不同颜色有不同尺码范围」「每个组合独立库存」，
+  /// 维度池模型（specStock）无法表达这两种真实业务场景。
+  variants       ProductVariant[]
+  images         Json             @default("[]") // string[]
+  attributes     Json             @default("[]") // { name: string; values: string[] }[]
+  status         ProductStatus    @default(DRAFT)
   categoryId     String
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   category    Category            @relation(fields: [categoryId], references: [id])
   /// 附加集合归属（多对多）—— 与 `categoryId`（主分类）取并集构成完整归属
@@ -470,25 +474,51 @@ model Order {
   @@map("orders")
 }
 
+model ProductVariant {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// 组合属性快照 [{ name, value }]（如 [{颜色,红},{尺码,M}]）
+  attributes Json
+  /// 规范化组合签名（属性按 name 排序拼 "名:值|名:值"）—— 唯一约束防重复组合，
+  /// 也是下单时定位变体的索引键（避免 JSON 比较的方言差异）
+  signature  String
+  stock      Int      @default(0)
+  /// 组合级覆盖价（可空 = 用商品价）——支持「大码加价」等真实定价
+  price      Decimal? @db.Decimal(10, 2)
+  sku        String?
+  /// 组合图（可空 = 用商品主图）
+  image      String?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([productId, signature])
+  @@index([productId, isActive])
+  @@map("product_variants")
+}
+
 model OrderItem {
-  id            String   @id @default(cuid())
-  orderId       String
-  productId     String?
-  productName   String
-  productImage  String?
+  id              String   @id @default(cuid())
+  orderId         String
+  productId       String?
+  productName     String
+  productImage    String?
   // 下单规格快照（[{ name, value }]）
-  attributes    Json?
-  sku           String
-  price         Decimal  @db.Decimal(10, 2)
-  quantity      Int
-  subtotal      Decimal  @db.Decimal(10, 2)
+  attributes      Json?
+  sku             String
+  price           Decimal  @db.Decimal(10, 2)
+  quantity        Int
+  subtotal        Decimal  @db.Decimal(10, 2)
   // 下单时的商品成本价快照（分销「利润分成」模式的计佣基数用）。
   // 快照而非引用：之后修改成本价不影响已下单订单的利润口径；商品被删后仍可对账。
-  costPrice     Decimal? @db.Decimal(10, 2)
+  costPrice       Decimal? @db.Decimal(10, 2)
   // 实际从商品库存扣减的数量（预售可少于 quantity，取消时精确回补）
-  stockDeducted Int      @default(0)
+  stockDeducted   Int      @default(0)
   // 实际从规格库存(specStock)扣减的映射 { "组名/值": n }（取消时精确回补）
-  specDeducted  Json?
+  specDeducted    Json?
+  /// 变体模式的扣减凭据 { variantId, qty }（组合粒度回补，与 specDeducted 互斥）
+  variantDeducted Json?
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)

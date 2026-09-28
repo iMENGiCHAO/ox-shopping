@@ -7,6 +7,7 @@ import { serializeProduct } from "@/server/serializers";
 import { invalidateProductsCache } from "@/lib/cache";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
+import { variantSignature } from "@/server/services/variant-stock";
 import { parsePagination } from "@/lib/utils";
 import { productCreateSchema } from "@/lib/validations/product";
 import { sanitizeHtml } from "@/lib/sanitize";
@@ -116,6 +117,23 @@ export const POST = apiHandler(async (req) => {
       isHot: input.isHot ?? false,
       sizeChart: input.sizeChart ?? Prisma.DbNull,
       specStock: input.specStock ?? Prisma.DbNull,
+      // SKU 矩阵：组合粒度库存（非空时前台只列真实组合）；商品级 stock = Σ 变体
+      ...(input.variants && input.variants.length > 0
+        ? {
+            stock: input.variants.reduce((sum, v) => sum + v.stock, 0),
+            variants: {
+              create: input.variants.map((v) => ({
+                attributes: v.attributes as unknown as Prisma.InputJsonValue,
+                signature: variantSignature(v.attributes),
+                stock: v.stock,
+                price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
+                sku: v.sku?.trim() || null,
+                image: v.image?.trim() || null,
+                isActive: v.isActive,
+              })),
+            },
+          }
+        : {}),
       categoryId: input.categoryId,
       description: safeDescription,
       status: input.status ?? "DRAFT",
