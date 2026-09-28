@@ -674,6 +674,17 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                     </div>
                   ) : null}
                 <div className="max-h-96 space-y-3 overflow-auto pr-1">
+                  {/* 商品级总库存 = 全部组合之和（只读；避免与矩阵明细两套口径） */}
+                  <div className="flex items-center justify-between rounded-md bg-muted px-3 py-2 text-[13px]">
+                    <span className="text-muted-foreground">商品总库存（自动汇总，不可手写）</span>
+                    <span className="font-medium">
+                      {variantCombos.reduce((sum, attrs) => {
+                        const raw = matrixDraft[comboKey(attrs)]?.stock;
+                        return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
+                      }, 0)}{" "}
+                      件
+                    </span>
+                  </div>
                   {primaryGroup.values.map((groupValue) => {
                     const rows = variantCombos.filter((combo) =>
                       combo.some((a) => a.name === primaryGroup.name && a.value === groupValue),
@@ -689,7 +700,14 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                             <span>
                               {primaryGroup.name}：{groupValue}
                             </span>
+                            {/* 大爷（2026-09-28）：分组头**不能手写**，必须是子组合的汇总 ——
+                                父组数字与子组之和永远一致，库存不会出现两套口径 */}
                             <span className="text-xs font-normal text-muted-foreground">
+                              库存合计 {rows.reduce((sum, attrs) => {
+                                const raw = matrixDraft[comboKey(attrs)]?.stock;
+                                return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
+                              }, 0)}
+                              {" · "}
                               {rows.length} 个组合
                             </span>
                           </p>
@@ -763,9 +781,11 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           </div>
         ) : null}
 
-        {/* 规格级库存（不同尺寸 = 单独规格商品，0 = 售罄）：直接内嵌在表单里逐规格编辑，
-          无需额外弹窗（大爷诉求：把详细库存在一个表单里直接填写） */}
-        {selectableGroups.length > 0 ? (
+        {/* 规格级库存（维度池）—— **仅在矩阵关闭时可用**：
+            矩阵（组合粒度）与维度池（各维度独立计数）是两套互斥的库存模型，
+            同时可编辑会让「父维度数字」与「组合之和」对不上（大爷 2026-09-28：
+            「不能都可以编辑，那数字不符合逻辑，以后库存就出乱子」）。 */}
+        {selectableGroups.length > 0 && !matrixEnabled ? (
           <div className="space-y-3 rounded-lg border border-border p-3 sm:col-span-2">
             <div>
               <Label>规格库存（每个可选组单独维护，0 = 该规格售罄）</Label>
