@@ -90,11 +90,6 @@ enum WebhookEventStatus {
 ///  - PERCENTAGE：按折前小计打折（value=1..100 的百分数，可用 maxDiscount 封顶）
 ///  - FIXED：固定减免金额（value 为基础币种 USD 金额）
 ///  - FREE_SHIPPING：免运费（value 忽略，减免额 = 订单运费）
-enum ReviewStatus {
-  APPROVED
-  REJECTED
-}
-
 enum CouponType {
   PERCENTAGE
   FIXED
@@ -139,8 +134,6 @@ model User {
   cartItems                    CartItem[]
   orders                       Order[]                   @relation("UserOrders")
   assignedOrders               Order[]                   @relation("OrderAssignee")
-  reviews                      Review[]
-  favorites                    Favorite[]
   refunds                      Refund[]
   couponRedemptions            CouponRedemption[]
   auditLogs                    AuditLog[]
@@ -235,44 +228,6 @@ model Address {
   @@unique([userId, contentHash])
   @@index([userId])
   @@map("addresses")
-}
-
-model Review {
-  id          String       @id @default(cuid())
-  productId   String
-  product     Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  // 绑定订单行 = 真实购买凭证（verified purchase）：没买过就不能评（防刷评）。
-  // 一行一评；一人一品重购再评走「更新已有评价」（productId+userId 唯一约束）
-  orderItemId String       @unique
-  orderItem   OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
-  rating      Int
-  title       String?      @db.VarChar(120)
-  content     String       @db.Text
-  // 默认过审（真实购买门槛已高，即时展示）；admin 可 REJECTED 下架（重算聚合）
-  status      ReviewStatus @default(APPROVED)
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  @@unique([productId, userId])
-  @@index([productId, status, createdAt])
-  @@index([userId])
-  @@map("reviews")
-}
-
-model Favorite {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  productId String
-  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-
-  @@unique([userId, productId])
-  @@index([userId])
-  @@index([productId])
-  @@map("favorites")
 }
 
 model RefreshToken {
@@ -372,12 +327,6 @@ model Product {
   costPrice      Decimal?      @db.Decimal(10, 2)
   stock          Int           @default(0)
   soldCount      Int           @default(0)
-  // 评价聚合冗余（列表页性能：免每卡片子查询）：仅 APPROVED 评价计入，
-  // 增/改/删/上下架时由 review.service 重算（单商品级 O(该品评价数)）
-  ratingAvg      Float         @default(0)
-  ratingCount    Int           @default(0)
-  reviews        Review[]
-  favorites      Favorite[]
   /// 预售：售罄后仍可下单（Pre-Order），前台展示预售标签
   isPresale      Boolean       @default(false)
   /// 预售提示文案（多语言，可选）。为空时使用站级默认（SiteSetting: presale_note_zh/en）。
@@ -543,7 +492,6 @@ model OrderItem {
 
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
-  review  Review?
 
   @@index([orderId])
   @@index([productId])

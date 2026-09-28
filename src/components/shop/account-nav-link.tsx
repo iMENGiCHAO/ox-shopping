@@ -2,19 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, Heart, Lock, MapPin, Package, Star, Ticket, User } from "lucide-react";
+import { Bell, Heart, Lock, MapPin, Package, Ticket, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /** 图标名称(服务端只传字符串，组件在客户端映射具体图标，避免跨边界传组件) */
-export type AccountNavIcon =
-  | "user"
-  | "map-pin"
-  | "lock"
-  | "ticket"
-  | "heart"
-  | "star"
-  | "orders"
-  | "bell";
+export type AccountNavIcon = "user" | "map-pin" | "lock" | "ticket" | "heart" | "orders" | "bell";
 
 const ICONS = {
   user: User,
@@ -23,7 +15,6 @@ const ICONS = {
   ticket: Ticket,
   heart: Heart,
   orders: Package,
-  star: Star,
   bell: Bell,
 } as const;
 

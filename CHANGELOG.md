@@ -9,7 +9,49 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
-## 2026-09-28（日）· 大爷点名项交付：评价系统 + 收藏夹 + 边界洞根治 + 分销口径统一（梦哥）
+## 2026-09-28（日）· 【定调不做 · 勿再添加】评价系统与收藏夹已完整移除（大爷指令）
+
+> 大爷指令（原话）：「不是说不要收藏和评论功能吗，怎么又加上了。把这两个功能完全去掉，
+> 在代码和开发文档清理干净，免得下次优化项目又给加上去了。」
+
+### 结论：本项目**明确不做**评价系统与收藏夹
+
+**这是产品决策，不是遗漏，不是待办。** 后续任何「完善系统」「补齐电商功能」
+「对标主流电商」类优化**都不得再次引入**这两项。历史上曾因误读指令实现过一版
+（commit 4da6455），已按本条目完整移除。
+
+### 移除清单（代码零残留，已逐项验证）
+
+- **数据层**：`Review`/`Favorite` 模型、`ReviewStatus` 枚举、`Product.ratingAvg/ratingCount`
+  冗余列、User/Product/OrderItem 三处反向关系 —— schema 回滚 + 新迁移
+  `20260928120000_drop_review_favorite`（drop 外键/表/列/枚举，双库已 apply）
+- **服务层**：`review.service.ts`、`favorite.service.ts` 删除
+- **API**：`/api/products/[id]/reviews`、`/api/user/reviews(+/[id])`、
+  `/api/user/reviewable/[orderNumber]`、`/api/user/favorites`、`/api/admin/reviews(+/[id])` 全部删除
+- **UI**：`product-reviews.tsx`/`stars.tsx`/`favorite-button.tsx`/`review-form.tsx`、
+  `/account/reviews`、`/account/wishlist`、`/admin/reviews` 页面删除；
+  PDP（评分概览/评价区/心形/JSON-LD aggregateRating）、订单详情（写评价区块）、
+  账户侧边栏（My Reviews/My Wishlist）、后台侧边栏（评价管理）挂载全部还原
+- **i18n**：shop-i18n / admin-i18n 的评价与收藏词条删除（i18n 卫生测试双向零残留）
+- **测试**：`reviews-favorites.test.ts` 删除（对应 8 用例下线）
+- **验证**：tsc 0 错 · 全局 grep 零残留引用（`review.service|favorite.service|
+  ratingAvg|ratingCount|ReviewStatus|Review[/Favorite[` 全部 0）· 单测 284/284 ·
+  集成 172/172（回到不含评价用例的基线）· build ✅ · dev server 冒烟全绿
+
+### 保留说明（与本移除无关，勿混淆）
+
+同批次引入的**边界审计修复与分销口径统一刻意保留**（与评价/收藏无耦合）：
+- `Order.idempotencyKey`（下单幂等，防双击重复建单）
+- `Address.contentHash`（地址簿内容去重 + 上限 + 限流）
+- 分页 page 上限 / P2002→409 映射 / 游客购物车上限
+- 分销金额三口径净额统一（总览/明细/余额勾稽）
+
+## 2026-09-28（日）· 【已作废】大爷点名项交付：评价系统 + 收藏夹 + 边界洞根治 + 分销口径统一（梦哥）
+
+> ⚠️ **本条目中的「评价系统」与「收藏夹」部分已作废**：大爷定调这两项**不做**，
+> 已按上一条目完整移除（代码 + 数据库 + 文档零残留）。本条目其余部分
+> （边界洞根治、分销口径统一、币种下拉样式）**仍然有效**。后续勿再引入评价与收藏。
+
 
 > 大爷要求：「子智能体很多没完成，是不是偷懒了，要彻底解决所有问题检查」
 > 「评价系统/收藏夹是没有的」「把上面没有做完的任务做完，中途中断很多次了，不要有遗漏」

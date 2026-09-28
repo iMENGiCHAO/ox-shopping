@@ -17,7 +17,6 @@ import {
   Truck,
   Users,
   Wallet,
-  MessageSquareQuote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -66,7 +65,6 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     items: [
       { href: "/admin/orders", label: "订单", icon: ShoppingCart },
       { href: "/admin/refunds", label: "退款", icon: RotateCcw, adminOnly: true },
-      { href: "/admin/reviews", label: "评价管理", icon: MessageSquareQuote, adminOnly: true },
       { href: "/admin/shipping", label: "物流方式", icon: Truck, adminOnly: true },
     ],
   },
