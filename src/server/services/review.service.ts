@@ -147,8 +147,12 @@ export async function deleteMyReview(userId: string, reviewId: string) {
 }
 
 /** 商品公开评价列表（仅 APPROVED；分页；脱敏名）。 */
-export async function listProductReviews(slug: string, searchParams: URLSearchParams) {
-  const product = await prisma.product.findUnique({ where: { slug }, select: { id: true } });
+export async function listProductReviews(slugOrId: string, searchParams: URLSearchParams) {
+  // 兼容 slug 与数据库 id（API 路由段名受 Next 同层动态段约束，参数语义放宽）
+  const product = await prisma.product.findFirst({
+    where: { OR: [{ slug: slugOrId }, { id: slugOrId }] },
+    select: { id: true },
+  });
   if (!product) throw notFound("Product not found");
   const { skip, take, page } = parsePagination(searchParams, { page: 1, pageSize: 10 });
   const where = { productId: product.id, status: "APPROVED" as ReviewStatus };

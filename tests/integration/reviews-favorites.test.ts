@@ -176,10 +176,10 @@ describe("评价系统：反刷评 / 一人一品一评 / 聚合重算 / admin �
     expect(product.ratingCount).toBe(1);
     expect(product.ratingAvg).toBe(5);
 
-    const { GET } = await import("@/app/api/products/[slug]/reviews/route");
+    const { GET } = await import("@/app/api/products/[id]/reviews/route");
     const pub = await callApi(GET, {
       method: "GET",
-      params: { slug: productSlug },
+      params: { id: productSlug },
       headers: { "x-test-url": `/api/products/${productSlug}/reviews` },
     });
     expect(pub.status).toBe(200);
@@ -214,10 +214,10 @@ describe("评价系统：反刷评 / 一人一品一评 / 聚合重算 / admin �
     expect(product.ratingCount).toBe(0);
     expect(product.ratingAvg).toBe(0);
 
-    const { GET } = await import("@/app/api/products/[slug]/reviews/route");
+    const { GET } = await import("@/app/api/products/[id]/reviews/route");
     const pub = await callApi(GET, {
       method: "GET",
-      params: { slug: productSlug },
+      params: { id: productSlug },
       headers: { "x-test-url": `/api/products/${productSlug}/reviews` },
     });
     const pubData = (await getData(pub)) as { total: number };
