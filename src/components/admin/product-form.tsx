@@ -331,27 +331,56 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   const [matrixDraft, setMatrixDraft] = React.useState<
     Record<string, { stock: string; price: string; sku: string }>
   >({});
-  const [matrixEnabled, setMatrixEnabled] = React.useState<boolean>(
-    () => (initial?.variants?.length ?? 0) > 0,
-  );
+  // **默认启用**：大爷反馈「还是各写各的库存，一点业务逻辑都没有」——
+  // 根因是矩阵只是个默认关闭的开关，运营打开商品看到的是老的维度池（各写各的）。
+  // 组合粒度（每个「颜色×尺码」独立库存）才是正确商业逻辑，因此不再需要开关。
+  const matrixEnabled = true;
   // 编辑回填：把已存变体灌进草稿（仅初始化一次，避免覆盖用户输入）
   const matrixInitRef = React.useRef(false);
   React.useEffect(() => {
     if (matrixInitRef.current) return;
     matrixInitRef.current = true;
-    const saved = initial?.variants ?? [];
-    if (saved.length === 0) return;
     const draft: Record<string, { stock: string; price: string; sku: string }> = {};
-    for (const v of saved) {
-      draft[comboKey(v.attributes)] = {
-        stock: String(v.stock),
-        price: v.price == null ? "" : String(v.price),
-        sku: v.sku ?? "",
-      };
+    const saved = initial?.variants ?? [];
+    if (saved.length > 0) {
+      for (const v of saved) {
+        draft[comboKey(v.attributes)] = {
+          stock: String(v.stock),
+          price: v.price == null ? "" : String(v.price),
+          sku: v.sku ?? "",
+        };
+      }
+    } else if (initial?.specStock) {
+      // 老商品（只有维度池、没有组合数据）：按组合内**各维度库存的最小值**预填 ——
+      // 保守口径（不会凭空放大可售量），运营可在矩阵里逐格修正后保存。
+      const spec = initial.specStock as Record<string, Record<string, number>>;
+      const groups = (initial.attributes ?? [])
+        .filter((a) => a.selectable)
+        .map((a) => ({
+          name: a.name,
+          // attributes.values 在 AdminProduct 里可能是数组或逗号串，两种都兼容
+          values: Array.isArray(a.values)
+            ? a.values
+            : String(a.values)
+                .split(/[,，、]/)
+                .map((v: string) => v.trim())
+                .filter(Boolean),
+        }));
+      const combos = groups.reduce<{ name: string; value: string }[][]>(
+        (acc, g) => acc.flatMap((c) => g.values.map((v) => [...c, { name: g.name, value: v }])),
+        [[]],
+      );
+      for (const attrs of combos) {
+        const nums = attrs
+          .map((a) => spec[a.name]?.[a.value])
+          .filter((n): n is number => typeof n === "number");
+        const stock = nums.length === attrs.length ? Math.min(...nums) : 0;
+        draft[comboKey(attrs)] = { stock: String(Math.max(0, Math.floor(stock))), price: "", sku: "" };
+      }
     }
     setMatrixDraft(draft);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial?.variants]);
+  }, [initial?.variants, initial?.specStock]);
 
   // 草稿 → form.variants（提交校验与后端落库都用它）；未启用矩阵则清空
   React.useEffect(() => {
@@ -386,6 +415,11 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
         selectable: a.selectable,
       }))
       .filter((a) => a.name && a.values.length > 0);
+    // 库存口径（大爷 2026-09-28）：有属性组时**只提交组合粒度**（variants），
+    // 维度池 specStock 清空 —— 两套模型并存必然出现「维度数字 ≠ 组合之和」。
+    // variants 由矩阵区维护（见 matrixDraft → form.setValue("variants")）。
+    const hasAttributeGroups = (values.attributes ?? []).some((a) => a.selectable);
+
     // 规格库存：收集全部可选组有输入的条目（留空 = 不追踪该值）
     const specStock: Record<string, Record<string, number>> | null = (() => {
       const out: Record<string, Record<string, number>> = {};
@@ -398,8 +432,12 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       }
       return Object.keys(out).length > 0 ? out : null;
     })();
+    // 有属性组 → 维度池不参与（清空），库存真相在 variants
     // 一致性规则：整件库存 = min(各组规格之和)。任一维度的池都是可售上限，
     // 取最小值保证 Color×Size 任选组合都不会超卖（与下单扣减口径一致）。
+    // 矩阵模式：商品级库存 = Σ 组合库存（与后端落库口径一致；父维度永不手算）
+    const variantTotal = (values.variants ?? []).reduce((sum, v) => sum + (v.stock ?? 0), 0);
+
     const summedStock = specStock
       ? Math.min(
           ...Object.values(specStock).map((m) => Object.values(m).reduce((a, b) => a + b, 0)),
@@ -424,7 +462,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       price: Number(values.price),
       compareAtPrice: values.compareAtPrice ? Number(values.compareAtPrice) : null,
       costPrice: values.costPrice ? Number(values.costPrice) : null,
-      stock: summedStock ?? Number(values.stock),
+      stock: hasAttributeGroups ? variantTotal : (summedStock ?? Number(values.stock)),
       isPresale: values.isPresale,
       // 留空 = null（前端会用站级默认）；非空 = 覆盖
       presaleNoteZh: values.presaleNoteZh?.trim() || null,
@@ -432,7 +470,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       isNew: values.isNew,
       isHot: values.isHot,
       sizeChart: chartClean,
-      specStock,
+      specStock: hasAttributeGroups ? null : specStock,
       images: values.images,
       attributes,
       status: values.status,
@@ -643,16 +681,16 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
           <div className="space-y-3 rounded-lg border border-border p-3 sm:col-span-2">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Label htmlFor="pf-matrix" className="cursor-pointer">
-                  规格矩阵（推荐：每组合独立库存）
-                </Label>
+                <Label>规格库存（按组合录入）</Label>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  开启后逐「组合」录入库存：顾客只会看到真实存在的组合 ——
-                  例如红色只有 S/M、蓝色才有 L 时，选红色不会出现 L（解决「能选不能买」）。
-                  关闭则回落到下方「规格库存」的维度池模式（各维度独立计数）。
+                  每个「{selectableGroups.map((g) => g.name).join(" × ")}」组合都是一个独立库存池，
+                  由下面的分组卡片逐格录入 —— 顾客只会看到真实存在的组合，选了某个
+                  {selectableGroups[0]?.name ?? "规格"}后，其余规格自动收窄到真实存在的那些。
                 </p>
               </div>
-              <Switch id="pf-matrix" checked={matrixEnabled} onCheckedChange={setMatrixEnabled} />
+              <span className="shrink-0 rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+                组合粒度库存
+              </span>
             </div>
             {matrixEnabled ? (
               variantCombos.length > 0 && primaryGroup ? (
@@ -715,11 +753,14 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                         <div className="space-y-1.5">
                           {rows.map((attrs) => {
                             const key = comboKey(attrs);
-                            const label =
-                              attrs
-                                .filter((a) => a.name !== primaryGroup.name)
-                                .map((a) => a.value)
-                                .join(" / ") || "默认";
+                            // 行标签：多组时列「分组维度之外」的规格；**只有一组时显示该组的值**
+                            // （此前单组会被 filter 掉 → 标签退化成「默认」，运营看着一头雾水）
+                            const label = groupable
+                              ? attrs
+                                  .filter((a) => a.name !== primaryGroup.name)
+                                  .map((a) => a.value)
+                                  .join(" / ") || "默认"
+                              : attrs.map((a) => a.value).join(" / ");
                             const d = matrixDraft[key] ?? { stock: "", price: "", sku: "" };
                             const patch = (
                               part: Partial<{ stock: string; price: string; sku: string }>,
@@ -778,6 +819,21 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                 <p className="text-xs text-muted-foreground">请先在上方填写属性的可选值。</p>
               )
             ) : null}
+          </div>
+        ) : null}
+
+        {/* 无可选属性时的引导（大爷 2026-09-28：「还是没看到改变」的根因就是这里 ——
+            商品属性没勾「可选规格」时，下面整块矩阵不渲染，运营完全不知道去哪录库存） */}
+        {selectableGroups.length === 0 ? (
+          <div className="space-y-1 rounded-lg border border-dashed border-border p-3 sm:col-span-2">
+            <p className="text-[13px] font-medium">规格库存（按组合录入）</p>
+            <p className="text-xs text-muted-foreground">
+              当前商品还没有「可选规格」。请在上方<strong>「规格属性」</strong>里添加属性
+              （例如 Color: Black, White；Size: S, M, L），并<strong>勾选该属性的「可选规格」</strong> ——
+              之后这里会出现按属性分组的库存矩阵：每个「颜色 × 尺码」组合独立录入库存，
+              商品总库存自动汇总（父组只读），
+              前台顾客选了某个颜色后只会看到它真实存在的尺码，下单也按组合精确扣减。
+            </p>
           </div>
         ) : null}
 
@@ -1040,7 +1096,9 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
                   className="h-4 w-4 accent-black"
                   {...form.register(`attributes.${index}.selectable` as const)}
                 />
-                可选
+                <span title="勾选后该属性参与规格库存管理（如颜色/尺码）——下方会出现按组合录入库存的矩阵">
+                  可选规格
+                </span>
               </label>
               <Button
                 type="button"
