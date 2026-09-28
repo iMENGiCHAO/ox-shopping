@@ -29,7 +29,14 @@ export const dynamic = "force-dynamic";
  * 客户端路由切换时旧页面保持可见直到新页面就绪（采样 54 点，main 高度最小值 1511，
  * 从未归零），同样不会白屏。
  *
- * 需要加载指示时请用**页面内** `<Suspense>` 精确框住慢区块，不要用整页兜底。 */
+ * 需要加载指示时请用**页面内** `<Suspense>` 精确框住慢区块，不要用整页兜底。
+ *
+ * 2026-09-28 大爷反馈：「分类集合页面刚打开加载的时候有四格阴影，为什么需要四个阴影
+ * 排版样式？」—— 已删除本段下所有 segment 的 `loading.tsx` 骨架（collections/[slug]、
+ * products、products/[slug]、cart、orders、search）以及根 `src/app/loading.tsx`
+ * （它同样是本路由段的祖先 Suspense 边界，会造成同一类中间态闪烁）。
+ * ⚠️ **不要再新增任何 `loading.tsx`**：骨架屏会让首帧呈现「外壳 + 灰色占位」的
+ * 闪烁，而真实内容随后才注入；没有它时首帧就是完整页面（实测结论见上）。 */
 
 export default async function ShopLayout({ children }: { children: React.ReactNode }) {
   // Read the language preference on the server so SSR + client hydration agree.
