@@ -15,6 +15,15 @@ export const imageUrlSchema = z
 export const productAttributeSchema = z.object({
   name: z.string().trim().min(1, "属性名不能为空").max(30),
   values: z.array(z.string().trim().min(1).max(50)).min(1, "至少一个属性值").max(50),
+  /**
+   * 是否为「可选规格」组（参与规格选择与组合库存管理）。
+   * 不传时由消费方按「多值组默认可选」推断（兼容存量数据）；
+   * 显式 false 可把多值组排除出规格选择。
+   * ⚠️ 此前 schema 缺这个字段：zod strip 会把表单勾选的 selectable
+   * 静默剥掉——单值可选组落库即「消失」，大表保存组合库存时还会把
+   * 存量商品的 selectable 信息一并洗掉（大爷 2026-09-29 排查定位）。
+   */
+  selectable: z.boolean().optional(),
 });
 
 /**

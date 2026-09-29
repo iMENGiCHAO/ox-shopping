@@ -5,16 +5,26 @@ import { sendMail } from "@/lib/mail";
 import { formatMoney } from "@/lib/utils";
 import { notifyAdmins } from "@/server/services/notification.service";
 import { logger } from "@/lib/logger";
+import {
+  findVariant,
+  normalizeSelection,
+  parseVariantAttributes,
+  type VariantLike,
+} from "@/server/services/variant-stock";
 
 /**
  * 到货通知（Notify me）补货触发：
- * 库存/规格库存更新后调用 notifyRestock(productId)，
+ * 库存/规格库存/组合库存更新后调用 notifyRestock(productId)，
  * 对仍处于 draft 的登记逐条做「变体级匹配」后发提醒邮件并置为 notified。
  *
  * 匹配规则（与官方一致：客户选了什么规格就按什么规格提醒）：
  * - 客户未选规格 → 商品总库存 > 0 即通知
- * - 客户选了规格（如 {"Color":"Black","Size":"M"}）→ 所选的每个规格组
- *   在 specStock 中有数据时要求对应值 > 0；specStock 未覆盖的组视为可用
+ * - 变体模式（商品有组合，父组×子组组合粒度）→ 按登记的组合定位变体：
+ *   组合存在且库存 > 0 才通知 —— 某个「颜色×尺码」单独回货只提醒登记了
+ *   该组合的客户；组合不存在/仍售罄 → 继续等（此前只看 specStock，
+ *   变体商品 specStock 为空时任意补货会把「从未售罄」的组合也通知出去）
+ * - 存量维度池（specStock）→ 所选的每个规格组在 specStock 中有数据时
+ *   要求对应值 > 0；specStock 未覆盖的组视为可用
  * - 商品下架 / 总库存为 0 → 任何人不通知
  */
 
@@ -37,6 +47,18 @@ export async function notifyRestock(productId: string): Promise<number> {
   const product = await prisma.product.findUnique({ where: { id: productId } });
   // 下架或无库存：不通知任何人
   if (!product || product.status !== "ACTIVE" || product.stock <= 0) return 0;
+
+  // 变体模式（组合粒度）：一次性取 active 组合，逐条登记按组合匹配
+  const variantRows = await prisma.productVariant.findMany({
+    where: { productId, isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const variants: VariantLike[] = variantRows.map((v) => ({
+    id: v.id,
+    attributes: parseVariantAttributes(v.attributes),
+    stock: v.stock,
+    isActive: v.isActive,
+  }));
 
   let sent = 0;
   let failed = 0;
@@ -70,14 +92,26 @@ export async function notifyRestock(productId: string): Promise<number> {
       // 变体级匹配
       const attrs = sub.attributes;
       if (attrs && typeof attrs === "object" && !Array.isArray(attrs)) {
-        const entries = Object.entries(attrs as JsonRecord).filter(
-          ([, v]) => typeof v === "string" && v.length > 0,
-        ) as [string, string][];
-        const allAvailable = entries.every(([group, value]) => {
-          return specValueAvailable(product.specStock, group, value) !== false;
-        });
-        // 客户关注的那个规格仍未补上 → 继续等
-        if (!allAvailable) continue;
+        if (variants.length > 0) {
+          // 变体模式（组合粒度）：按登记的组合定位变体 —— 组合不存在或
+          // 库存仍为 0 → 继续等；组合回货（stock > 0）→ 通知该客户。
+          // 与购物车/下单用同一套 findVariant 签名定位（前后端数据打通）。
+          const variant = findVariant(
+            variants,
+            normalizeSelection(attrs as Record<string, string>),
+          );
+          if (!variant || variant.stock <= 0) continue;
+        } else {
+          // 存量维度池：所选每个规格值在 specStock 中有数据时要求 > 0
+          const entries = Object.entries(attrs as JsonRecord).filter(
+            ([, v]) => typeof v === "string" && v.length > 0,
+          ) as [string, string][];
+          const allAvailable = entries.every(([group, value]) => {
+            return specValueAvailable(product.specStock, group, value) !== false;
+          });
+          // 客户关注的那个规格仍未补上 → 继续等
+          if (!allAvailable) continue;
+        }
       }
 
       const variantText =

@@ -79,16 +79,37 @@ docs/                      本文档及速查/部署/清单/设计文档
   - 出图 = `Category.bannerImage || Category.image`；集合落地页 hero 同为 3.49:1 全宽。
   - 编辑入口 = `/admin/categories` 分类弹窗（`homeSortOrder` + `bannerImage` 上传器），经 `POST/PUT /api/admin/categories*` 持久化。
 
-### 2.2 库存一致性（供应链数据打通，本轮核心）
+### 2.2 库存一致性（供应链数据打通 → 2026-09-30 组合粒度全链路统一，本轮核心）
 
-问题背景：多规格（颜色/尺码）商品此前**没有各规格库存数字的后台维护入口**，前台售罄判定、下单扣减用的 `specStock` 与整件 `stock` 互相独立，构成数据孤岛。
+问题背景：多规格（颜色/尺码）商品的库存数据曾有三套互相独立的口径（整件 `stock`、
+维度池 `specStock`、组合 `ProductVariant`），构成数据孤岛。**2026-09-30 大爷定稿
+业务模型（全站唯一口径）**：
 
-- **后台商品表单规格库存编辑器泛化**：从"只认 Size 组"改为**所有可选组各自维护**（Color/Size 一视同仁），每组每值一个数字输入框，0=售罄，留空=不追踪。
-- **统一口径 `aggregateTrackedStock(specStock)`**（`src/server/services/spec-stock.ts` 纯函数）：
-  - `整件 stock = min(各组 Σ)`——任一维度的池都是可售上限，Color×Size 任意组合都不会超卖，与下单扣减 `planSpecDeduction`（每维度独立池、逐选中值扣减）口径一致。
-  - 表单内实时联动 `stock` 输入框；`PUT/POST /api/admin/products*` **服务端兜底**强制同步（API 直调也无法漂移）。
-- 演示数据：预售 T 恤 `unisex-retro-x-com-short-sleeve-tee-pre-sale`（Color 25/18，Size 6/8/9/7/5/4/0）、连帽衫 `unisex-3d-x-logo-hoodie`（Color 12/7/0，Size …）均已入库。
-- 单测新增 4 例（单组和/多组 min/全 0/空映射），共 69 例全绿。
+> **第一个添加的可选属性组 = 父组，后面添加的都是子组；有子组的父组不能手写库存
+> （恒等于其名下子组规格之和）；商品总库存 = 全部组合之和（服务端重算）；单规格
+> 商品才直接填总库存。全程不硬编码任何属性名**——任何属性当父组都走同一逻辑。
+
+- **数据模型**：库存真相在 `ProductVariant`（组合粒度，`signature` 规范化键 =
+  `server/services/variant-stock.ts` 纯函数，前后端共用）；`specStock` 维度池废止
+  （仅存量商品保留，保存一次即收敛为组合粒度，数字守恒）。
+- **商品编辑表单**：属性行带父组/子组徽标（按添加顺序动态判定）；父组卡片右侧
+  「库存合计」只读；子组规格横排小单元逐格录入；总库存实时联动只读。
+- **商品管理大表**：库存列统一「组合矩阵弹层」——不点显示总库存（悬浮可见各父组
+  合计与子组明细），点铅笔弹出矩阵（多属性组按父组取值分卡片、单属性组平铺）。
+  数据源并集（属性可选组 ∪ variants 组/值 ∪ specStock 存量键，存量全兼容）；
+  预填：组合数据 → 维度池每组合取最小值（保守）→ 全 0 待补录。
+- **服务端兜底**（`PUT/POST /api/admin/products*`）：有组合 → `stock` 强制 = Σ
+  组合；删光组合回落 specStock 汇总 → `input.stock` → 原库存；`PATCH /stock`
+  守卫拒绝对有组合/可选属性组商品直改总库存（孤立 specStock 不拦）。
+- **购物车/下单/回补/到货通知全链路按组合粒度**：加购校验 `variantAvailableQuantity`
+  （组合不存在/售罄在加购入口就拦）；下单扣减 `planVariantDeduction`；取消回补按
+  `{ variantId, qty }` 凭据精确回补；到货通知按 `findVariant` 组合定位（组合回货
+  才通知该客户，登记守卫同步支持组合粒度）。
+- 2026-09-30 全链路排查修复 5 个真 bug（详见 CHANGELOG）：selectable 不落库 /
+  购物车没接变体 / 到货通知对组合商品断裂 / 大表与表单数据打架 / 直改守卫漏判。
+- 单测：`tests/unit/spec-stock.test.ts`（维度池存量兼容）+ `tests/unit/variant-stock.test.ts`
+  （组合粒度：签名/定位/扣减计划/可选组推导/可售量）；集成
+  `tests/integration/spec-stock-consistency.test.ts`（跨入口守恒）。
 
 ### 2.3 预售商品（Pre-order）语义修正
 
@@ -325,7 +346,7 @@ docs/                      本文档及速查/部署/清单/设计文档
 
 | # | 决策 | 理由 |
 |---|---|---|
-| 1 | 规格库存每维度独立池，`stock=min(Σ各组)` | 与下单扣减口径一致；任一维度是上限，杜绝 Color×Size 组合超卖 |
+| 1 | 库存真相在**组合粒度**（`ProductVariant`），`stock = Σ 组合`（服务端重算）；属性组添加顺序即层级（第一个=父组，只读合计）；维度池 `specStock` 废止（存量保存一次即收敛） | 大爷定稿的商业模型：父组库存由子组决定，任何入口不许手写；两套模型并存必然出现「维度数字 ≠ 组合之和」；`variantSignature` 前后端同键，杜绝错位（2026-09-30 全链路统一） |
 | 2 | 整件库存同步放**服务端兜底**（非仅前端） | API 直调也无法造成两处数字漂移；单测覆盖 |
 | 3 | 密钥存 DB 但 API 返回脱敏 + 空串保留 | 满足"后台直接填支付凭证"需求，同时避免明文回显；生产建议密钥走 .env 的提示保留 |
 | 4 | 支付渠道化 + 三态语义（未配置/已配置/可收款） | 预留渠道即使配置启用也不可被选中（`available=enabled+configured+ready`），顾客不可能选到必然失败的方式；Stripe 渠道填密钥即真实收款，无渠道行时行为与旧版一致（零破坏） |
@@ -347,7 +368,7 @@ docs/                      本文档及速查/部署/清单/设计文档
 ## 4. 验证体系与质量门
 
 - `npx tsc --noEmit` — **0 错误**（全迭代保持）。
-- `npm run test:unit` / `npm run test:integration`（vitest）— 当前 **34 个文件 / 317 用例全绿**（2026-09-20 实测：tests/unit 20 文件 + tests/integration 14 文件；含 B-2 与 Phase 14 分销新增的 4 个测试文件）。
+- `npm run test:unit` / `npm run test:integration`（vitest）— 当前 **49 个文件 / 473 用例全绿**（2026-09-30 实测：tests/unit 28 文件 301 例 + tests/integration 21 文件 172 例；含组合粒度库存、specStock 守恒、到货通知、分销对账等）。
 - `npm run test:e2e`（Playwright）— tests/e2e **5 个 spec**（`shop` / `auth` / `admin` / `admin-shipping` / `visual` 视觉基线）；配置见 `playwright.config.ts`（workers=1、expect.timeout 30s、`maxDiffPixelRatio 0.02`、webServer 300s）。
 - `npm run verify` = typecheck + qa:static（hardcode / error-lang / links:static）+ 单测。
 - i18n 双向守卫：`tests/unit/i18n-keys.test.ts`（`t()` 的键必须在词典里）+ `tests/unit/i18n-hardcoded.test.ts`（**账户区/分销中心的可见文案不得硬编码英文**，覆盖 JSX 文本节点与 placeholder/aria-label/title/alt/label）。

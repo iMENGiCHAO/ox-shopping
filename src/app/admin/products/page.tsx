@@ -59,6 +59,9 @@ import type {
   AdminProductStatus,
 } from "@/components/admin/types";
 import { LOW_STOCK_THRESHOLD } from "@/lib/inventory";
+// 纯函数工具（无 server-only / 无 DB）：组合签名与后端共用同一实现，
+// 大表内联编辑、商品表单、下单扣减三处的组合键完全一致（前后端数据打通）。
+import { variantSignature } from "@/server/services/variant-stock";
 
 const PRODUCT_STATUS_LABELS: Record<AdminProductStatus, string> = {
   DRAFT: "草稿",
@@ -126,11 +129,9 @@ function AdminProductsPageInner() {
   const [stockValue, setStockValue] = React.useState("");
   // 列表请求序号（防竞态守卫，见 load 内注释）
   const loadSeq = React.useRef(0);
-  // 多规格商品的规格明细库存内联编辑状态
-  const [specEditId, setSpecEditId] = React.useState<string | null>(null);
-  const [specEditValue, setSpecEditValue] = React.useState<Record<string, Record<string, string>>>(
-    {},
-  );
+  // 组合矩阵（父组×子组组合粒度）的内联编辑状态：{ 组合签名: 库存字符串 }
+  const [variantEditId, setVariantEditId] = React.useState<string | null>(null);
+  const [variantEditValue, setVariantEditValue] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -257,19 +258,10 @@ function AdminProductsPageInner() {
     }
   };
 
-  // 规格编辑面板的实时合计：改各规格明细时立刻看到总库存变化
-  const specEditTotal = React.useMemo(
-    () =>
-      Object.values(specEditValue).reduce(
-        (sum, m) => sum + Object.values(m).reduce((s, n) => s + (Number(n) || 0), 0),
-        0,
-      ),
-    [specEditValue],
-  );
-
   const startStockEdit = (product: AdminProduct) => {
     setStockEditId(product.id);
     setStockValue(String(product.stock));
+    setVariantEditId(null);
   };
 
   const saveStock = async (product: AdminProduct) => {
@@ -291,71 +283,186 @@ function AdminProductsPageInner() {
     }
   };
 
-  // ── 多规格商品：规格明细库存（颜色/尺码逐项）──
-  // 判定口径（2026-09-24 修正）：以**商品是否有可选规格组**（attributes.selectable）
-  // 为准，而不是 specStock 是否已填 —— 有规格组但还没填过库存的商品同样必须
-  // 走规格明细编辑，绝不允许直接改总库存（总库存加了不知道给哪个规格，大爷指出）。
-  // selectable 未显式标注时多值组默认可选，与 product-form / 店面 parseAttributes 同口径。
-  const variantGroupsOf = (product: AdminProduct): { name: string; values: string[] }[] => {
-    const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
-    return (product.attributes ?? [])
-      .map((a) => {
-        const selectable =
-          a.selectable === true
-            ? true
-            : a.selectable === false
-              ? false
-              : Array.isArray(a.values) && a.values.length > 1;
-        return { name: (a.name ?? "").trim(), values: a.values ?? [], selectable };
-      })
-      .filter((g) => g.selectable && g.name && g.values.length > 0)
-      .map((g) => {
-        // 已填过的规格值必须能编辑：并集 = attributes 完整值 ∪ specStock 已有键
-        const extra = Object.keys(spec?.[g.name] ?? {}).filter((v) => !g.values.includes(v));
-        return { name: g.name, values: [...g.values, ...extra] };
-      });
-  };
+  // ── 多属性组合库存（大爷 2026-09-29 定稿，与商品编辑表单/下单/购物车同口径）──
+  // 判定（不硬编码任何属性名）：商品有**任何规格数据**（variants / 可选属性组 /
+  // specStock）→ 组合矩阵弹层；都没有 → 单规格商品，直接编辑总库存。
+  //
+  // 矩阵数据源（组/值完整并集，存量全兼容）：
+  //   attributes 可选组（多值组默认可选，与表单/店面同口径）
+  //   ∪ variants 组合里出现过的组/值
+  //   ∪ specStock 维度池存量键（老数据；孤儿组不进矩阵）
+  // 组合库存预填：variants（组合真相）→ specStock（组合内各维度取最小值，保守）
+  //   → 0（没有任何数据的商品——如勾了父/子组但还没录过库存——弹层直接给出
+  //   完整「父组×子组」矩阵让运营补录，保存即创建组合）。
+  // 保存：PUT { variants: 全组合, specStock: null, attributes } —— 服务端把
+  //   商品级 stock 重算为 Σ 组合，并清空维度池（两套模型互斥，杜绝「维度数字 ≠ 组合之和」）。
 
-  /** 有可选规格组的商品：一律走规格明细编辑（单规格商品才允许直改总库存） */
-  const hasVariants = (product: AdminProduct) => variantGroupsOf(product).length > 0;
-
-  /** 各规格当前库存数字（从 specStock 取；未填 = 0） */
-  const specQtyOf = (product: AdminProduct, gName: string, value: string): number => {
-    const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
-    return spec?.[gName]?.[value] ?? 0;
-  };
-
-  const startSpecEdit = (product: AdminProduct) => {
-    const init: Record<string, Record<string, string>> = {};
-    for (const g of variantGroupsOf(product)) {
-      init[g.name] = {};
-      for (const v of g.values) init[g.name]![v] = String(specQtyOf(product, g.name, v));
+  /** 大表弹层的组合矩阵：组/值完整并集（attributes 添加顺序优先，第一组即父组） */
+  const comboMatrixOf = (product: AdminProduct): { name: string; values: string[] }[] => {
+    const groups = new Map<string, string[]>();
+    const addValue = (name: unknown, value: unknown) => {
+      if (typeof name !== "string" || typeof value !== "string") return;
+      const n = name.trim();
+      const v = value.trim();
+      if (!n || !v) return;
+      const list = groups.get(n) ?? [];
+      if (!list.includes(v)) list.push(v);
+      groups.set(n, list);
+    };
+    // 1) attributes 可选组（多值组默认可选，与表单/店面 parseAttributes 同口径）
+    for (const a of product.attributes ?? []) {
+      const selectable =
+        a.selectable === true
+          ? true
+          : a.selectable === false
+            ? false
+            : Array.isArray(a.values) && a.values.length > 1;
+      if (!selectable) continue;
+      for (const v of a.values ?? []) addValue(a.name, v);
     }
-    setSpecEditValue(init);
-    setSpecEditId(product.id);
+    // 2) variants 组合里出现过的组/值（可能超出 attributes，保留可编辑）
+    for (const v of product.variants ?? []) {
+      for (const a of v.attributes ?? []) addValue(a.name, a.value);
+    }
+    // 3) specStock 维度池存量键（老数据；仅并入已出现的组，孤儿组不进矩阵）
+    const spec = (product.specStock ?? {}) as Record<string, Record<string, number>>;
+    for (const [name, values] of Object.entries(spec)) {
+      if (!(name in groups)) continue; // 孤儿维度池组：无对应属性组，不进矩阵
+      for (const v of Object.keys(values ?? {})) addValue(name, v);
+    }
+    return [...groups.entries()].map(([name, values]) => ({ name, values }));
   };
 
-  const saveSpecStock = async (product: AdminProduct) => {
-    const specStock: Record<string, Record<string, number>> = {};
-    for (const [name, m] of Object.entries(specEditValue)) {
-      specStock[name] = {};
-      for (const [v, str] of Object.entries(m)) {
-        const n = Number(str);
-        specStock[name]![v] = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-      }
+  /** 全组合 = 各属性组按添加顺序做笛卡尔积（父组在外层），与表单同构 */
+  const comboCombosOf = (product: AdminProduct): { name: string; value: string }[][] => {
+    const groups = comboMatrixOf(product);
+    if (groups.length === 0) return [];
+    return groups.reduce<{ name: string; value: string }[][]>(
+      (acc, g) => acc.flatMap((combo) => g.values.map((v) => [...combo, { name: g.name, value: v }])),
+      [[]],
+    );
+  };
+
+  /** 组合的当前库存（预填口径）：variants 真相 → specStock 各维度最小值 → 0 */
+  const comboStockOf = (
+    product: AdminProduct,
+    attrs: { name: string; value: string }[],
+  ): number => {
+    const variants = product.variants ?? [];
+    if (variants.length > 0) {
+      const sig = variantSignature(attrs);
+      const v = variants.find((x) => variantSignature(x.attributes) === sig);
+      return v ? Math.max(0, Math.floor(v.stock)) : 0;
     }
+    const spec = product.specStock as Record<string, Record<string, number>> | null | undefined;
+    const nums = attrs
+      .map((a) => spec?.[a.name]?.[a.value])
+      .filter((n): n is number => typeof n === "number");
+    return nums.length === attrs.length && nums.length > 0
+      ? Math.max(0, Math.floor(Math.min(...nums)))
+      : 0;
+  };
+
+  /** 有任何规格数据的商品 → 组合矩阵弹层（单规格商品才直改总库存） */
+  const hasSpecData = (product: AdminProduct) => comboMatrixOf(product).length > 0;
+
+  const startVariantEdit = (product: AdminProduct) => {
+    const init: Record<string, string> = {};
+    for (const attrs of comboCombosOf(product)) {
+      init[variantSignature(attrs)] = String(comboStockOf(product, attrs));
+    }
+    setVariantEditValue(init);
+    setVariantEditId(product.id);
+    setStockEditId(null);
+  };
+
+  /** 编辑中的总库存实时合计（= 各子组规格之和，保存前后同口径） */
+  const variantEditTotal = React.useMemo(
+    () =>
+      Object.values(variantEditValue).reduce(
+        (sum, str) => sum + Math.max(0, Math.floor(Number(str) || 0)),
+        0,
+      ),
+    [variantEditValue],
+  );
+
+  /** 编辑中某父组值的实时合计（只读派生值：其名下全部子组组合之和） */
+  const variantGroupEditTotal = (product: AdminProduct, groupName: string, groupValue: string) =>
+    comboCombosOf(product)
+      .filter((combo) => combo.some((a) => a.name === groupName && a.value === groupValue))
+      .reduce(
+        (sum, attrs) =>
+          sum +
+          Math.max(0, Math.floor(Number(variantEditValue[variantSignature(attrs)] ?? "0") || 0)),
+        0,
+      );
+
+  const saveVariantStock = async (product: AdminProduct) => {
+    const existing = product.variants ?? [];
+    const variants = comboCombosOf(product).map((attrs) => {
+      const key = variantSignature(attrs);
+      // 已存组合保留覆盖价/SKU/组合图/上架状态（矩阵只管库存，不洗其它数据）
+      const saved = existing.find((v) => variantSignature(v.attributes) === key);
+      return {
+        attributes: attrs,
+        stock: Math.max(0, Math.floor(Number(variantEditValue[key] ?? "0") || 0)),
+        price: saved?.price ?? null,
+        sku: saved?.sku ?? null,
+        image: saved?.image ?? null,
+        isActive: saved?.isActive ?? true,
+      };
+    });
     try {
-      // 走商品复用 PUT：服务端会用 aggregateTrackedStock 重算总库存，保持 stock 与规格明细一致
+      // 走商品复用 PUT：服务端把商品级 stock 重算为 Σ 变体，并同步清空维度池
+      // specStock（两套模型互斥）；全量替换，不在新矩阵里的旧组合随之清理。
       await apiFetch(`/api/admin/products/${product.id}`, {
         method: "PUT",
-        body: JSON.stringify({ specStock, attributes: product.attributes ?? [] }),
+        body: JSON.stringify({
+          variants,
+          specStock: null,
+          attributes: product.attributes ?? [],
+        }),
       });
       toast.success("规格库存已更新");
-      setSpecEditId(null);
+      setVariantEditId(null);
       void load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "更新规格库存失败");
     }
+  };
+
+  /** 非编辑态的悬浮明细：按父组值聚合子组库存（运营不动鼠标即可核对） */
+  const variantTooltipOf = (product: AdminProduct): string => {
+    const groups = comboMatrixOf(product);
+    const primary = groups[0];
+    if (!primary) return "（无规格数据）";
+    const combos = comboCombosOf(product);
+    if (groups.length === 1) {
+      return `${primary.name}：${primary.values
+        .map((v) => `${v} ${comboStockOf(product, [{ name: primary.name, value: v }])}`)
+        .join("、")}（点击编辑各规格库存）`;
+    }
+    return (
+      primary.values
+        .map((gv) => {
+          const kids = combos.filter((combo) =>
+            combo.some((a) => a.name === primary.name && a.value === gv),
+          );
+          const total = kids.reduce((s, attrs) => s + comboStockOf(product, attrs), 0);
+          const detail = kids
+            .map((attrs) => {
+              const label =
+                attrs
+                  .filter((a) => a.name !== primary.name)
+                  .map((a) => a.value)
+                  .join(" / ") || "默认";
+              return `${label} ${comboStockOf(product, attrs)}`;
+            })
+            .join("、");
+          return `${primary.name}「${gv}」合计 ${total}（${detail}）`;
+        })
+        .join("；") + "（父组合计由子组决定，点击编辑）"
+    );
   };
 
   const openEdit = async (product: AdminProduct) => {
@@ -591,47 +698,97 @@ function AdminProductsPageInner() {
                     </TableCell>
                     {/* relative 作浮层锚点：编辑面板 absolute 展开，不挤表格、不压相邻列 */}
                     <TableCell className="relative">
-                      {hasVariants(row) ? (
-                        /* 多规格：显示各规格明细，点击铅笔展开内联编辑每个颜色/尺码的库存 */
-                        specEditId === row.id ? (
-                          /* 编辑浮层：absolute 脱离文档流 —— 不撑单元格、完整实底+阴影盖住下层，
-                             杜绝「面板边缘切在相邻列数字中间」的半透叠字（大爷实测指出） */
-                          <div className="absolute left-0 top-1/2 z-30 min-w-56 -translate-y-1/2 space-y-2 rounded-md border bg-card p-2 shadow-popover">
-                            {variantGroupsOf(row).map((g) => (
-                              <div key={g.name} className="space-y-1">
-                                <div className="text-[11px] font-medium text-muted-foreground">
-                                  {g.name}
-                                </div>
-                                <div className="flex flex-wrap gap-x-2.5 gap-y-1">
-                                  {g.values.map((v) => (
-                                    <label
-                                      key={v}
-                                      className="flex items-center gap-1 text-[11px] leading-6"
-                                    >
-                                      <span className="text-muted-foreground">{v}</span>
-                                      <Input
-                                        inputMode="numeric"
-                                        value={specEditValue[g.name]?.[v] ?? ""}
-                                        onChange={(e) => {
-                                          const val = e.target.value.replace(/[^0-9]/g, "");
-                                          setSpecEditValue((prev) => ({
-                                            ...prev,
-                                            [g.name]: { ...(prev[g.name] ?? {}), [v]: val },
-                                          }));
-                                        }}
-                                        className="h-6 w-10 px-1 text-center text-xs tabular-nums"
-                                        aria-label={`${g.name}:${v}库存`}
-                                      />
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            ))}
-                            <div className="flex items-center justify-between border-t pt-1.5">
+                      {hasSpecData(row) ? (
+                        /* 有规格数据的商品（大爷 2026-09-29）：第一个添加的属性组 = 父组，
+                           其余 = 子组。库存数字只读展示（= Σ 子组组合，服务端保证），
+                           铅笔展开组合矩阵内联编辑各子组规格，父组合计与总库存实时联动、只读。
+                           存量商品（无变体、只有维度池/属性组）同样进矩阵：预填存量数据，
+                           保存即创建组合 —— 与商品编辑表单同一套逻辑。 */
+                        variantEditId === row.id ? (
+                          /* 编辑浮层：absolute 脱离文档流 —— 不撑单元格、实底+阴影
+                             完整盖住下层，杜绝「面板边缘切在相邻列数字中间」的叠字 */
+                          <div className="absolute left-0 top-1/2 z-30 min-w-64 max-w-80 -translate-y-1/2 space-y-2 rounded-md border bg-card p-2 shadow-popover">
+                            {(() => {
+                              const groups = comboMatrixOf(row);
+                              const primary = groups[0];
+                              const groupable = groups.length > 1;
+                              if (!primary) return null;
+                              const combos = comboCombosOf(row);
+                              // 子格渲染：库存框 + 规格名（单属性组=规格值本身；多组=其余维度拼接）
+                              const renderKid = (
+                                attrs: { name: string; value: string }[],
+                                gv: string,
+                              ) => {
+                                const label = groupable
+                                  ? attrs
+                                      .filter((a) => a.name !== primary.name)
+                                      .map((a) => a.value)
+                                      .join(" / ") || "默认"
+                                  : attrs.map((a) => a.value).join(" / ");
+                                const key = variantSignature(attrs);
+                                return (
+                                  <label
+                                    key={key}
+                                    className="flex items-center gap-1 text-[11px] leading-6"
+                                  >
+                                    <span className="text-muted-foreground">{label}</span>
+                                    <Input
+                                      inputMode="numeric"
+                                      value={variantEditValue[key] ?? ""}
+                                      onChange={(e) => {
+                                        const val = e.target.value.replace(/[^0-9]/g, "");
+                                        setVariantEditValue((prev) => ({
+                                          ...prev,
+                                          [key]: val,
+                                        }));
+                                      }}
+                                      className="h-6 w-10 px-1 text-center text-xs tabular-nums"
+                                      aria-label={`${gv} ${label} 库存`}
+                                    />
+                                  </label>
+                                );
+                              };
+                              // 单属性组：每个规格值自身就是一个组合，平铺一行（横向换行）
+                              if (!groupable) {
+                                return (
+                                  <div className="flex flex-wrap gap-x-2.5 gap-y-1">
+                                    {combos.map((attrs) => renderKid(attrs, attrs[0]?.value ?? ""))}
+                                  </div>
+                                );
+                              }
+                              // 多属性组：按父组取值分卡片 —— 卡片头「父组名：值 + 只读合计」，
+                              // 组内子组规格横排；父组合计由子格决定（不能手写）
+                              return primary.values.map((gv) => {
+                                const kids = combos.filter((combo) =>
+                                  combo.some(
+                                    (a) => a.name === primary.name && a.value === gv,
+                                  ),
+                                );
+                                if (kids.length === 0) return null;
+                                return (
+                                  <div key={gv} className="space-y-1">
+                                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                                      <span className="font-medium">
+                                        {primary.name}：{gv}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        合计{" "}
+                                        <span className="font-medium tabular-nums text-foreground">
+                                          {variantGroupEditTotal(row, primary.name, gv)}
+                                        </span>
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-x-2.5 gap-y-1">
+                                      {kids.map((attrs) => renderKid(attrs, gv))}
+                                    </div>
+                                  </div>
+                                );
+                              });
+                            })()}                            <div className="flex items-center justify-between border-t pt-1.5">
                               <span className="text-[11px] text-muted-foreground">
-                                合计{" "}
+                                总库存{" "}
                                 <span className="font-medium tabular-nums text-foreground">
-                                  {specEditTotal}
+                                  {variantEditTotal}
                                 </span>
                               </span>
                               <div className="flex gap-1">
@@ -639,7 +796,7 @@ function AdminProductsPageInner() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-1.5 text-xs"
-                                  onClick={() => void saveSpecStock(row)}
+                                  onClick={() => void saveVariantStock(row)}
                                 >
                                   保存
                                 </Button>
@@ -647,7 +804,7 @@ function AdminProductsPageInner() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-1.5 text-xs"
-                                  onClick={() => setSpecEditId(null)}
+                                  onClick={() => setVariantEditId(null)}
                                 >
                                   取消
                                 </Button>
@@ -658,17 +815,8 @@ function AdminProductsPageInner() {
                           <button
                             type="button"
                             aria-label="编辑规格库存"
-                            onClick={() => startSpecEdit(row)}
-                            title={
-                              variantGroupsOf(row)
-                                .map(
-                                  (g) =>
-                                    `${g.name}：${g.values
-                                      .map((v) => `${v} ${specQtyOf(row, g.name, v)}`)
-                                      .join("、")}`,
-                                )
-                                .join("；") + "（点击编辑各规格库存）"
-                            }
+                            onClick={() => startVariantEdit(row)}
+                            title={variantTooltipOf(row)}
                             className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
                           >
                             <span
@@ -683,7 +831,7 @@ function AdminProductsPageInner() {
                             <Pencil className="h-3 w-3 text-muted-foreground" />
                           </button>
                         )
-                      ) : /* 单品：直接改总库存数字 */
+                      ) : /* 单规格：直接改总库存数字 */
                       stockEditId === row.id ? (
                         /* 编辑浮层：absolute 脱离文档流，实底+阴影完整盖住下层 ——
                            按钮 icon 化收窄面板，避免边缘切进「已售」列数字造成叠字 */

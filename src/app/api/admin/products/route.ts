@@ -64,9 +64,11 @@ export const GET = apiHandler(async (req) => {
   const [rows, total] = await Promise.all([
     prisma.product.findMany({
       where,
-      // _count.variants：列表库存列的「组合汇总」判定（有组合的商品库存只读展示，
-      // 编辑入口统一收敛到商品编辑页的规格矩阵，避免出现第二个库存口径）
-      include: { category: true, _count: { select: { variants: true } } },
+      // include variants（组合明细）：大表库存列的内联编辑直接用变体数据 ——
+      // 父组×子组按添加顺序分层（第一个属性组=父组），每个组合一个库存格；
+      // 与商品编辑表单、前台选择器共用同一份数据，前后端口径一致。
+      // 按 createdAt asc 保证组合顺序 = 录入顺序（父组稳定在外层）。
+      include: { category: true, variants: { orderBy: { createdAt: "asc" } } },
       orderBy: { createdAt: "desc" },
       skip,
       take,

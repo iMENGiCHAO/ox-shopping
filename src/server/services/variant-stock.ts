@@ -160,6 +160,25 @@ export function totalVariantStock(variants: VariantLike[]): number {
     .reduce((sum, v) => sum + Math.max(0, Math.floor(v.stock)), 0);
 }
 
+/**
+ * 组合粒度的**可售库存**（大爷 2026-09-29：多属性组合库存单一事实来源）：
+ * - 传入变体列表非空（变体模式）→ 按签名定位所选组合：
+ *   组合不存在 / 已下架 / 库存 0 → 返回 0（售罄，绝不能回落总库存 ——
+ *   总库存是全部组合之和，回落会让「黑/S 售罄但白/M 有货」的售罄组合被加进购物车）。
+ * - 未传变体列表（非变体模式）→ 返回 fallback（调用方的商品总库存）。
+ * 与 planVariantDeduction / findVariant 同签名口径，前后端共用。
+ */
+export function variantAvailableQuantity(
+  variants: VariantLike[] | null | undefined,
+  selection: VariantAttributes[] | Record<string, string> | null | undefined,
+  fallback: number,
+): number {
+  if (!variants || variants.length === 0) return fallback;
+  const variant = findVariant(variants, normalizeSelection(selection ?? []));
+  if (!variant) return 0;
+  return Math.max(0, Math.floor(variant.stock));
+}
+
 /** 变体模式下的价格区间（用于前台「起售价」展示） */
 export function variantPriceRange(
   variants: VariantLike[],

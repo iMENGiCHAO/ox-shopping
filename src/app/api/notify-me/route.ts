@@ -4,6 +4,11 @@ import { badRequest, notFound, rateLimited } from "@/lib/errors";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_LIMITS } from "@/lib/rate-limits";
 import { hasSoldOutSpecValue } from "@/server/services/spec-stock";
+import {
+  findVariant,
+  normalizeSelection,
+  parseVariantAttributes,
+} from "@/server/services/variant-stock";
 import { getClientIp } from "@/lib/server/utils-server";
 import { z } from "zod";
 import { getLang } from "@/lib/shop-i18n-server";
@@ -34,20 +39,47 @@ export const POST = apiHandler(async (req) => {
   const rl = await rateLimit({ key: `notifyme:${email}`, ...RATE_LIMITS.notifyMe });
   if (!rl.ok) throw rateLimited("Too many requests, please try again later");
 
-  // 防御（大爷指正的 bug 兜底）：有货组合不允许登记到货通知——
-  // 整件有货（ACTIVE 且 stock>0）时，登记规格里必须含至少一个「显式售罄」值
-  // （与 PDP 售罄划线 / notifyRestock 触发口径一致：未追踪值视为可用）。
+  // 防御（大爷指正的 bug 兜底 + 2026-09-29 扩展到组合粒度）：有货组合不允许
+  // 登记到货通知——整件有货（ACTIVE 且 stock>0）时，登记的规格必须「确实买不了」：
+  //   - 变体模式：所登记组合不存在或组合库存为 0（findVariant 与下单/购物车同
+  //     口径；此前只看 specStock，变体商品的**所有**登记都被误拒——组合售罄
+  //     也登记不上，顾客点「到货提醒」直接 400）
+  //   - 存量维度池：登记规格里必须含至少一个「显式售罄」值（原口径）
   // 否则下次该商品任意补货触发 notifyRestock 时，会立即给客户发出
   // 「从未售罄过」的错误到货邮件（allAvailable 恒真）。
   if (input.productId) {
-    const product = await prisma.product.findUnique({
-      where: { id: input.productId },
-      select: { stock: true, status: true, specStock: true },
-    });
+    const [product, variantRows] = await Promise.all([
+      prisma.product.findUnique({
+        where: { id: input.productId },
+        select: { stock: true, status: true, specStock: true },
+      }),
+      prisma.productVariant.findMany({
+        where: { productId: input.productId, isActive: true },
+        select: { attributes: true, stock: true },
+      }),
+    ]);
     if (!product) throw notFound("Product not found");
     if (product.status === "ACTIVE" && product.stock > 0) {
-      if (!hasSoldOutSpecValue(product.specStock, input.attributes ?? {}))
-        throw badRequest("This variant is in stock — you can add it to your bag now");
+      const IN_STOCK_MSG = "This variant is in stock — you can add it to your bag now";
+      const registered = input.attributes ?? {};
+      const hasSelection = Object.values(registered).some(
+        (v) => typeof v === "string" && v.length > 0,
+      );
+      if (variantRows.length > 0) {
+        // 变体模式：未选规格 = 无可购对象（stock>0 即有组合可买）→ 拒；
+        // 选了组合 → 组合必须不存在或售罄才可登记
+        if (!hasSelection) throw badRequest(IN_STOCK_MSG);
+        const variants = variantRows.map((v) => ({
+          id: "probe",
+          attributes: parseVariantAttributes(v.attributes),
+          stock: v.stock,
+          isActive: true as const,
+        }));
+        const variant = findVariant(variants, normalizeSelection(registered));
+        if (variant && variant.stock > 0) throw badRequest(IN_STOCK_MSG);
+      } else if (!hasSoldOutSpecValue(product.specStock, registered)) {
+        throw badRequest(IN_STOCK_MSG);
+      }
     }
   }
 

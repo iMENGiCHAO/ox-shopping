@@ -59,10 +59,20 @@ export const PUT = apiHandler(async (req, ctx) => {
       ...(summedStock !== undefined ? { stock: summedStock } : {}),
       ...(sizeChart !== undefined ? { sizeChart: sizeChart ?? Prisma.DbNull } : {}),
       ...(specStock !== undefined ? { specStock: specStock ?? Prisma.DbNull } : {}),
-      // SKU 矩阵：全量替换（表单提交完整矩阵）；同时把商品级 stock 同步为 Σ 变体库存
+      // SKU 矩阵：全量替换（商品表单 / 大表内联编辑都提交完整组合集）。
+      // 商品级库存一致性（大爷 2026-09-29 定稿）：
+      //   - 有组合（variants.length > 0）→ stock 强制 = Σ 组合库存。
+      //     父组与商品总库存都是只读派生值，任何入口都不许手写，
+      //     杜绝「总库存 ≠ 组合之和」的库存乱账。
+      //   - 传空数组 = 运营删光属性组（回归单规格）→ 回落顺序：
+      //     显式 specStock 汇总 → 请求里的 stock → 原库存。
+      //     此前固定回落 existing.stock，会把「删光规格 + 手填库存」的输入静默丢弃。
       ...(variants !== undefined
         ? {
-            stock: variants.length > 0 ? variants.reduce((sum, v) => sum + v.stock, 0) : (summedStock ?? existing.stock),
+            stock:
+              variants.length > 0
+                ? variants.reduce((sum, v) => sum + v.stock, 0)
+                : (summedStock ?? input.stock ?? existing.stock),
             variants: {
               deleteMany: {},
               create: variants.map((v) => ({
@@ -78,7 +88,8 @@ export const PUT = apiHandler(async (req, ctx) => {
           }
         : {}),
     },
-    include: { category: true },
+    // include variants：响应自描述（保存后的组合列表可直接核对，与大表列表同口径）
+    include: { category: true, variants: { orderBy: { createdAt: "asc" } } },
   });
 
   // 涉及库存/规格库存的更新：触发到货通知（服务内部按客户登记的规格逐条匹配，

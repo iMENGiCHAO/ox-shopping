@@ -2,8 +2,13 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MAX_CART_ITEM_QUANTITY, MAX_CART_ITEMS } from "@/lib/constants";
-import {badRequest, notFound } from "@/lib/errors";
+import { badRequest, notFound } from "@/lib/errors";
 import type { SpecSelection } from "@/components/shop/types";
+import {
+  parseVariantAttributes,
+  variantAvailableQuantity,
+  type VariantLike,
+} from "@/server/services/variant-stock";
 
 /** Shopping Bag服务：游客本地Shopping Bag → 登录后合并到服务端 */
 
@@ -74,18 +79,24 @@ export function assertValidSpecs(
 }
 
 /**
- * 该规格组合的**可售库存**（判断库存必须先过这一步）：
- * - 商品配置了 specStock 且选中规格命中其中 → 返回该规格明细库存；
- *   组存在但没有该值的记录 → 该规格组合已售罄（0），不能拿商品总库存兜底
- *   （总库存含别的颜色/尺码，会让售罄规格被加进购物车）。
- * - 未配置 specStock / 未选规格 → 返回商品总库存。
+ * 该规格组合的**可售库存**（判断库存必须先过这一步；大爷 2026-09-29 全链路统一）：
+ * - 变体模式（variants 非空，父组×子组组合粒度）→ 按签名定位所选组合：
+ *   组合不存在 / 已下架 / 库存 0 → 0。绝不能回落总库存 —— 总库存是全部组合
+ *   之和，回落会让「黑/S 售罄但白/M 有货」的售罄组合被加进购物车、下单才报错。
+ * - 非变体模式且配置了 specStock（维度池存量兼容）→ 规格明细库存；
+ *   组存在但没有该值的记录 → 已售罄（0）。
+ * - 非变体模式且未配置 specStock / 未选规格 → 商品总库存。
  * - 预售商品（isPresale）不受库存上限约束 → 返回 Infinity，调用方不会拦。
  */
 export function specAvailableQuantity(
   product: { stock: number; isPresale?: boolean | null; specStock?: unknown },
   attributes?: SpecSelection[] | null,
+  variants?: VariantLike[] | null,
 ): number {
   if (product.isPresale) return Infinity;
+  if (variants && variants.length > 0) {
+    return variantAvailableQuantity(variants, (attributes ?? []) as never, product.stock);
+  }
   const raw = product.specStock;
   if (!raw || typeof raw !== "object") return product.stock;
   const map = raw as Record<string, unknown>;
@@ -106,6 +117,30 @@ export function specAvailableQuantity(
   return product.stock;
 }
 
+/** 批量取一组商品的 active 变体（组合粒度库存真相），Map 缺项 = 无变体 */
+export async function loadActiveVariants(
+  productIds: string[],
+): Promise<Map<string, VariantLike[]>> {
+  const ids = [...new Set(productIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.productVariant.findMany({
+    where: { productId: { in: ids }, isActive: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const out = new Map<string, VariantLike[]>();
+  for (const v of rows) {
+    const list = out.get(v.productId) ?? [];
+    list.push({
+      id: v.id,
+      attributes: parseVariantAttributes(v.attributes),
+      stock: v.stock,
+      isActive: v.isActive,
+    });
+    out.set(v.productId, list);
+  }
+  return out;
+}
+
 export async function getCart(
   userId: string,
 ): Promise<{ items: CartLine[]; count: number; subtotal: number }> {
@@ -114,6 +149,11 @@ export async function getCart(
     include: { product: true },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
   });
+
+  // 行级库存 = 该行规格的**组合可售量**（变体模式按所选组合；单规格即总库存）：
+  // 购物车页的「售罄」标灰与数量上限都以此为准 —— 用商品总库存会让
+  // 「黑/S 售罄但白/M 有货」的行显示有货、可超卖加量（前后端数据贯通）
+  const variantsByProduct = await loadActiveVariants(items.map((i) => i.productId));
 
   const lines: CartLine[] = [];
   for (const item of items) {
@@ -127,7 +167,13 @@ export async function getCart(
         ? ((item.product.images[0] as string) ?? null)
         : null,
       price: Number(item.product.price),
-      stock: item.product.stock,
+      stock: specAvailableQuantity(
+        item.product,
+        Array.isArray(item.attributes)
+          ? (item.attributes as unknown as SpecSelection[])
+          : null,
+        variantsByProduct.get(item.productId) ?? null,
+      ),
       status: item.product.status,
       quantity: item.quantity,
       subtotal: round2(Number(item.product.price) * item.quantity),
@@ -163,8 +209,10 @@ export async function addToCart(
   });
 
   const newQuantity = Math.min((existing?.quantity ?? 0) + quantity, MAX_CART_ITEM_QUANTITY);
-  // 判断库存的唯一口径：规格级可售量（未配 specStock 即总库存；预售 Infinity 不拦）
-  const available = specAvailableQuantity(product, attributes);
+  // 判断库存的唯一口径：组合粒度可售量（变体模式按所选组合；未配规格即总库存；
+  // 预售 Infinity 不拦）——组合不存在/售罄在加购入口就拦住，不等下单才报错
+  const [variants] = await Promise.all([loadActiveVariants([productId])]);
+  const available = specAvailableQuantity(product, attributes, variants.get(productId) ?? null);
   if (!product.isPresale && newQuantity > available) {
     throw badRequest(`Not enough stock — only ${available} left`);
   }
@@ -197,10 +245,13 @@ export async function updateCartItem(
   const item = await prisma.cartItem.findFirst({ where: { id: cartItemId, userId } });
   if (!item) throw notFound("Shopping Bag item not found");
   const product = await prisma.product.findUnique({ where: { id: item.productId } });
-  // 与 addToCart 同口径：按该行规格的可售量校验（预售不受约束）
+  // 与 addToCart 同口径：按该行规格的**组合粒度**可售量校验（预售不受约束）——
+  // 变体模式若回落总库存，售罄组合会在购物车里被改成超卖数量
+  const variants = await loadActiveVariants([item.productId]);
   const available = specAvailableQuantity(
     { stock: product?.stock ?? 0, isPresale: product?.isPresale, specStock: product?.specStock },
     item.attributes as SpecSelection[] | null,
+    variants.get(item.productId) ?? null,
   );
   if (!product?.isPresale && quantity > available) {
     throw badRequest(`Not enough stock — only ${available} left`);
@@ -221,9 +272,14 @@ export async function clearCart(userId: string): Promise<void> {
 /** 登录后合并游客本地Shopping Bag(幂等：同商品数量相加并封顶) */
 export async function mergeLocalCart(userId: string, local: LocalCartLine[]): Promise<void> {
   const productIds = local.map((l) => l.productId);
-  const products = await prisma.product.findMany({
-    where: { id: { in: productIds }, status: "ACTIVE" },
-  });
+  const [products, variantsByProduct] = await Promise.all([
+    prisma.product.findMany({
+      where: { id: { in: productIds }, status: "ACTIVE" },
+    }),
+    // 组合粒度可售量（与 addToCart/updateCartItem 同口径）：合并封顶按所选
+    // 组合的库存，而不是商品总库存 —— 否则售罄组合合并后超卖
+    loadActiveVariants(productIds),
+  ]);
   // 同时携带 stock 与 isPresale，预售 stock=0 仍允许加购
   const productInfo = new Map(products.map((p) => [p.id, { stock: p.stock, isPresale: p.isPresale }]));
 
@@ -241,8 +297,14 @@ export async function mergeLocalCart(userId: string, local: LocalCartLine[]): Pr
         },
       },
     });
-    // 预售：不受库存上限约束；普通商品按 stock 封顶
-    const cap = info.isPresale ? MAX_CART_ITEM_QUANTITY : Math.min(MAX_CART_ITEM_QUANTITY, info.stock);
+    // 预售：不受库存上限约束；普通商品按**该行规格的组合可售量**封顶
+    const available = specAvailableQuantity(
+      info,
+      line.attributes as SpecSelection[] | null,
+      variantsByProduct.get(line.productId) ?? null,
+    );
+    const stockCap = Number.isFinite(available) ? available : MAX_CART_ITEM_QUANTITY;
+    const cap = info.isPresale ? MAX_CART_ITEM_QUANTITY : Math.min(MAX_CART_ITEM_QUANTITY, stockCap);
     const merged = Math.min((existing?.quantity ?? 0) + line.quantity, cap);
     if (existing) {
       await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: merged } });
