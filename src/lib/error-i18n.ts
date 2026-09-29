@@ -192,6 +192,10 @@ const ERROR_ZH: Record<string, string> = {
     "分销商等级需为 0 ~ 10 的整数（0=普通）",
   "This user is not a distributor yet (auto-promoted after their first successful referral)":
     "该用户还不是分销商（首次成功推广后自动成为分销商）",
+  /* 结算币种（分销商账户 + 下单支付币种校验 —— 顾客可见，源串在服务端） */
+  "Settlement currency must be a 3-letter ISO 4217 code": "结算币种必须是 3 位 ISO 4217 代码",
+  "Account has commission logs or balance — settlement currency cannot be changed (withdraw the full balance first; only new accounts can choose freely)":
+    "账户已有佣金流水或余额，不能变更结算币种（请先提空余额；新账户才可自由选择）",
   /* ── 订单退款 / 发货（后台操作文案，但源串统一英文） ── */
   "Missing carrier; please fill in tracking info before marking as shipped":
     "缺少物流公司，请先补填物流信息再标记已发货",
@@ -284,6 +288,19 @@ const PATTERN_ZH: Array<{ test: RegExp; zh: (...groups: string[]) => string }> =
   {
     test: /^Refund failed: (.+)$/,
     zh: (err) => `退款失败：${err}`,
+  },
+  // ── 结算币种（分销账户 + 下单支付币种校验 —— 顾客可见，源串在服务端）──
+  {
+    test: /^Settlement currency (.+) rate unavailable — cannot calculate the withdrawal limit right now, please try again later or contact support$/,
+    zh: (code) => `结算币种 ${code} 的汇率不可用，暂时无法核算提现限额，请稍后再试或联系客服`,
+  },
+  {
+    test: /^Settlement currency (.+) is not enabled — choose from the available currencies$/,
+    zh: (currency) => `结算币种 ${currency} 未启用或不支持，请从可用币种列表中选择`,
+  },
+  {
+    test: /^Currency \((.+)\) is not payable — switch to a payable currency in the currency selector and resubmit$/,
+    zh: (currency) => `当前币种（${currency}）暂不支持结算，请在币种选择器切换到可支付的币种后重新提交`,
   },
 ];
 

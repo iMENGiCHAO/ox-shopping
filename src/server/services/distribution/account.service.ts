@@ -366,7 +366,8 @@ async function cnyRateFor(currency: string): Promise<number> {
     return fallbackCny / fallbackPerUsd;
   }
   throw badRequest(
-    `结算币种 ${code} 的汇率不可用，暂时无法核算提现限额，请稍后再试或联系客服`,
+    // 顾客可见文案走英文源串（英文站默认语言），中文由 lib/error-i18n.ts 按请求语言替换
+    `Settlement currency ${code} rate unavailable — cannot calculate the withdrawal limit right now, please try again later or contact support`,
   );
 }
 
@@ -732,7 +733,8 @@ export async function setSettlementCurrency(input: {
   req?: NextRequest;
 }): Promise<{ settlementCurrency: string }> {
   const currency = input.currency.trim().toUpperCase();
-  if (!/^[A-Z]{3}$/.test(currency)) throw badRequest("结算币种必须是 3 位 ISO 4217 代码");
+  // 顾客可见文案走英文源串（英文站默认语言），中文由 lib/error-i18n.ts 按请求语言替换
+  if (!/^[A-Z]{3}$/.test(currency)) throw badRequest("Settlement currency must be a 3-letter ISO 4217 code");
 
   // 商用审计修复（高危）：只接受系统已启用（CurrencyConfig.enabled）的币种。
   // 此前任意 /^[A-Z]{3}$/ 伪代码都能设进账户 —— "XXX" 这类码会让该受益人的
@@ -740,7 +742,10 @@ export async function setSettlementCurrency(input: {
   // （already>0 短路），该级佣金永久丢失且 reconcile 不再扫。
   const cfg = await prisma.currencyConfig.findUnique({ where: { code: currency } });
   if (!cfg?.enabled) {
-    throw badRequest(`结算币种 ${currency} 未启用或不支持，请从可用币种列表中选择`);
+    throw badRequest(
+      // 顾客可见文案走英文源串，中文由 lib/error-i18n.ts 按请求语言替换
+      `Settlement currency ${currency} is not enabled — choose from the available currencies`,
+    );
   }
 
   // 商用审计修复（高危）：守卫必须与计提的账户读取在同一把锁下串行。
@@ -764,7 +769,8 @@ export async function setSettlementCurrency(input: {
         return lockedAccount; // 幂等：未变化直接返回
       }
       throw badRequest(
-        "账户已有佣金流水或余额，不能变更结算币种（请先提空余额；新账户才可自由选择）",
+        // 顾客可见文案走英文源串，中文由 lib/error-i18n.ts 按请求语言替换
+        "Account has commission logs or balance — settlement currency cannot be changed (withdraw the full balance first; only new accounts can choose freely)",
       );
     }
 

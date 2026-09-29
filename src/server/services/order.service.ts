@@ -429,7 +429,8 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
   const payableCodes = await payableCurrencyCodes();
   if (payableCodes && !payableCodes.has(userCurrency)) {
     throw badRequest(
-      `当前币种（${userCurrency}）暂不支持结算，请在币种选择器切换到可支付的币种后重新提交`,
+      // 顾客可见文案走英文源串（英文站默认语言），中文由 lib/error-i18n.ts 按请求语言替换
+      `Currency (${userCurrency}) is not payable — switch to a payable currency in the currency selector and resubmit`,
     );
   }
   // 钱路径熔断（2026-09-26 商用审计）：汇率快照退化为静态参考值或库内值滞后超限时
