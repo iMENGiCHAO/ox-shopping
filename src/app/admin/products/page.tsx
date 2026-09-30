@@ -132,6 +132,8 @@ function AdminProductsPageInner() {
   // 组合矩阵（父组×子组组合粒度）的内联编辑状态：{ 组合签名: 库存字符串 }
   const [variantEditId, setVariantEditId] = React.useState<string | null>(null);
   const [variantEditValue, setVariantEditValue] = React.useState<Record<string, string>>({});
+  // 弹层数据源：打开时实时拉取的最新商品（行数据是列表快照，可能过时）
+  const [variantEditProduct, setVariantEditProduct] = React.useState<AdminProduct | null>(null);
   // 乐观锁快照（P1-1）：编辑开始时每组合的库存，保存时上送做锁内比对
   const variantExpectedRef = React.useRef<Record<string, number>>({});
 
@@ -368,20 +370,35 @@ function AdminProductsPageInner() {
   /** 有任何规格数据的商品 → 组合矩阵弹层（单规格商品才直改总库存） */
   const hasSpecData = (product: AdminProduct) => comboMatrixOf(product).length > 0;
 
-  const startVariantEdit = (product: AdminProduct) => {
+  /**
+   * 打开组合矩阵弹层（大爷 2026-09-30 报障修复）：**先实时拉最新商品数据**。
+   * 行数据是列表加载时的快照——页面开着期间有下单扣减/其他保存时快照过时，
+   * expected ≠ 库内现值 → 一保存就 409（「入不了库」，实测死循环）。
+   * 打开前 GET 详情，expected 与库内现值对齐，从源头消除这类 409；
+   * 拉取失败用行数据兜底（保存时仍有乐观锁兜底，最坏 409 关闭弹层重开）。
+   */
+  const startVariantEdit = async (product: AdminProduct) => {
+    setStockEditId(null);
+    let fresh = product;
+    try {
+      const res = await apiFetch<{ product: AdminProduct }>(`/api/admin/products/${product.id}`);
+      fresh = res.product;
+    } catch {
+      /* 拉取失败用行数据兜底 */
+    }
     const init: Record<string, string> = {};
-    // 乐观锁快照（P1-1 商用审计）：编辑开始时每个组合的库存，保存时随 PUT 上送，
+    // 乐观锁快照（P1-1 商用审计）：每个组合打开时的库存，保存时随 PUT 上送，
     // 服务端锁内与库内现值比对——不一致（期间有下单扣减）→ 409 拒绝保存
     const expected: Record<string, number> = {};
-    for (const attrs of comboCombosOf(product)) {
-      const stock = comboStockOf(product, attrs);
+    for (const attrs of comboCombosOf(fresh)) {
+      const stock = comboStockOf(fresh, attrs);
       init[variantSignature(attrs)] = String(stock);
       expected[variantSignature(attrs)] = stock;
     }
     variantExpectedRef.current = expected;
     setVariantEditValue(init);
-    setVariantEditId(product.id);
-    setStockEditId(null);
+    setVariantEditProduct(fresh);
+    setVariantEditId(fresh.id);
   };
 
   /** 编辑中的总库存实时合计（= 各子组规格之和，保存前后同口径） */
@@ -437,8 +454,14 @@ function AdminProductsPageInner() {
       setVariantEditId(null);
       void load();
     } catch (err) {
-      // 409 = 期间有下单扣减/其他编辑，快照已过时 —— 刷新行数据让运营重录
-      if (err instanceof ApiClientError && err.status === 409) void load();
+      // 409 = 期间有下单扣减/其他编辑，expected 快照已过时 —— **必须关闭弹层并刷新
+      // 行数据**（大爷 2026-09-30 实测）：弹层还开着的话 expectedRef 还是旧快照，
+      // 再点保存永远 409（死循环，「入不了库」）；重新点开编辑时会拿到最新库存
+      // （expected 随 startVariantEdit 重置）。
+      if (err instanceof ApiClientError && err.status === 409) {
+        setVariantEditId(null);
+        void load();
+      }
       toast.error(err instanceof Error ? err.message : "更新规格库存失败");
     }
   };
@@ -721,11 +744,12 @@ function AdminProductsPageInner() {
                              完整盖住下层，杜绝「面板边缘切在相邻列数字中间」的叠字 */
                           <div className="absolute left-0 top-1/2 z-30 min-w-64 max-w-80 -translate-y-1/2 space-y-2 rounded-md border bg-card p-2 shadow-popover">
                             {(() => {
-                              const groups = comboMatrixOf(row);
+                              const editSource = variantEditProduct ?? row;
+                              const groups = comboMatrixOf(editSource);
                               const primary = groups[0];
                               const groupable = groups.length > 1;
                               if (!primary) return null;
-                              const combos = comboCombosOf(row);
+                              const combos = comboCombosOf(editSource);
                               // 子格渲染：库存框 + 规格名（单属性组=规格值本身；多组=其余维度拼接）
                               const renderKid = (
                                 attrs: { name: string; value: string }[],
@@ -786,7 +810,7 @@ function AdminProductsPageInner() {
                                       <span className="text-muted-foreground">
                                         合计{" "}
                                         <span className="font-medium tabular-nums text-foreground">
-                                          {variantGroupEditTotal(row, primary.name, gv)}
+                                          {variantGroupEditTotal(editSource, primary.name, gv)}
                                         </span>
                                       </span>
                                     </div>
@@ -808,7 +832,7 @@ function AdminProductsPageInner() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-1.5 text-xs"
-                                  onClick={() => void saveVariantStock(row)}
+                                  onClick={() => void saveVariantStock(variantEditProduct ?? row)}
                                 >
                                   保存
                                 </Button>
@@ -827,7 +851,7 @@ function AdminProductsPageInner() {
                           <button
                             type="button"
                             aria-label="编辑规格库存"
-                            onClick={() => startVariantEdit(row)}
+                            onClick={() => void startVariantEdit(row)}
                             title={variantTooltipOf(row)}
                             className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm transition-colors hover:bg-muted"
                           >
