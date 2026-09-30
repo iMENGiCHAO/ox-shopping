@@ -72,7 +72,6 @@ export const PUT = apiHandler(async (req, ctx) => {
     if (!fresh) throw conflict("商品不存在或已被删除");
 
     let variantsTotal = 0;
-    let variantsData: Prisma.ProductUpdateInput["variants"] | undefined;
     if (variants !== undefined) {
       // 乐观锁：快照比对（锁内，与下单扣减串行）
       if (variants.length > 0) {
@@ -85,27 +84,52 @@ export const PUT = apiHandler(async (req, ctx) => {
         }
       }
       variantsTotal = variants.reduce((sum, v) => sum + v.stock, 0);
-      const incomingSigs = variants.map((v) => variantSignature(v.attributes));
-      variantsData = {
-        // 只删矩阵外的旧组合（被删的组）；传空数组 = 删光（运营删光属性组）
-        deleteMany: { signature: { notIn: incomingSigs } },
-        upsert: variants.map((v) => {
-          const sig = variantSignature(v.attributes);
-          const row = {
+      // 显式 diff 落库（不用嵌套 upsert：嵌套 create 不接受标量外键，且
+      // 顶层操作语义更清晰）。传入组合按签名分拣：已存 → update；新增 → createMany；
+      // 矩阵外的旧组合（被删的组）→ deleteMany 定点删除；传空数组 = 删光。
+      const incomingBySig = new Map(variants.map((v) => [variantSignature(v.attributes), v]));
+      const toUpdate = variants.filter((v) =>
+        fresh.variants.some((x) => x.signature === variantSignature(v.attributes)),
+      );
+      const toCreate = variants.filter(
+        (v) => !fresh.variants.some((x) => x.signature === variantSignature(v.attributes)),
+      );
+      const toDeleteIds = fresh.variants
+        .filter((x) => !incomingBySig.has(x.signature))
+        .map((x) => x.id);
+
+      if (toDeleteIds.length > 0) {
+        await tx.productVariant.deleteMany({ where: { id: { in: toDeleteIds } } });
+      }
+      for (const v of toUpdate) {
+        await tx.productVariant.update({
+          where: {
+            productId_signature: { productId: id, signature: variantSignature(v.attributes) },
+          },
+          data: {
             attributes: v.attributes as unknown as Prisma.InputJsonValue,
             stock: v.stock,
             price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
             sku: v.sku?.trim() || null,
             image: v.image?.trim() || null,
             isActive: v.isActive,
-          };
-          return {
-            where: { productId_signature: { productId: id, signature: sig } },
-            update: row,
-            create: { productId: id, signature: sig, ...row },
-          };
-        }),
-      };
+          },
+        });
+      }
+      if (toCreate.length > 0) {
+        await tx.productVariant.createMany({
+          data: toCreate.map((v) => ({
+            productId: id,
+            signature: variantSignature(v.attributes),
+            attributes: v.attributes as unknown as Prisma.InputJsonValue,
+            stock: v.stock,
+            price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
+            sku: v.sku?.trim() || null,
+            image: v.image?.trim() || null,
+            isActive: v.isActive,
+          })),
+        });
+      }
     }
 
     return tx.product.update({
@@ -129,7 +153,7 @@ export const PUT = apiHandler(async (req, ctx) => {
                 variants.length > 0
                   ? variantsTotal
                   : (summedStock ?? input.stock ?? fresh.stock),
-              variants: variantsData,
+              // 组合行已在上面 diff 处理（update/createMany/deleteMany），不再嵌套写入
             }
           : {}),
       },
