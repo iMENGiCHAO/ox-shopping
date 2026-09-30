@@ -52,6 +52,13 @@ export const productFormSchema = z
         z.object({
           attributes: z.array(z.object({ name: z.string(), value: z.string() })),
           stock: z.number().int().min(0),
+          /**
+           * 乐观锁快照（服务端锁内比对，防复活超卖）。
+           * ⚠️ 必须声明在 schema 里：zodResolver 默认 strip 未知字段，
+           * 不声明则 draft→variants effect 写入的 expectedStock 会被剥掉，
+           * 表单路径失去乐观锁保护（大爷 2026-09-30 报障排查发现）。
+           */
+          expectedStock: z.number().int().min(0).nullable().optional(),
           price: z.number().min(0).nullable(),
           sku: z.string().nullable(),
           isActive: z.boolean(),
@@ -412,6 +419,12 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       sizeChart: chartClean,
       // 维度池已废止：表单是完整编辑，显式清空存量，避免「维度数字 ≠ 组合之和」
       specStock: null,
+      // ⚠️ 组合矩阵必须随 payload 上送（大爷 2026-09-30 报障根因）：此前重构
+      // handleSubmit 时把 variants 从 payload 里弄丢 —— 服务端 variants===undefined
+      // 跳过组合落库，填写的规格库存被整体丢弃；而 stock 按 Σ 落库又与变体脱节
+      // （前台读变体 → 「库存为 0 前端也没反应」）。表单与矩阵草稿经
+      // draft→variants effect 同步（含 expectedStock 乐观锁快照）。
+      variants: values.variants ?? [],
       images: values.images,
       attributes,
       status: values.status,
