@@ -151,6 +151,8 @@ export default async function ProductDetailPage(props: DetailPageProps) {
         value: string;
       }[],
       stock: v.stock,
+      // 组合图（可空 = 用商品主图）：选中组合后大图跟随切换（大爷 2026-10-01 需求）
+      image: typeof v.image === "string" && v.image ? v.image : null,
     }));
   const variantMode = activeVariants.length > 0;
   const selectableForPanel = variantMode
@@ -228,7 +230,7 @@ export default async function ProductDetailPage(props: DetailPageProps) {
         <div className="pdp-grid">
           <div className="pdp-media flex flex-col min-[1000px]:col-start-1 min-[1000px]:row-start-1">
             {/* 大图画廊 + 官方位置：Size Chart 参数表在大图下方（后台配置了的商品才显示） */}
-            <Gallery images={images} alt={productName} />
+            <Gallery images={images} alt={productName} productId={product.id} />
           </div>
 
           <div className="flex flex-col gap-4 min-[1000px]:sticky min-[1000px]:top-24 min-[1000px]:col-start-2 min-[1000px]:row-start-1 min-[1000px]:self-start">

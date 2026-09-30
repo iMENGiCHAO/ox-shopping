@@ -329,6 +329,21 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
     return sum + Math.max(0, Math.floor(Number(raw ?? "0") || 0));
   }, 0);
 
+  /* ── 组合图（图随规格联动，大爷 2026-10-01 需求）──────────────────────
+   * 图按**第一个属性组（父组）的取值**配一套（电商惯例：黑色一套图、白色
+   * 一套图；尺码不换图）。选中该组合后，前台大图切到该父组值的图。
+   * { 父组值: 图 URL }；未配 = 该组合用商品主图。 */
+  const [variantImages, setVariantImages] = React.useState<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    for (const v of initial?.variants ?? []) {
+      const first = v.attributes?.[0];
+      if (v.image && first?.name && first?.value && !(first.value in out)) {
+        out[first.value] = v.image;
+      }
+    }
+    return out;
+  });
+
   /** 某父组值的库存合计（只读派生：其名下全部子组组合之和，不可手写） */
   const groupTotal = (groupValue: string): number =>
     variantCombos
@@ -343,24 +358,33 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   // 组合不在新矩阵里 = 已删除的组，随后端 deleteMany 一并清理）。
   // expectedStock = 表单加载时的库存快照（服务端锁内比对防复活超卖，
   // P1-1 商用审计）；新增组合（prev 不存在）为 null = 跳过比对。
+  // image = 组合图（大爷 2026-10-01 需求）：按**父组值的配置**优先
+  // （运营上传的图即使用户后来清掉也以配置为准），未配置保留已存值。
   React.useEffect(() => {
     const saved = initial?.variants ?? [];
     const rows = variantCombos.map((attrs) => {
       const d = matrixDraft[comboKey(attrs)];
       const prev = saved.find((v) => comboKey(v.attributes) === comboKey(attrs));
+      const firstValue = primaryGroup
+        ? (attrs.find((a) => a.name === primaryGroup.name)?.value ?? "")
+        : "";
+      const image =
+        firstValue in variantImages
+          ? (variantImages[firstValue] || null)
+          : (prev?.image ?? null);
       return {
         attributes: attrs,
         stock: Math.max(0, Math.floor(Number(d?.stock ?? "0") || 0)),
         expectedStock: prev?.stock ?? null,
         price: prev?.price ?? null,
         sku: prev?.sku ?? null,
-        image: prev?.image ?? null,
+        image,
         isActive: prev?.isActive ?? true,
       };
     });
     form.setValue("variants", rows, { shouldDirty: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [matrixDraft, variantCombos]);
+  }, [matrixDraft, variantCombos, variantImages]);
 
   // 有规格组时把实时汇总写入 stock 表单值：库存输入框是只读展示（绑 matrixTotal），
   // 但 zod 的 stock 必填校验看的是**表单值** —— 不回写会在「新建 + 带规格」时被拦截。
@@ -748,6 +772,33 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
             ) : (
               <p className="text-xs text-muted-foreground">请先在上方填写属性的可选值。</p>
             )}
+            {/* 组合图（图随规格联动，大爷 2026-10-01 需求）：每个父组值一套图，
+                顾客选中该组合后，前台大图自动切到该父组值的图；未配 = 用商品主图 */}
+            {variantCombos.length > 0 && primaryGroup ? (
+              <div className="space-y-2 border-t border-border pt-3">
+                <p className="text-[13px] font-medium">组合图（按{primaryGroup.name}配图）</p>
+                <p className="text-xs text-muted-foreground">
+                  每个{primaryGroup.name}的取值配一套图（可多张，第一张为主图）：顾客选中后，
+                  前台大图自动切到对应图。未配 = 全部用商品主图。
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {primaryGroup.values.map((gv) => (
+                    <div key={gv} className="space-y-1">
+                      <p className="text-xs font-medium">
+                        {primaryGroup.name}：{gv}
+                      </p>
+                      <ImageUploader
+                        purpose="products"
+                        value={variantImages[gv] ? [variantImages[gv]] : []}
+                        onChange={(urls) =>
+                          setVariantImages((prev) => ({ ...prev, [gv]: urls[0] ?? "" }))
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 

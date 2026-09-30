@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ImageWithFallback } from "@/components/ui/image-with-fallback";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,8 @@ import { useT } from "@/components/shop/lang-provider";
 export interface GalleryProps {
   images: string[];
   alt: string;
+  /** 商品 id（图随规格联动：只响应本商品的 variant:image 事件） */
+  productId?: string;
   className?: string;
 }
 
@@ -52,10 +54,25 @@ interface FlyFrom {
  * 实现要点：所有 transform 统一由 React style 管理；换片动画先缓动到邻居居中、
  * 过渡结束后再无跳变地交换 active（位置连续，绝不闪跳）；拖拽期间禁用过渡保证跟手。
  */
-export function Gallery({ images, alt, className }: GalleryProps) {
+export function Gallery({ images, alt, productId, className }: GalleryProps) {
   const t = useT();
   const [active, setActive] = useState(0);
   const [open, setOpen] = useState(false);
+  /* 图随规格联动（大爷 2026-10-01 需求）：选中颜色/规格后大图切到该组合的图。
+     BuyPanel（右栏，管选中）在选中变化时广播 variant:image 事件；这里监听后
+     把组合图**前置到大图首位**（官方 Shopify 行为：选颜色 → 主图切到该颜色）。 */
+  const [variantImage, setVariantImage] = useState<string | null>(null);
+  useEffect(() => {
+    const onVariantImage = (e: Event) => {
+      const detail = (e as CustomEvent).detail as
+        | { image?: string | null; productId?: string }
+        | null;
+      if (detail?.productId && productId && detail.productId !== productId) return;
+      setVariantImage(detail?.image ?? null);
+    };
+    window.addEventListener("variant:image", onVariantImage);
+    return () => window.removeEventListener("variant:image", onVariantImage);
+  }, [productId]);
   /* 灯箱状态：stage 0=适配 · 1=放大(高贴窗) · 2=3×全向拖拽 */
   const [stage, setStage] = useState<0 | 1 | 2>(0);
   const zoomLevelRef = useRef<0 | 1 | 2>(0);
@@ -76,7 +93,18 @@ export function Gallery({ images, alt, className }: GalleryProps) {
   const [slowSettle, setSlowSettle] = useState(false);
   const [flyFrom, setFlyFrom] = useState<FlyFrom | null>(null);
 
-  const list = images.filter((src) => src.length > 0);
+  /** 图集 = 组合图前置（选中组合有图时）+ 商品主图（去重）；
+   *  组合图切换时大图自动回到首位（官方行为：选颜色 → 主图切到该颜色） */
+  const list = useMemo(() => {
+    const base = images.filter((src) => src.length > 0);
+    if (!variantImage || base.includes(variantImage)) return base;
+    return [variantImage, ...base];
+  }, [images, variantImage]);
+  // 组合图变化 → 重置到新图（前置图在首位；无组合图时回到商品主图第一张）
+  const headKey = list[0] ?? "";
+  useEffect(() => {
+    setActive(0);
+  }, [headKey]);
   const current = list[active] ?? list[0];
 
   const stageRef = useRef<HTMLDivElement | null>(null); // 主图舞台(飞入源矩形)

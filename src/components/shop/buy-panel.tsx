@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { QuantityInput } from "@/components/shop/quantity-input";
 import { AddToCartButton } from "@/components/shop/add-to-cart-button";
 import { BuyNowButton } from "@/components/shop/buy-now-button";
@@ -24,8 +24,13 @@ export interface SpecGroup {
 }
 
 export interface BuyPanelProps {
-  /** 组合粒度变体（可选）：{ attributes, stock }[]，attributes 为该组合的属性快照 */
-  variants?: { attributes: { name: string; value: string }[]; stock: number }[];
+  /** 组合粒度变体（可选）：{ attributes, stock, image }[]，attributes 为该组合的属性快照；
+   *  image 为该组合的图（可空 = 用商品主图）——选中组合后大图跟随切换 */
+  variants?: {
+    attributes: { name: string; value: string }[];
+    stock: number;
+    image?: string | null;
+  }[];
   productId: string;
   stock: number;
   /** 预售：0 库存仍可下单 */
@@ -206,6 +211,19 @@ export function BuyPanel({
       ) ?? null
     );
   })();
+
+  /* 图随规格联动（大爷 2026-10-01 需求）：选中组合后大图切到该组合的图。
+     BuyPanel 管选中状态、Gallery 管图集（左右两栏分离）——用 window 自定义
+     事件解耦（与 cart:open 同款模式）；Gallery 监听后把组合图前置到大图首位。 */
+  const selectedImage = selectedVariant?.image ?? null;
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("variant:image", {
+        detail: { image: selectedImage, productId },
+      }),
+    );
+  }, [selectedImage, productId]);
+
   // 变体模式：数量上限用**当前组合**的库存（商品级只是汇总）
   const effectiveStock = selectedVariant ? selectedVariant.stock : stock;
 
