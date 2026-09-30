@@ -397,3 +397,17 @@ docs/                      本文档及速查/部署/清单/设计文档
 6. **i18n 前台**：路由级 locale（`/zh` `/en` + `x-lang`）与词典覆盖已落地；剩余为 `/zh` 全量文案走查（此前以英文为主）。
 7. **联系表单留言缺后台收件箱**：`ContactMessage` 已落库 + 邮件通知 `contactEmail`，但没有独立的后台列表页/API（见 §2.14）；若留言量上来需要补 `/admin/contact-messages`。
 8. **Phase 13.9 收尾待办**：死代码清理（需 knip 类工具全量扫描）+ 文档收口。
+9. **2026-09-30 体检后有意延后的低影响项**（修复记录见 CHANGELOG 当日条目）：
+   - 订单快照 `OrderItem.productName` 只存 zh 名（双语目录下英文用户在历史订单看到
+     中文名）——需要加 nameEn 列做迁移；当前种子 name==nameEn 不可见，暂缓。
+   - 购物车抽屉监听的 `auth:changed` 事件全仓库无人派发（死监听，靠抽屉关闭卸载/
+     重开重读 cookie 才不出错）——死代码清理时一并处理。
+   - `BuyNowButton` 的「Buy Now → /checkout」与 `?buyNow=` 入口无生产者（仅以
+     Notify me 渲染）——死代码路径，恢复前需先打通。
+   - admin 订单列表/导出的 q 搜索走 addressSnapshot JSON path 无索引（仅管理端、
+     频率低，50 万行下 seq scan）。
+   - legacy specStock（维度池存量）商品的 PDP 数量上限用商品总量（变体模式已正确）——
+     存量商品保存一次即收敛为组合粒度，随存量清零自然消失。
+   - dev server 长时间运行后 Turbopack 文件监视可能失效（改动后路由仍用旧编译，
+     实测 preview 路由加 variants 后响应无该键）——重启 + `rm -rf .next` 即恢复；
+     生产构建不受影响。
