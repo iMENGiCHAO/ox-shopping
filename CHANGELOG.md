@@ -9,6 +9,30 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-30（三）· 编辑表单规格库存保存被整体丢弃：payload 缺 variants（大爷第二报）
+
+报障原文：「弹层填的库存前端可以正常使用；点编辑入口填写的库存就不行，很快
+恢复为 0；库存为 0 前端也没反应；唯独大表弹层填入的能用。」
+
+排查（真浏览器抓取 PUT 请求体定位）：**编辑表单的 PUT 请求体里没有 variants
+字段**——前一轮重构 handleSubmit 时把 `variants` 从 payload 里弄丢：
+
+- 服务端 `variants === undefined` → 跳过组合落库 → 填写的规格库存**整体被丢弃**
+  （DB 变体保持旧值，重开表单「恢复为原值/0」）
+- `stock` 按表单 Σ 落库但变体没动 → 商品级 stock 与变体之和**脱节**——前台
+  的售罄判定/可售量读的是**变体**数据 → 「库存为 0 前端也没反应」
+- 大表弹层路径直接发 variants → 一切正常（「唯独弹层的能用」）
+
+### 修复
+1. `handleSubmit` payload 补回 `variants: values.variants ?? []`
+2. 前端 zod schema（`productFormSchema`）的 variants 补 `expectedStock` 声明——
+   zodResolver 默认 strip 未知字段，不声明则 draft→variants effect 写入的
+   乐观锁快照被剥掉，表单路径失去防复活超卖保护（连带隐患，排查中发现）
+
+真浏览器验证：PUT 请求体含全量 variants（stock=7 + expectedStock=6 乐观锁快照）；
+DB 变体 6→7 落库；重开表单预填 7（不再恢复旧值）；商品级 stock=19=Σ ✓。
+前台售罄联动闭环：3XL 填 0 → PDP 下拉显示「3XL — Sold out」→ 还原 ✓。
+
 ## 2026-09-30（三）· 大表库存编辑「入不了库」报障修复：409 死循环 + 弹层实时拉最新
 
 大爷报障：「点编辑后填好后怎么就入不了库？我在大表上点开库存还是原来的老库存」
