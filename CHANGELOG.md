@@ -9,6 +9,84 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-09-30（三）· 全项目商用交付体检：修复 10+ 项（复活超卖 / 游客链路 / 支付死循环 / 防枚举）
+
+4 领域并行审计（订单/支付、前台购物、后台管理、安全/性能/数据完整性）+ 人工复核。
+**P0 交付阻断：认证绕过/注入/密钥泄漏/下单并发超卖/级联丢财务数据均未发现**
+（103 个 admin 路由 RBAC 逐一验证零缺失；行锁/幂等/防超卖/资金链路完整）。
+
+### P1 商业逻辑（已修）
+- **后台编辑 variants 复活超卖（全项目离 P0 最近的洞）**：PUT 此前 deleteMany
+  全量替换 + 按「表单加载时」快照重建——管理员打开表单后顾客下单扣减，保存时
+  （哪怕只改标题）快照把已卖库存复活 → 超卖；多管理员并发编辑后保存者整体覆盖。
+  现改**乐观锁 + diff 落库**：前端上送 expectedStock（加载时快照），服务端在
+  products 行锁内（FOR UPDATE，与下单扣减串行）比对，不一致 → 409
+  「库存已被其他操作变更，请刷新后重试」；传入组合按签名分拣 update/createMany、
+  矩阵外旧组合定点删除（不再全表 deleteMany）。实测冒烟：过期快照 409、
+  正确快照 200、新增组合 200。
+- **proxy 静默续期绕过 refresh 限流**：单飞只对「同 token 并发」生效，脚本化
+  顺序轮换链（每次用新 token）可无限灌 refresh_tokens 表。静默续期分支加同款
+  IP 限流（10/min，与 /api/auth/refresh 同策略）。
+- **游客组合粒度未贯通**：preview 只返回商品级 stock → 游客购物袋/结账页全是
+  总库存，售罄组合显示有货、结账提交才报错。preview 下发 variants 明细，
+  guest-cart / cart-provider / checkout-flow 按所选规格用
+  `variantAvailableQuantity` 算行级可售量（与登录用户同一函数）。
+- **游客下单成功不清 localStorage**：付款后购物车照旧、可重复下单。下单成功
+  即清游客车（登录单走服务端车，事务内已清）。
+- **reorder 未接组合粒度**：specAvailableQuantity 不传 variants 回落总库存，
+  「组合剩 2、总量 50」的行不被压量 → 整行被跳过。传入 variants 同口径。
+- **预售单次上限不统一**：PDP 承诺最多 5 件，但抽屉 max=99、合并封顶 99、
+  服务端下单无上限。收口 `lib/inventory` `MAX_PRESALE_QTY=5`（单一事实来源）：
+  下单入口直接封顶订单行数量（小计/扣减/回补/销量同口径，API 直调无法绕过），
+  抽屉/合并/购物车页五处统一。
+- **领券中心金额不按访客币种换算**：formatMoney 是 USD 基准——CNY 访客看到
+  商品 ¥、券卡 "$"；EUR 下两种格式混用。改 convertPrice + formatAmount
+  （与全站同一口径）。
+- **sitemap 无缓存 + 静默截断 + 无索引**：force-dynamic 让每次爬虫抓取全量查库
+  （50 万行 seq scan）；take 5000 静默截断更早商品无任何线索。改 revalidate 3600 +
+  截断告警（提示切换 generateSitemaps 分片）+ Product 加
+  `[status, updatedAt(sort:Desc)]` 索引（db push 已落库）。
+
+### P2 明显 bug（已修）
+- **下单清购物车按 productId 整删**：同商品 Size S + M 两行只下单 S → M 行也被
+  误删。改按 (productId, attributesKey) 逐行匹配。
+- **mock 渠道支付死循环**：「PAYMENT_MODE=stripe + 后台启用 mock 渠道 +
+  ALLOW_MOCK_PAYMENT_IN_PROD=true」组合下 createPaymentUrl 放行、mock-pay 恒 403
+  （口径不一致）——顾客进模拟支付页无法支付，订单 30 分钟后自动取消。mock-pay
+  守卫改按**订单支付渠道**判定（与渠道分发一致）。
+- **登录防枚举缺口**：不存在邮箱直接 401（无 bcrypt），与存在邮箱的 bcrypt 12 轮
+  秒级时间差可批量探测已注册邮箱。用户不存在时对固定 dummy hash（base64 存放，
+  运行时解码——`$2` 前缀会被 qa-hardcode 的美元金额规则误判）跑同成本比对。
+- **取消/退款回补后变有货的商品不触达到货提醒**：变体分支此前 continue 跳过
+  restockedProductIds；变体 + 非变体分支都进累加器，事务后 notifyRestock
+  （网关退款路径同样补齐）。
+- **forgot-password 回执硬编码中文**：成功载荷不走 apiHandler 错误本地化出口，
+  英文用户看到中文回执。改英文源串（前端表单用自己的 t() 文案，不受影响）。
+- **CSP img-src 硬编码 `https://*.amazonaws.com`**：MinIO/R2/CDN 部署的商品图
+  全被 CSP 拦截。改从 S3_PUBLIC_URL 派生主机追加白名单（配置派生，不写死云厂商）。
+- **调度器清理 deleteMany 无批上限**：单条 DELETE 删数十万行 → 长事务、行锁持有、
+  WAL 突发。改 1000 行/批循环删除（Prisma deleteMany 无 take：findMany 取批 +
+  按 id 删），每批独立短事务。
+- **PDP「仅剩 N 件」用商品总量**：组合剩 2/总量 8 漏提示、总量 3/组合 20 错误
+  提示。改用当前组合库存（effectiveStock）。
+- **JSON-LD availability 不反映预售**：预售 stock=0 输出 OutOfStock 与「可预订」
+  矛盾（Google Merchant 误判）。改 isPresale → `schema.org/PreOrder`。
+- **颜色 swatch 选中值可从选择器消失**：选 Black 后把 Size 切到 M（Black/M 不
+  存在）→ Black 色块被过滤，标签仍显示 "Color: Black" 且无法点回。当前选中值
+  保留渲染 + 售罄划线。
+- **购物车抽屉不做缺货闸门**：有缺货行仍直达 /checkout，填完表单提交才报错。
+  与 /cart 页同口径：结账按钮切「先处理缺货」。
+- **变体商品加购允许无规格行**：无规格行在变体商品上是「死行」（可售量恒 0），
+  行标缺货、阻断结账。加购入口直接拒绝并指明「请先选择规格」。
+- **cart-provider 字面量 50** → MAX_CART_ITEMS（含词典参数化同步）。
+- **checkout 幂等键 crypto.randomUUID 无兜底**：纯 HTTP（非 localhost）部署下
+  TypeError 下单不可用。回退 randomToken（getRandomValues 不受 secure context 限制）。
+
+### 体检后 verify 恢复全绿
+此前 `npm run verify` 实际挂在 qa:error-lang（5 处顾客可见错误文案硬编码中文，
+见上一条目）与 qa:hardcode（bcrypt hash 误报）。两处修复后：
+**tsc 0 · verify exit 0 · 单测 28 文件 301/301 · 集成 21 文件 172/172**。
+
 ## 2026-09-30（三）· 多属性组合库存：全链路统一（父组只读 + 存量全兼容 + 五个真 bug 修复）
 
 大爷定稿业务模型（全站唯一口径）：**第一个添加的可选属性组 = 父组，后面添加的都是
