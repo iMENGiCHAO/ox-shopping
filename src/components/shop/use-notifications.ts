@@ -57,13 +57,17 @@ export function useNotifications() {
       if (document.visibilityState === "visible") void fetchUnread();
     };
     document.addEventListener("visibilitychange", onVisible);
-    // 监听登录/登出事件
+    // 监听登录/登出事件（真实派发点：login-form / account-logout-button）——
+    // 此前监听的 "auth:changed" 无人派发（死监听）：登录后未读数不会立即刷新，
+    // 靠 30 秒轮询兜底才更新。
     const onAuthChanged = () => void fetchUnread();
-    window.addEventListener("auth:changed", onAuthChanged);
+    window.addEventListener("auth:login", onAuthChanged);
+    window.addEventListener("auth:logout", onAuthChanged);
     return () => {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("auth:changed", onAuthChanged);
+      window.removeEventListener("auth:login", onAuthChanged);
+      window.removeEventListener("auth:logout", onAuthChanged);
     };
   }, [fetchUnread]);
 

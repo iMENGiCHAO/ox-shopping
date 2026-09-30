@@ -26,9 +26,15 @@ function useIsLoggedIn() {
       );
     };
     check();
-    // 监听登录/登出事件
-    window.addEventListener("auth:changed", check);
-    return () => window.removeEventListener("auth:changed", check);
+    // 监听登录/登出事件（真实派发点：login-form / account-logout-button）——
+    // 此前监听的 "auth:changed" 全仓库无人派发（死监听）：抽屉开着时登录/登出，
+    // 「我的账户」入口不会同步出现/消失（靠关闭抽屉重开才修正）。
+    window.addEventListener("auth:login", check);
+    window.addEventListener("auth:logout", check);
+    return () => {
+      window.removeEventListener("auth:login", check);
+      window.removeEventListener("auth:logout", check);
+    };
   }, []);
   return loggedIn;
 }
