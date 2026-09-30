@@ -166,15 +166,24 @@ export function totalVariantStock(variants: VariantLike[]): number {
  *   组合不存在 / 已下架 / 库存 0 → 返回 0（售罄，绝不能回落总库存 ——
  *   总库存是全部组合之和，回落会让「黑/S 售罄但白/M 有货」的售罄组合被加进购物车）。
  * - 未传变体列表（非变体模式）→ 返回 fallback（调用方的商品总库存）。
+ * 接受窄结构 { attributes, stock, isActive? }（isActive 缺省按 active ——
+ * preview 接口已在服务端过滤 active，前端无需 id）；完整 VariantLike 亦兼容。
  * 与 planVariantDeduction / findVariant 同签名口径，前后端共用。
  */
 export function variantAvailableQuantity(
-  variants: VariantLike[] | null | undefined,
+  variants:
+    | { attributes: VariantAttributes[]; stock: number; isActive?: boolean }[]
+    | null
+    | undefined,
   selection: VariantAttributes[] | Record<string, string> | null | undefined,
   fallback: number,
 ): number {
   if (!variants || variants.length === 0) return fallback;
-  const variant = findVariant(variants, normalizeSelection(selection ?? []));
+  const sig = variantSignature(normalizeSelection(selection ?? []));
+  if (!sig) return 0; // 变体商品必须选组合：无可购对象
+  const variant = variants.find(
+    (v) => (v.isActive ?? true) && variantSignature(v.attributes) === sig,
+  );
   if (!variant) return 0;
   return Math.max(0, Math.floor(variant.stock));
 }

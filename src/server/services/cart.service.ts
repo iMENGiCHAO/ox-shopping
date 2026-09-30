@@ -2,6 +2,8 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { MAX_CART_ITEM_QUANTITY, MAX_CART_ITEMS } from "@/lib/constants";
+import { MAX_PRESALE_QTY } from "@/lib/inventory";
+import { pickName, type Lang } from "@/lib/shop-i18n";
 import { badRequest, notFound } from "@/lib/errors";
 import type { SpecSelection } from "@/components/shop/types";
 import {
@@ -95,7 +97,7 @@ export function specAvailableQuantity(
 ): number {
   if (product.isPresale) return Infinity;
   if (variants && variants.length > 0) {
-    return variantAvailableQuantity(variants, (attributes ?? []) as never, product.stock);
+    return variantAvailableQuantity(variants, attributes ?? [], product.stock);
   }
   const raw = product.specStock;
   if (!raw || typeof raw !== "object") return product.stock;
@@ -143,6 +145,8 @@ export async function loadActiveVariants(
 
 export async function getCart(
   userId: string,
+  /** 请求语种（P2-1）：商品名按语种挑（nameEn 优先于英文界面）；缺省回退中文名 */
+  lang: Lang = "zh",
 ): Promise<{ items: CartLine[]; count: number; subtotal: number }> {
   const items = await prisma.cartItem.findMany({
     where: { userId },
@@ -161,7 +165,10 @@ export async function getCart(
     lines.push({
       id: item.id,
       productId: item.product.id,
-      name: item.product.name,
+      // 商品名按请求语种挑（P2-1 商用审计）：双语数据（name=zh、nameEn=en）下
+      // 英文用户在购物车/结账/订单快照看中文名，而 PDP/PLP 是英文名 ——
+      // 这里是购物车/抽屉/结账三处的单一修复点（都渲染 line.name）
+      name: pickName(item.product.name, item.product.nameEn ?? null, lang),
       slug: item.product.slug,
       image: Array.isArray(item.product.images)
         ? ((item.product.images[0] as string) ?? null)
@@ -212,6 +219,14 @@ export async function addToCart(
   // 判断库存的唯一口径：组合粒度可售量（变体模式按所选组合；未配规格即总库存；
   // 预售 Infinity 不拦）——组合不存在/售罄在加购入口就拦住，不等下单才报错
   const [variants] = await Promise.all([loadActiveVariants([productId])]);
+  // 变体商品必须选组合（P2-2 商用审计）：无规格行在变体商品上是「死行」——
+  // 可售量恒 0（组合粒度无此对象），行标缺货、阻断结账，只能删除重加；
+  // 旧版无规格游客条目合并后就会产生这种行。加购入口直接拒绝并指明原因。
+  if ((variants.get(productId)?.length ?? 0) > 0 && (!attributes || attributes.length === 0)) {
+    throw badRequest(
+      "Please select the available options (e.g. color/size) before adding to the bag",
+    );
+  }
   const available = specAvailableQuantity(product, attributes, variants.get(productId) ?? null);
   if (!product.isPresale && newQuantity > available) {
     throw badRequest(`Not enough stock — only ${available} left`);
@@ -304,7 +319,11 @@ export async function mergeLocalCart(userId: string, local: LocalCartLine[]): Pr
       variantsByProduct.get(line.productId) ?? null,
     );
     const stockCap = Number.isFinite(available) ? available : MAX_CART_ITEM_QUANTITY;
-    const cap = info.isPresale ? MAX_CART_ITEM_QUANTITY : Math.min(MAX_CART_ITEM_QUANTITY, stockCap);
+    // 预售：不受库存上限约束，但受「单预售商品最多 5 件」业务规则约束
+    // （P1-3 商用审计：lib/inventory 单一事实来源，与 PDP/购物车页/抽屉/下单同口径）
+    const cap = info.isPresale
+      ? Math.min(MAX_CART_ITEM_QUANTITY, MAX_PRESALE_QTY)
+      : Math.min(MAX_CART_ITEM_QUANTITY, stockCap);
     const merged = Math.min((existing?.quantity ?? 0) + line.quantity, cap);
     if (existing) {
       await prisma.cartItem.update({ where: { id: existing.id }, data: { quantity: merged } });

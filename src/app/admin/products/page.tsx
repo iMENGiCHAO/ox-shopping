@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Check, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { apiFetch, apiFetchRaw } from "@/lib/fetch-client";
+import { apiFetch, apiFetchRaw, ApiClientError } from "@/lib/fetch-client";
 import { formatMoney } from "@/lib/utils";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ProductForm, type ProductFormPayload } from "@/components/admin/product-form";
@@ -132,6 +132,8 @@ function AdminProductsPageInner() {
   // 组合矩阵（父组×子组组合粒度）的内联编辑状态：{ 组合签名: 库存字符串 }
   const [variantEditId, setVariantEditId] = React.useState<string | null>(null);
   const [variantEditValue, setVariantEditValue] = React.useState<Record<string, string>>({});
+  // 乐观锁快照（P1-1）：编辑开始时每组合的库存，保存时上送做锁内比对
+  const variantExpectedRef = React.useRef<Record<string, number>>({});
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -368,9 +370,15 @@ function AdminProductsPageInner() {
 
   const startVariantEdit = (product: AdminProduct) => {
     const init: Record<string, string> = {};
+    // 乐观锁快照（P1-1 商用审计）：编辑开始时每个组合的库存，保存时随 PUT 上送，
+    // 服务端锁内与库内现值比对——不一致（期间有下单扣减）→ 409 拒绝保存
+    const expected: Record<string, number> = {};
     for (const attrs of comboCombosOf(product)) {
-      init[variantSignature(attrs)] = String(comboStockOf(product, attrs));
+      const stock = comboStockOf(product, attrs);
+      init[variantSignature(attrs)] = String(stock);
+      expected[variantSignature(attrs)] = stock;
     }
+    variantExpectedRef.current = expected;
     setVariantEditValue(init);
     setVariantEditId(product.id);
     setStockEditId(null);
@@ -401,11 +409,13 @@ function AdminProductsPageInner() {
     const existing = product.variants ?? [];
     const variants = comboCombosOf(product).map((attrs) => {
       const key = variantSignature(attrs);
-      // 已存组合保留覆盖价/SKU/组合图/上架状态（矩阵只管库存，不洗其它数据）
+      // 已存组合保留覆盖价/SKU/组合图/上架状态（矩阵只管库存，不洗其它数据）；
+      // expectedStock = 编辑开始时的快照（服务端锁内比对，防复活超卖）
       const saved = existing.find((v) => variantSignature(v.attributes) === key);
       return {
         attributes: attrs,
         stock: Math.max(0, Math.floor(Number(variantEditValue[key] ?? "0") || 0)),
+        expectedStock: variantExpectedRef.current[key] ?? null,
         price: saved?.price ?? null,
         sku: saved?.sku ?? null,
         image: saved?.image ?? null,
@@ -413,8 +423,8 @@ function AdminProductsPageInner() {
       };
     });
     try {
-      // 走商品复用 PUT：服务端把商品级 stock 重算为 Σ 变体，并同步清空维度池
-      // specStock（两套模型互斥）；全量替换，不在新矩阵里的旧组合随之清理。
+      // 走商品复用 PUT：服务端行锁内做乐观锁比对 + diff 落库，把商品级 stock
+      // 重算为 Σ 变体，并同步清空维度池 specStock（两套模型互斥）。
       await apiFetch(`/api/admin/products/${product.id}`, {
         method: "PUT",
         body: JSON.stringify({
@@ -427,6 +437,8 @@ function AdminProductsPageInner() {
       setVariantEditId(null);
       void load();
     } catch (err) {
+      // 409 = 期间有下单扣减/其他编辑，快照已过时 —— 刷新行数据让运营重录
+      if (err instanceof ApiClientError && err.status === 409) void load();
       toast.error(err instanceof Error ? err.message : "更新规格库存失败");
     }
   };

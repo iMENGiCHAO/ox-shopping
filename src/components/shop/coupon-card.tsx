@@ -3,14 +3,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { CouponCodeCopy } from "@/components/shop/coupon-code-copy";
 import type { CouponData } from "@/components/shop/types";
 import { couponDescription, couponHeadline, couponMinSpendLabel, couponTitle } from "@/lib/coupon";
-import { cn, formatMoney } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { convertPrice, formatAmount } from "@/components/shop/currency";
+import { getCurrencyCode, getRateSnapshot } from "@/components/shop/currency-server";
 import { getLang, getT } from "@/lib/shop-i18n-server";
 
 /**
  * 折扣码卡片（服务端组件；复制按钮是唯一的客户端子组件）。
  *
- * 卖点/门槛/标题文案统一由 `@/lib/coupon` 的纯函数生成，金额走 formatMoney
- * （基础币种 USD，与后台录入口径一致），不在卡片里硬编码货币符号或折扣算法。
+ * 卖点/门槛/标题文案统一由 `@/lib/coupon` 的纯函数生成，金额按**访客所选币种**
+ * 换算展示（与全站 PDP/购物车/结账同一套 convertPrice + formatAmount 口径），
+ * 不在卡片里硬编码货币符号或折扣算法。
  */
 export async function CouponCard({
   coupon,
@@ -24,7 +27,13 @@ export async function CouponCard({
 }) {
   const t = await getT();
   const lang = await getLang();
-  const money = (n: number) => formatMoney(n);
+  // 访客币种换算（P1-5 商用审计）：此前 formatMoney 是 USD 基准不换算 ——
+  // CNY 访客看到商品 ¥、券卡却是 "Save $10.00"，无法与页面价格对照；
+  // EUR 下 formatMoney（符号在后）与全站 formatAmount（符号在前）两种格式混用。
+  const code = await getCurrencyCode();
+  const { rates } = await getRateSnapshot();
+  const rate = rates[code] ?? 1;
+  const money = (n: number) => formatAmount(convertPrice(n, rate), code);
 
   const title = couponTitle(coupon, lang);
   const description = couponDescription(coupon, lang);

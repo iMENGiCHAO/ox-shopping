@@ -1,9 +1,15 @@
 import type { MetadataRoute } from "next";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
 
-export const dynamic = "force-dynamic";
+// 缓存 1 小时（P1-3 商用审计）：此前 force-dynamic 让每次爬虫抓取都全量查库
+// （50 万行 seq scan + top-N sort）；商品目录按小时级变化足够，爬虫无感。
+export const revalidate = 3600;
 
 const BASE_URL = (process.env.SITE_URL || "http://localhost:3000").replace(/\/$/, "");
+
+/** sitemap 单文件收录上限（Google 单文件 5 万 URL 硬上限；此处更保守） */
+const SITEMAP_MAX_PRODUCTS = 5000;
 
 /** 语言交替链接：无前缀=英文(canonical/x-default)，/zh=中文（P1-1 方案 B） */
 function hreflang(url: string) {
@@ -34,18 +40,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   });
 
   try {
-    const [products, categories] = await Promise.all([
+    const [products, categories, activeProductCount] = await Promise.all([
       prisma.product.findMany({
         where: { status: "ACTIVE" },
         select: { slug: true, updatedAt: true },
         orderBy: { updatedAt: "desc" },
-        take: 5000,
+        take: SITEMAP_MAX_PRODUCTS,
       }),
       prisma.category.findMany({
         where: { isActive: true },
         select: { slug: true },
       }),
+      prisma.product.count({ where: { status: "ACTIVE" } }),
     ]);
+
+    // 收录截断必须显式（P1-3 商用审计）：此前 take 5000 静默截断，更早商品从
+    // 收录里消失且无任何线索。目录增长到超限时告警，提醒切换 generateSitemaps
+    // 分片（Next 约定，见 node_modules/next/dist/docs 的 sitemap 文档）。
+    if (activeProductCount > SITEMAP_MAX_PRODUCTS) {
+      logger.warn(
+        { activeProductCount, sitemapLimit: SITEMAP_MAX_PRODUCTS },
+        "[sitemap] 商品数超过 sitemap 单文件上限，更早商品未收录 —— 请切换 generateSitemaps 分片",
+      );
+    }
 
     return [
       ...statics,

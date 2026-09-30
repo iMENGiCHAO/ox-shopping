@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { env } from "@/lib/env";
 
 /**
  * Proxy 中间件纯函数模块（P1-2 职责拆分）：
@@ -20,6 +21,22 @@ export function randomNonce(): string {
 }
 
 /**
+ * S3 公网图床主机（P2-2 商用审计）：从 S3_PUBLIC_URL 派生。
+ * S3 模式的商品图直接指向该 URL（支持 AWS / MinIO / R2 / 任意 CDN），
+ * CSP img-src 若只白名单 `https://*.amazonaws.com`，非 AWS 部署的商品图
+ * 会被 CSP 全部拦截（前台图全挂）。未配置（本地存储模式）返回 null。
+ */
+function s3ImageHost(): string | null {
+  const raw = env.S3_PUBLIC_URL?.trim();
+  if (!raw) return null;
+  try {
+    return new URL(raw).host || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 构造 CSP 头字符串。
  * @param nonce   生产模式 per-request nonce；开发模式传空串（不产生 nonce 指令）
  * @param isProd  是否生产环境（决定 strict-dynamic 与宽松策略）
@@ -28,9 +45,12 @@ export function buildCsp(nonce: string, isProd: boolean): string {
   const scriptSrc = isProd
     ? `'self' 'nonce-${nonce}' 'strict-dynamic' https://js.stripe.com`
     : `'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com`;
+  // img-src 追加 S3 图床主机（配置派生，不写死云厂商 —— MinIO/R2/CDN 部署可用）
+  const s3Host = s3ImageHost();
+  const s3Directive = s3Host ? ` https://${s3Host}` : "";
   const imgSrc = isProd
-    ? "'self' data: blob: https://*.amazonaws.com"
-    : "'self' data: blob: http://localhost:*";
+    ? `'self' data: blob: https://*.amazonaws.com${s3Directive}`
+    : `'self' data: blob: http://localhost:*${s3Directive}`;
   const connectSrc = isProd
     ? "'self' https://api.stripe.com"
     : "'self' https://api.stripe.com http://localhost:* ws:";

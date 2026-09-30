@@ -153,6 +153,13 @@ const productBaseSchema = z.object({
           .min(1, "组合至少需要一个属性")
           .max(4),
         stock: z.number().int().min(0).max(1_000_000),
+        /**
+         * 乐观锁（2026-09-30 商用审计 P1-1）：表单/大表**加载时**的该组合库存快照。
+         * 服务端在 products 行锁内与库内现值比对——不一致（期间有下单扣减/其他
+         * 编辑）→ 409 拒绝保存，杜绝「快照复活已卖库存→超卖」。null/缺省 =
+         * 新增组合或旧客户端兼容（跳过比对）。
+         */
+        expectedStock: z.number().int().min(0).max(1_000_000).nullable().optional(),
         price: z.number().min(0).nullable().optional(),
         sku: z.string().trim().max(64).nullable().optional(),
         image: z.string().max(500).nullable().optional(),

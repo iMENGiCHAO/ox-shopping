@@ -1,4 +1,5 @@
 import "server-only";
+import { WebhookEventStatus, MailOutboxStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { logger } from "@/lib/logger";
 import { captureMessage } from "@/lib/monitoring";
@@ -112,6 +113,27 @@ async function acquireLease(): Promise<boolean> {
   return rows.length > 0;
 }
 
+/**
+ * 分批删除（P2-6 商用审计）：Prisma deleteMany 无 take，单条 DELETE 删数十万行
+ * 会产生长事务（行锁长时间持有、WAL 突发），阻塞同时段业务写入（orders 高频更新）
+ * —— 与租约「短事务抢锁」设计初衷相悖。按 1000 行/批循环：findMany 取一批 id →
+ * deleteMany 按 id 删，直到删完。每批是独立短事务。
+ */
+async function deleteManyBatched(
+  findBatch: (take: number) => Promise<{ id: string }[]>,
+  deleteIds: (ids: string[]) => Promise<number>,
+): Promise<number> {
+  const BATCH = 1000;
+  let total = 0;
+  for (;;) {
+    const rows = await findBatch(BATCH);
+    if (rows.length === 0) break;
+    total += await deleteIds(rows.map((r) => r.id));
+    if (rows.length < BATCH) break;
+  }
+  return total;
+}
+
 async function runAllJobs(): Promise<void> {
   // 1. 超时未支付订单自动取消（回补库存）
   try {
@@ -123,15 +145,17 @@ async function runAllJobs(): Promise<void> {
 
   // 2. 过期/已撤销 Refresh Token 清理（保留审计窗口：过期 7 天、撤销 30 天后删除）
   try {
-    const n = await prisma.refreshToken.deleteMany({
-      where: {
-        OR: [
-          { expiresAt: { lt: new Date(Date.now() - 7 * 86_400_000) } },
-          { revokedAt: { lt: new Date(Date.now() - 30 * 86_400_000) } },
-        ],
-      },
-    });
-    if (n.count > 0) logger.info({ count: n.count }, "[cron] 过期 Refresh Token 已清理");
+    const where = {
+      OR: [
+        { expiresAt: { lt: new Date(Date.now() - 7 * 86_400_000) } },
+        { revokedAt: { lt: new Date(Date.now() - 30 * 86_400_000) } },
+      ],
+    };
+    const n = await deleteManyBatched(
+      (take) => prisma.refreshToken.findMany({ where, select: { id: true }, take }),
+      (ids) => prisma.refreshToken.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+    );
+    if (n > 0) logger.info({ count: n }, "[cron] 过期 Refresh Token 已清理");
   } catch (err) {
     logger.error({ err }, "[cron] refreshToken 清理失败");
   }
@@ -140,10 +164,12 @@ async function runAllJobs(): Promise<void> {
   //     常要求 1-3 年，此前 90 天对商业交付偏短（createdAt 有索引，删除代价可控）。
   //     有更严格合规要求的市场，按当地法务调整窗口（或改为归档导出而非删除）。
   try {
-    const n = await prisma.auditLog.deleteMany({
-      where: { createdAt: { lt: new Date(Date.now() - 3 * 365 * 86_400_000) } },
-    });
-    if (n.count > 0) logger.info({ count: n.count }, "[cron] 3 年前审计日志已清理");
+    const where = { createdAt: { lt: new Date(Date.now() - 3 * 365 * 86_400_000) } };
+    const n = await deleteManyBatched(
+      (take) => prisma.auditLog.findMany({ where, select: { id: true }, take }),
+      (ids) => prisma.auditLog.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+    );
+    if (n > 0) logger.info({ count: n }, "[cron] 3 年前审计日志已清理");
   } catch (err) {
     logger.error({ err }, "[cron] auditLog 清理失败");
   }
@@ -151,13 +177,15 @@ async function runAllJobs(): Promise<void> {
   // 2c. Webhook 幂等账本保留 90 天：覆盖 Stripe 常规重试窗口，同时避免无限增长。
   // FAILED 事件不自动删除，必须保留给运营排查与补偿。
   try {
-    const n = await prisma.webhookEvent.deleteMany({
-      where: {
-        status: { in: ["PROCESSED", "IGNORED"] },
-        processedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
-      },
-    });
-    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前 Webhook 幂等记录已清理");
+    const where = {
+      status: { in: [WebhookEventStatus.PROCESSED, WebhookEventStatus.IGNORED] },
+      processedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
+    };
+    const n = await deleteManyBatched(
+      (take) => prisma.webhookEvent.findMany({ where, select: { id: true }, take }),
+      (ids) => prisma.webhookEvent.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+    );
+    if (n > 0) logger.info({ count: n }, "[cron] 90 天前 Webhook 幂等记录已清理");
   } catch (err) {
     logger.error({ err }, "[cron] webhookEvent 清理失败");
   }
@@ -165,13 +193,15 @@ async function runAllJobs(): Promise<void> {
   // 2d. 邮件 outbox 终态清理：SENT/FAILED 90 天滚动删除（FAILED 保留 lastError
   //     供排查，到 90 天同样回收，与 webhookEvent 的保留窗口一致）。
   try {
-    const n = await prisma.mailOutbox.deleteMany({
-      where: {
-        status: { in: ["SENT", "FAILED"] },
-        updatedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
-      },
-    });
-    if (n.count > 0) logger.info({ count: n.count }, "[cron] 90 天前邮件 outbox 终态记录已清理");
+    const where = {
+      status: { in: [MailOutboxStatus.SENT, MailOutboxStatus.FAILED] },
+      updatedAt: { lt: new Date(Date.now() - 90 * 86_400_000) },
+    };
+    const n = await deleteManyBatched(
+      (take) => prisma.mailOutbox.findMany({ where, select: { id: true }, take }),
+      (ids) => prisma.mailOutbox.deleteMany({ where: { id: { in: ids } } }).then((r) => r.count),
+    );
+    if (n > 0) logger.info({ count: n }, "[cron] 90 天前邮件 outbox 终态记录已清理");
   } catch (err) {
     logger.error({ err }, "[cron] mailOutbox 清理失败");
   }

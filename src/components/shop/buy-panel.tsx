@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { isScarceInStock } from "@/lib/inventory";
+import { isScarceInStock, MAX_PRESALE_QTY } from "@/lib/inventory";
 import { useT } from "@/components/shop/lang-provider";
 
 export interface SpecGroup {
@@ -46,8 +46,6 @@ export interface BuyPanelProps {
   productName?: string;
   className?: string;
 }
-
-const MAX_PRESALE_QTY = 5;
 
 /* Color value → hex for round swatches (x.com style) */
 const COLOR_HEX: Record<string, string> = {
@@ -129,6 +127,36 @@ export function BuyPanel({
         g.values.find((v) => !(g.soldOutValues ?? []).includes(v)) ?? g.values[0] ?? "";
       init[g.name] = firstAvailable;
     }
+    // 跨组联动校正（P0-1 商用审计）：逐组独立取「首个非售罄值」不感知组合，
+    // 部分矩阵（Black/S 有货、White/M 有货，两组 soldOutValues 都为空）会默认
+    // 落在不存在的组合上 → selectedVariant=null → 首屏按钮变「到货提醒」——
+    // 有货商品呈现为买不了，转化直接受损。贪心重选（≤3 轮收敛，组合最多
+    // 4 个维度）：每组取与「其他组当前已选」构成真实组合且库存>0 的第一个值；
+    // 全部组合都无货时保持原默认（确实只能到货提醒）。
+    if (variants && variants.length > 0) {
+      const inStockComboWith = (sel: Record<string, string>) =>
+        variants.find(
+          (v) =>
+            v.stock > 0 &&
+            Object.entries(sel).every(
+              ([n, vv]) => !vv || v.attributes.some((a) => a.name === n && a.value === vv),
+            ),
+        );
+      for (let pass = 0; pass < 3; pass++) {
+        let changed = false;
+        for (const g of selectableAttributes) {
+          const others = Object.fromEntries(
+            Object.entries(init).filter(([n]) => n !== g.name),
+          );
+          const good = g.values.find((v) => inStockComboWith({ ...others, [g.name]: v }));
+          if (good && init[g.name] !== good) {
+            init[g.name] = good;
+            changed = true;
+          }
+        }
+        if (!changed) break;
+      }
+    }
     return init;
   });
 
@@ -181,7 +209,9 @@ export function BuyPanel({
   // 变体模式：数量上限用**当前组合**的库存（商品级只是汇总）
   const effectiveStock = selectedVariant ? selectedVariant.stock : stock;
 
-  const max = isPresale ? Math.min(5, MAX_PRESALE_QTY) : Math.min(99, Math.max(1, effectiveStock));
+  const max = isPresale
+    ? MAX_PRESALE_QTY
+    : Math.min(99, Math.max(1, effectiveStock));
   /* 整件售罄（非预售）：数量输入禁用、整页按钮切到货提醒 */
   const disabled = stock <= 0 && !isPresale;
 
@@ -224,10 +254,17 @@ export function BuyPanel({
                   <span>{`${g.name}: ${selections[g.name] ?? g.values[0] ?? ""}`}</span>
                 </p>
                 {colorMode ? (
-                  /* Round swatches — 官方 34px,active 黑环;售罄加正斜杠 */
+                  /* Round swatches — 官方 34px,active 黑环;售罄加正斜杠。
+                     当前选中值即使与已选其他维度无真实组合也保留渲染（P2-5 商用审计）：
+                     此前选 Black 后把 Size 切到 M（Black/M 不存在）→ Black 色块
+                     被过滤消失，但标签仍显示 "Color: Black" 且无法点回 ——
+                     保留渲染 + 售罄划线，用户可直接点回或改选。 */
                   <div className="flex flex-wrap gap-2.5">
                     {g.values
-                      .filter((v) => valueExistsWithSelection(g.name, v))
+                      .filter(
+                        (v) =>
+                          valueExistsWithSelection(g.name, v) || selections[g.name] === v,
+                      )
                       .map((v) => {
                       const active = selections[g.name] === v;
                       /* 售罄但**仍可点**：选中后整页按钮切到货提醒（大爷反馈的核心交互）。
@@ -315,9 +352,14 @@ export function BuyPanel({
           disabled={selectedSoldOut && !isPresale}
         />
         {/* 大爷需求：库存即时友好提示——低库存加购前即提示，不等结账。
-            阈值单一事实来源 lib/inventory（顾客口径：有货才谈「仅剩 N 件」） */}
-        {!isPresale && isScarceInStock(stock) ? (
-          <p className="text-[13px] text-foreground/65">{t("Only {n} left", { n: stock })}</p>
+            阈值单一事实来源 lib/inventory（顾客口径：有货才谈「仅剩 N 件」）。
+            变体模式用**当前组合**的库存（P2-3 商用审计）：组合剩 2/总量 8 时
+            用总量会漏提示；总量 3/组合 20 会错误提示——「页面上看到的就是
+            当前所选规格的真实可售量」。 */}
+        {!isPresale && isScarceInStock(effectiveStock) ? (
+          <p className="text-[13px] text-foreground/65">
+            {t("Only {n} left", { n: effectiveStock })}
+          </p>
         ) : null}
       </div>
       {isPresale ? (
@@ -333,7 +375,9 @@ export function BuyPanel({
             quantity={quantity}
             attributes={selectedAttributes}
             disabled={false}
-            stock={stock}
+            /* 传当前组合的真实可售量（P1-4 商用审计）：游客加购即时校验用
+               opts.stock —— 传商品总量会让售罄组合加购时不提示 */
+            stock={effectiveStock}
             isPresale={isPresale}
             className="h-[46px] w-full text-[15px]"
           />

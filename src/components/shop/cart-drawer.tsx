@@ -11,6 +11,7 @@ import { QuantityInput } from "@/components/shop/quantity-input";
 import { toast } from "sonner";
 import { formatSpecValues } from "@/components/shop/types";
 import { LOGGED_IN_COOKIE } from "@/lib/constants";
+import { MAX_PRESALE_QTY } from "@/lib/inventory";
 
 import { useShopLang } from "@/components/shop/lang-provider";
 
@@ -41,6 +42,8 @@ export function CartDrawer() {
   const { format } = useCurrency();
   const [open, setOpen] = useState(false);
   const [rendered, setRendered] = useState(false);
+  // 缺货闸门口径（P2-8 商用审计，与 /cart 页一致）：非预售且库存为 0 才阻断结账
+  const hasOutOfStock = items.some((it) => it.stock <= 0 && !it.isPresale);
 
   useEffect(() => {
     const onOpen = () => setOpen(true);
@@ -153,7 +156,11 @@ export function CartDrawer() {
                       <QuantityInput
                         value={item.quantity}
                         min={1}
-                        max={Math.min(99, Math.max(1, item.stock))}
+                        max={
+                          item.isPresale
+                            ? MAX_PRESALE_QTY
+                            : Math.min(99, Math.max(1, item.stock))
+                        }
                         onChange={(q) => {
                           void updateQuantity(item.id, q).catch((e: Error) =>
                             toast.error(e.message),
@@ -181,9 +188,18 @@ export function CartDrawer() {
             <p className="text-xs text-muted-foreground">
               {t("Shipping & taxes calculated at checkout.")}
             </p>
-            <Button asChild size="lg" className="w-full" onClick={() => setOpen(false)}>
-              <Link href="/checkout">{t("Checkout")}</Link>
-            </Button>
+            {/* 缺货闸门（P2-8 商用审计）：有「非预售且库存为 0」的行时直达结账，
+                填完表单提交才被服务端拒绝 —— 与 /cart 页同口径：
+                结账按钮切到「查看购物袋」让顾客先处理缺货行。 */}
+            {hasOutOfStock ? (
+              <Button asChild size="lg" variant="outline" className="w-full" onClick={() => setOpen(false)}>
+                <Link href="/cart">{t("Some items are out of stock. Please remove them before checkout.")}</Link>
+              </Button>
+            ) : (
+              <Button asChild size="lg" className="w-full" onClick={() => setOpen(false)}>
+                <Link href="/checkout">{t("Checkout")}</Link>
+              </Button>
+            )}
             <Button
               asChild
               variant="ghost"

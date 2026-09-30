@@ -18,8 +18,11 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/fetch-client";
-import { MAX_CART_ITEM_QUANTITY, LOGGED_IN_COOKIE } from "@/lib/constants";
+import { MAX_CART_ITEM_QUANTITY, MAX_CART_ITEMS, LOGGED_IN_COOKIE } from "@/lib/constants";
 import { specKey, type SpecSelection } from "@/components/shop/types";
+// 纯函数（无 server-only）：组合可售量与登录用户（getCart→specAvailableQuantity）、
+// 下单扣减同一口径；游客购物袋不再回落商品总库存
+import { variantAvailableQuantity } from "@/server/services/variant-stock";
 
 /** 是否已登录（读服务端登录时写入的 JS 可读提示 cookie），避免未登录时去打 /api/auth/me 造成 401 控制台噪音 */
 function hasLoggedInCookie(): boolean {
@@ -61,6 +64,8 @@ interface PreviewProduct {
   stock: number;
   status: string;
   isPresale: boolean;
+  /** 组合明细（仅 active）：按所选规格算组合可售量（与登录用户同口径） */
+  variants?: { attributes: { name: string; value: string }[]; stock: number }[] | null;
 }
 
 interface CartContextValue {
@@ -168,7 +173,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
           slug: p.slug,
           image: Array.isArray(p.images) ? (p.images[0] ?? null) : null,
           price: Number.isNaN(price) ? 0 : price,
-          stock: p.stock,
+          // 行级库存 = 该行规格的**组合可售量**（与 fetchGuestCartLines/登录用户同口径）：
+          // 商品总库存是全部组合之和，回落会让售罄组合在游客端显示有货
+          stock: variantAvailableQuantity(p.variants, entry.attributes ?? [], p.stock),
           status: p.status,
           isPresale: p.isPresale,
           quantity: entry.quantity,
@@ -282,10 +289,19 @@ export function CartProvider({ children }: { children: ReactNode }) {
         void load();
       } else {
         const list = readGuestEntries();
-        // 边界审计补齐：登录车服务端限 50 条，游客端此前无检查——超 50 条后
-        // 下单被 items max(50) 拒且报错文案不友好。加购前置闸门，同口径 50。
-        if (!list.some((e) => e.productId === productId && specKey(e.attributes) === specKey(attributes)) && list.length >= 50) {
-          throw new Error(t("Shopping bag is full (max 50 items). Remove some items first."));
+        // 边界审计补齐：登录车服务端限 MAX_CART_ITEMS 条，游客端此前无检查——
+        // 超限后下单被 items max 拒且报错文案不友好。加购前置闸门，同口径。
+        if (
+          !list.some(
+            (e) => e.productId === productId && specKey(e.attributes) === specKey(attributes),
+          ) &&
+          list.length >= MAX_CART_ITEMS
+        ) {
+          throw new Error(
+            t("Shopping bag is full (max {n} items). Remove some items first.", {
+              n: MAX_CART_ITEMS,
+            }),
+          );
         }
         const existing = list.find(
           (e) => e.productId === productId && specKey(e.attributes) === specKey(attributes),

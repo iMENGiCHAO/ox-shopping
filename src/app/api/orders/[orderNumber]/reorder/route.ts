@@ -3,7 +3,12 @@ import { requireUser } from "@/lib/auth/session";
 import { assertOrderOwner, getOrderByNumber } from "@/server/services/order.service";
 import { routeParam } from "@/app/api/_lib/params";
 import { prisma } from "@/lib/prisma";
-import { addToCart, specAvailableQuantity, type SpecSelection } from "@/server/services/cart.service";
+import {
+  addToCart,
+  loadActiveVariants,
+  specAvailableQuantity,
+  type SpecSelection,
+} from "@/server/services/cart.service";
 import { MAX_CART_ITEM_QUANTITY } from "@/lib/constants";
 
 /**
@@ -36,6 +41,10 @@ export const POST = apiHandler(async (_req, ctx) => {
     select: { id: true, name: true, stock: true, status: true, isPresale: true, specStock: true },
   });
   const productMap = new Map(products.map((p) => [p.id, p]));
+  // 组合粒度（2026-09-30 商用审计 P1-2）：变体商品的库存真相在组合 ——
+  // specStock 已被管理端 PUT 置 null，不传 variants 会回落商品总库存，
+  // 「组合剩 2、总量 50」的行不被压量，addToCart 按组合校验才拒 → 整行被跳过
+  const variantsByProduct = await loadActiveVariants(productIds);
 
   const added: { productId: string; name: string; quantity: number }[] = [];
   const skipped: { productId: string; name: string; reason: string }[] = [];
@@ -64,9 +73,9 @@ export const POST = apiHandler(async (_req, ctx) => {
       skipped.push({ productId: it.productId, name: product.name, reason: "Unavailable" });
       continue;
     }
-    // ── 先判库存（规格级）：售罄 → 跳过，绝不进购物车 ──
+    // ── 先判库存（组合粒度）：售罄 → 跳过，绝不进购物车 ──
     const attrs = parseAttributes(it.attributes);
-    const available = specAvailableQuantity(product, attrs);
+    const available = specAvailableQuantity(product, attrs, variantsByProduct.get(it.productId) ?? null);
     let qty = it.quantity;
     if (!product.isPresale && qty > available) {
       qty = Math.max(0, available);

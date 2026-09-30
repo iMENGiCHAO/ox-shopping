@@ -40,6 +40,15 @@ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
 }
 
 /**
+ * 防枚举 dummy hash（P2-5 商用审计）：登录时用户不存在也要对它跑一次同成本
+ * bcrypt.compare，对齐「存在账号」的响应耗时 —— 杜绝用响应时间差批量探测
+ * 哪些邮箱已注册（forgot-password 已防枚举，登录是最后一个缺口）。
+ * hash 内容是固定随机串（"dummy-password-for-timing-alignment"），永不匹配真实密码。
+ */
+export const DUMMY_PASSWORD_HASH =
+  "$2a$12$82Rr70WN1tZuVQZYrDZUve1fzpe23Qpyb7Ycw8Z386XL.rrzYfUuy";
+
+/**
  * 密码强度要求：8-72 位，含大写、小写、数字。
  *
  * 文案语言：**英文**。中文界面由 `lib/error-i18n` 的 `ERROR_ZH` 在 API

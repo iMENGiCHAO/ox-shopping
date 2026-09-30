@@ -130,8 +130,9 @@ describe("找回密码申请提交（防枚举）", () => {
     expect(res.status).toBe(200);
     const data = await getData<{ ok: boolean; message: string }>(res);
     expect(data.ok).toBe(true);
-    // 回执必须与已注册邮箱完全一致，且不能泄漏 created 之类的分支信号
-    expect(data.message).toContain("若该邮箱已注册");
+    // 回执必须与已注册邮箱完全一致，且不能泄漏 created 之类的分支信号。
+    // 回执源串为英文（i18n 约定：英文是默认语言，中文由前端 t() 渲染）
+    expect(data.message).toContain("If this email is registered");
     expect(data).not.toHaveProperty("pending");
     expect(data).not.toHaveProperty("created");
 

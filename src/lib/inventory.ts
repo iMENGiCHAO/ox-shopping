@@ -16,6 +16,16 @@
 
 export const LOW_STOCK_THRESHOLD = 5;
 
+/**
+ * 单预售商品（Pre-order）单次最多可购数量 —— 全站唯一口径（2026-09-30 商用审计）。
+ *
+ * 此前散落三处且只有 PDP/购物车页在管：抽屉 max=99、合并封顶 99、服务端下单
+ * 无上限 —— PDP 承诺「最多 5 件」，抽屉/立即购买却能绕到 99 且下单被接受，
+ * 违反业务规则、打乱备货。收口到这里：PDP / 购物车页 / 抽屉 / 合并 / 服务端
+ * 下单五处同口径执行，API 直调也无法绕过。
+ */
+export const MAX_PRESALE_QTY = 5;
+
 /** 运营口径：库存 ≤ 阈值（含售罄）——仪表盘计数 / 后台筛选 / 红色高亮共用 */
 export function isRestockAlert(stock: number, threshold: number = LOW_STOCK_THRESHOLD): boolean {
   return stock <= threshold;

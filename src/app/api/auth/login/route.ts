@@ -1,6 +1,6 @@
 import { apiHandler, json, readJson } from "@/lib/api";
 import { forbidden, rateLimited, unauthorized } from "@/lib/errors";
-import { verifyPassword } from "@/lib/auth/password";
+import { verifyPassword, DUMMY_PASSWORD_HASH } from "@/lib/auth/password";
 import {
   clearPasswordChangeRequiredCookie,
   issueSession,
@@ -38,6 +38,10 @@ export const POST = apiHandler(async (req) => {
 
   const user = await prisma.user.findUnique({ where: { email: input.email } });
   if (!user) {
+    // 防枚举（P2-5 商用审计）：对固定 dummy hash 跑一次同成本 bcrypt 校验，
+    // 对齐「存在账号」的响应耗时 —— 此前秒级时间差可批量探测哪些邮箱已注册
+    // （forgot-password 已防枚举，登录是最后一个缺口）。
+    await verifyPassword(input.password, DUMMY_PASSWORD_HASH);
     await audit({ action: "AUTH_LOGIN_FAILED", meta: { email: input.email }, req });
     throw unauthorized("Incorrect email or password");
   }

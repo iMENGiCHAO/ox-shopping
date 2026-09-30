@@ -43,8 +43,12 @@ export const POST = apiHandler(async (req) => {
     req,
   });
 
+  // 防枚举回执（成功载荷不走 apiHandler 的错误本地化出口）：**英文源串**是
+  // 默认语言文案；中文界面由前端 t() 渲染对应文案。此前硬编码中文，
+  // 英文用户提交找回密码后看到中文回执（i18n 泄漏）。
   return json({
     ok: true,
-    message: "若该邮箱已注册，找回密码申请已提交，请等待管理员审核后查收临时密码邮件",
+    message:
+      "If this email is registered, your password reset request has been submitted — please wait for admin approval and check your inbox for the temporary password",
   });
 });

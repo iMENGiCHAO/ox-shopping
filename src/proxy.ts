@@ -11,6 +11,9 @@ import { randomNonce, buildCsp } from "@/lib/server/proxy-helpers";
 import { langFromCookies } from "@/lib/request-lang";
 import { localizeErrorMessage } from "@/lib/error-i18n";
 import { env } from "@/lib/env";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
+import { getClientIp } from "@/lib/server/utils-server";
 import {
   DIST_REF_COOKIE,
   DIST_REF_COOKIE_TTL_DAYS,
@@ -217,11 +220,20 @@ export async function proxy(req: NextRequest) {
       const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
       if (refreshToken) {
         try {
+          // 限流（P1-2 商用审计）：静默续期与 /api/auth/refresh 同策略（10/min per IP）。
+          // 单飞只对「同 token 并发」生效（session.ts），脚本化顺序轮换链（每次用
+          // 上一次响应的新 token）会绕过单飞 —— 按 IP 限流才能拦住无限链式轮换
+          // （此前 refresh_tokens 表可被无限灌水，清理任务只删过期行，新行永不过期）。
+          const rl = await rateLimit({
+            key: `refresh:${getClientIp(req)}`,
+            ...RATE_LIMITS.refresh,
+          });
+          if (!rl.ok) throw new Error("refresh rate limited");
           const { rotateSession } = await import("@/lib/auth/session");
           const rotated = await rotateSession(refreshToken);
           rotatedTokens = { accessToken: rotated.accessToken, refreshToken: rotated.refreshToken };
         } catch {
-          // 刷新失败（过期 / 重放检测触发）：按未登录处理，不阻断请求
+          // 刷新失败（过期 / 重放检测触发 / 限流）：按未登录处理，不阻断请求
         }
       }
     }

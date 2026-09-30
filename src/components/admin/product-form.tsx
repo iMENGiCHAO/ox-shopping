@@ -130,6 +130,8 @@ export interface ProductFormPayload {
     id?: string;
     attributes: { name: string; value: string }[];
     stock: number;
+    /** 乐观锁：表单加载时的该组合库存快照（服务端锁内比对，防复活超卖） */
+    expectedStock?: number | null;
     price?: number | null;
     sku?: string | null;
     image?: string | null;
@@ -332,6 +334,8 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
   // 草稿 → form.variants（提交校验与后端落库都用它）。
   // 已存组合保留覆盖价/SKU/组合图/上架状态（矩阵只管库存，不洗其它数据；
   // 组合不在新矩阵里 = 已删除的组，随后端 deleteMany 一并清理）。
+  // expectedStock = 表单加载时的库存快照（服务端锁内比对防复活超卖，
+  // P1-1 商用审计）；新增组合（prev 不存在）为 null = 跳过比对。
   React.useEffect(() => {
     const saved = initial?.variants ?? [];
     const rows = variantCombos.map((attrs) => {
@@ -340,6 +344,7 @@ export function ProductForm({ initial, categories, loading, onSubmit }: ProductF
       return {
         attributes: attrs,
         stock: Math.max(0, Math.floor(Number(d?.stock ?? "0") || 0)),
+        expectedStock: prev?.stock ?? null,
         price: prev?.price ?? null,
         sku: prev?.sku ?? null,
         image: prev?.image ?? null,

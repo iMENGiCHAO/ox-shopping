@@ -145,9 +145,9 @@ const DICT: Dict = {
     en: "Includes reversed {m}",
     zh: "含已冲正 {m}",
   },
-  "Shopping bag is full (max 50 items). Remove some items first.": {
-    en: "Shopping bag is full (max 50 items). Remove some items first.",
-    zh: "购物车已满（最多 50 件商品），请先移除部分商品",
+  "Shopping bag is full (max {n} items). Remove some items first.": {
+    en: "Shopping bag is full (max {n} items). Remove some items first.",
+    zh: "购物车已满（最多 {n} 件商品），请先移除部分商品",
   },
   "Insufficient stock, only {n} left": {
     en: "Insufficient stock, only {n} left",

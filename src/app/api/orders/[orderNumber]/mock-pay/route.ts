@@ -5,7 +5,7 @@ import { markOrderPaid } from "@/server/services/order.service";
 import { serializeOrder } from "@/server/serializers";
 import { rateLimit } from "@/lib/rate-limit";
 import { RATE_LIMITS } from "@/lib/rate-limits";
-import { effectivePaymentMode, mockPaymentAllowedInProd } from "@/lib/env";
+import { mockPaymentAllowedInProd } from "@/lib/env";
 import { routeParam } from "@/app/api/_lib/params";
 
 export const runtime = "nodejs";
@@ -15,8 +15,13 @@ export const POST = apiHandler(async (req, ctx) => {
   const orderNumber = routeParam(ctx.params.orderNumber);
   const { order } = await requireOrderAccess(req, orderNumber);
 
-  // 模拟支付=免费下单：生产环境未显式允许时一律拒绝（防绕过前台置灰直接调 API）
-  if (effectivePaymentMode !== "mock" || !mockPaymentAllowedInProd) {
+  // 模拟支付=免费下单：生产环境未显式允许时一律拒绝（防绕过前台置灰直接调 API）。
+  // 口径与 createPaymentUrl 的渠道分发一致（P2-7 商用审计）：按**订单的支付渠道**
+  // （order.paymentProvider === "mock"）判定，而不是全局 effectivePaymentMode ——
+  // 此前「PAYMENT_MODE=stripe + 后台启用 mock 渠道 + ALLOW_MOCK_PAYMENT_IN_PROD=true」
+  // 的组合会让 createPaymentUrl 放行、这里恒 403：顾客进模拟支付页却无法支付，
+  // 订单卡 PENDING_PAYMENT 30 分钟后自动取消（支付死循环）。
+  if (order.paymentProvider !== "mock" || !mockPaymentAllowedInProd) {
     throw forbidden("Mock payment is not enabled");
   }
 

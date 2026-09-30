@@ -3,13 +3,15 @@ import { requireUser } from "@/lib/auth/session";
 import { addToCart, clearCart, getCart } from "@/server/services/cart.service";
 import { audit } from "@/lib/audit";
 import { cartAddSchema } from "@/lib/validations/cart-order";
+import { getLang } from "@/lib/shop-i18n-server";
 
 export const runtime = "nodejs";
 
 /** GET /api/cart */
 export const GET = apiHandler(async () => {
   const user = await requireUser();
-  const cart = await getCart(user.id);
+  // 商品名按请求语种挑（P2-1）：英文界面拿 nameEn，中文拿 name
+  const cart = await getCart(user.id, await getLang());
   return json(cart);
 });
 
@@ -28,7 +30,7 @@ export const POST = apiHandler(async (req) => {
     req,
   });
 
-  const cart = await getCart(user.id);
+  const cart = await getCart(user.id, await getLang());
   return json(cart);
 });
 

@@ -13,6 +13,7 @@ import { formatSpecValues } from "@/components/shop/types";
 import { useT, useShopLang } from "@/components/shop/lang-provider";
 import { punct } from "@/lib/shop-i18n";
 import { apiFetch } from "@/lib/fetch-client";
+import { MAX_PRESALE_QTY } from "@/lib/inventory";
 
 interface ShippingMethodLite {
   id: string;
@@ -203,7 +204,11 @@ export default function CartPage() {
                   <QuantityInput
                     value={item.quantity}
                     min={1}
-                    max={item.isPresale ? 5 : Math.min(99, Math.max(1, item.stock))}
+                    max={
+                      item.isPresale
+                        ? MAX_PRESALE_QTY
+                        : Math.min(99, Math.max(1, item.stock))
+                    }
                     onChange={(q) => {
                       void updateQuantity(item.id, q).catch((err: Error) =>
                         toast.error(err.message),

@@ -51,45 +51,91 @@ export const PUT = apiHandler(async (req, ctx) => {
   const safeRest = rest.description !== undefined
     ? { ...rest, description: await sanitizeHtml(rest.description) }
     : rest;
-  const product = await prisma.product.update({
-    where: { id },
-    data: {
-      ...safeRest,
-      ...(input.nameEn !== undefined ? { nameEn: input.nameEn?.trim() || null } : {}),
-      ...(summedStock !== undefined ? { stock: summedStock } : {}),
-      ...(sizeChart !== undefined ? { sizeChart: sizeChart ?? Prisma.DbNull } : {}),
-      ...(specStock !== undefined ? { specStock: specStock ?? Prisma.DbNull } : {}),
-      // SKU 矩阵：全量替换（商品表单 / 大表内联编辑都提交完整组合集）。
-      // 商品级库存一致性（大爷 2026-09-29 定稿）：
-      //   - 有组合（variants.length > 0）→ stock 强制 = Σ 组合库存。
-      //     父组与商品总库存都是只读派生值，任何入口都不许手写，
-      //     杜绝「总库存 ≠ 组合之和」的库存乱账。
-      //   - 传空数组 = 运营删光属性组（回归单规格）→ 回落顺序：
-      //     显式 specStock 汇总 → 请求里的 stock → 原库存。
-      //     此前固定回落 existing.stock，会把「删光规格 + 手填库存」的输入静默丢弃。
-      ...(variants !== undefined
-        ? {
-            stock:
-              variants.length > 0
-                ? variants.reduce((sum, v) => sum + v.stock, 0)
-                : (summedStock ?? input.stock ?? existing.stock),
-            variants: {
-              deleteMany: {},
-              create: variants.map((v) => ({
-                attributes: v.attributes as unknown as Prisma.InputJsonValue,
-                signature: variantSignature(v.attributes),
-                stock: v.stock,
-                price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
-                sku: v.sku?.trim() || null,
-                image: v.image?.trim() || null,
-                isActive: v.isActive,
-              })),
-            },
+
+  // SKU 矩阵（组合粒度）：乐观锁 + diff 落库（2026-09-30 商用审计 P1-1，全项目离 P0 最近的洞）。
+  //   此前 deleteMany 全量替换 + 按「表单加载时」的快照重建 —— 管理员打开表单后顾客
+  //   下单扣减，保存时（哪怕只改标题）快照把已卖库存复活 → 超卖；多管理员并发编辑
+  //   后保存者整体覆盖前者（无任何防护）。
+  //   现在：
+  //   - 事务内先对 products 行 FOR UPDATE：与下单扣减（order.service 同款）/其他编辑串行化；
+  //   - expectedStock（表单/大表加载时的每组合快照）在锁内与库内现值比对，
+  //     不一致 → 409 拒绝保存（「库存已被其他操作变更，请刷新后重试」），
+  //     从根上杜绝「快照复活已卖库存」；未带 expectedStock 的旧客户端保持兼容（直接覆盖）；
+  //   - diff 落库：传入组合按 signature upsert，矩阵外的旧组合（被删的组）定点删除，
+  //     不再 deleteMany 全表 —— 未删的行不动，锁窗口内其它写入不被误清。
+  const product = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM products WHERE id = ${id} FOR UPDATE`;
+    const fresh = await tx.product.findUnique({
+      where: { id },
+      include: { variants: true },
+    });
+    if (!fresh) throw conflict("商品不存在或已被删除");
+
+    let variantsTotal = 0;
+    let variantsData: Prisma.ProductUpdateInput["variants"] | undefined;
+    if (variants !== undefined) {
+      // 乐观锁：快照比对（锁内，与下单扣减串行）
+      if (variants.length > 0) {
+        const curBySig = new Map(fresh.variants.map((v) => [v.signature, v]));
+        for (const v of variants) {
+          const cur = curBySig.get(variantSignature(v.attributes));
+          if (cur && v.expectedStock != null && cur.stock !== v.expectedStock) {
+            throw conflict("Stock has been changed by another operation — refresh and retry");
           }
-        : {}),
-    },
-    // include variants：响应自描述（保存后的组合列表可直接核对，与大表列表同口径）
-    include: { category: true, variants: { orderBy: { createdAt: "asc" } } },
+        }
+      }
+      variantsTotal = variants.reduce((sum, v) => sum + v.stock, 0);
+      const incomingSigs = variants.map((v) => variantSignature(v.attributes));
+      variantsData = {
+        // 只删矩阵外的旧组合（被删的组）；传空数组 = 删光（运营删光属性组）
+        deleteMany: { signature: { notIn: incomingSigs } },
+        upsert: variants.map((v) => {
+          const sig = variantSignature(v.attributes);
+          const row = {
+            attributes: v.attributes as unknown as Prisma.InputJsonValue,
+            stock: v.stock,
+            price: v.price != null ? new Prisma.Decimal(v.price.toFixed(2)) : null,
+            sku: v.sku?.trim() || null,
+            image: v.image?.trim() || null,
+            isActive: v.isActive,
+          };
+          return {
+            where: { productId_signature: { productId: id, signature: sig } },
+            update: row,
+            create: { productId: id, signature: sig, ...row },
+          };
+        }),
+      };
+    }
+
+    return tx.product.update({
+      where: { id },
+      data: {
+        ...safeRest,
+        ...(input.nameEn !== undefined ? { nameEn: input.nameEn?.trim() || null } : {}),
+        ...(summedStock !== undefined ? { stock: summedStock } : {}),
+        ...(sizeChart !== undefined ? { sizeChart: sizeChart ?? Prisma.DbNull } : {}),
+        ...(specStock !== undefined ? { specStock: specStock ?? Prisma.DbNull } : {}),
+        // 商品级库存一致性（大爷 2026-09-29 定稿）：
+        //   - 有组合（variants.length > 0）→ stock 强制 = Σ 组合库存。
+        //     父组与商品总库存都是只读派生值，任何入口都不许手写，
+        //     杜绝「总库存 ≠ 组合之和」的库存乱账。
+        //   - 传空数组 = 运营删光属性组（回归单规格）→ 回落顺序：
+        //     显式 specStock 汇总 → 请求里的 stock → 原库存。
+        //     此前固定回落 existing.stock，会把「删光规格 + 手填库存」的输入静默丢弃。
+        ...(variants !== undefined
+          ? {
+              stock:
+                variants.length > 0
+                  ? variantsTotal
+                  : (summedStock ?? input.stock ?? fresh.stock),
+              variants: variantsData,
+            }
+          : {}),
+      },
+      // include variants：响应自描述（保存后的组合列表可直接核对，与大表列表同口径）
+      include: { category: true, variants: { orderBy: { createdAt: "asc" } } },
+    });
   });
 
   // 涉及库存/规格库存的更新：触发到货通知（服务内部按客户登记的规格逐条匹配，

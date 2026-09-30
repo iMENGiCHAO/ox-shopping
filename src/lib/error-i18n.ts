@@ -81,6 +81,8 @@ const ERROR_ZH: Record<string, string> = {
   "Order has not been paid": "订单尚未支付",
   "Please select a shipping method": "请选择物流方式",
   "Please select a payment method": "请选择支付方式",
+  "Please select the available options (e.g. color/size) before adding to the bag":
+    "请先选择规格（如颜色/尺码）再加入购物袋",
 
   /* ── 购物袋 / 结账（zod 字段级） ────────────────────────────────── */
   "Attribute name is required": "规格名不能为空",
@@ -232,6 +234,10 @@ const PATTERN_ZH: Array<{ test: RegExp; zh: (...groups: string[]) => string }> =
     test: /^Your Shopping Bag can hold at most (.+) different items$/,
     zh: (n) => `Shopping Bag 最多 ${n} 种商品`,
   },
+  {
+    test: /^"(.+)" is not available in the selected option \((.+)\)$/,
+    zh: (name, label) => `「${name}」在所选规格（${label}）下不可购买`,
+  },
   // ── 订单状态机与鉴权（顾客可见；源串统一在 order.service.ts）─────────────
   // 注意顺序：带 "directly" 的规则必须排在**前面**，否则会被下面更宽的规则吃掉。
   {
@@ -301,6 +307,10 @@ const PATTERN_ZH: Array<{ test: RegExp; zh: (...groups: string[]) => string }> =
   {
     test: /^Currency \((.+)\) is not payable — switch to a payable currency in the currency selector and resubmit$/,
     zh: (currency) => `当前币种（${currency}）暂不支持结算，请在币种选择器切换到可支付的币种后重新提交`,
+  },
+  {
+    test: /^Stock has been changed by another operation — refresh and retry$/,
+    zh: () => `库存已被其他操作变更，请刷新后重试`,
   },
 ];
 

@@ -10,9 +10,11 @@ import { useShopLang, useT } from "@/components/shop/lang-provider";
 import { formatSpecValues, type ShopAddress } from "@/components/shop/types";
 import { COUNTRIES, DEFAULT_COUNTRY, countryStates, getCountry } from "@/lib/countries";
 import { couponReasonMessage, type CouponRejectReason } from "@/lib/coupon";
-import { fetchGuestCartLines, hasLoggedInCookie } from "@/lib/guest-cart";
+import { fetchGuestCartLines, hasLoggedInCookie, GUEST_KEY } from "@/lib/guest-cart";
+// 纯函数（无 server-only）：组合可售量与登录用户/下单扣减同一口径
+import { variantAvailableQuantity } from "@/server/services/variant-stock";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, randomToken } from "@/lib/utils";
 import {
   AddressLookupIcon,
   CheckoutBreadcrumb,
@@ -69,6 +71,8 @@ interface PreviewProduct {
   stock: number;
   status: string;
   isPresale?: boolean;
+  /** 组合明细（仅 active）：按所选规格算组合可售量（与登录用户同口径） */
+  variants?: { attributes: { name: string; value: string }[]; stock: number }[] | null;
 }
 
 interface ShippingMethodLite {
@@ -304,7 +308,9 @@ export function CheckoutFlow({
               slug: product.slug,
               image: Array.isArray(product.images) ? (product.images[0] ?? null) : null,
               price,
-              stock: product.stock,
+              // 行级库存 = 所选规格的**组合可售量**（变体模式按所选组合；单规格即总库存）：
+              // 商品总库存是全部组合之和，回落会让售罄组合在结账页显示有货、提交才报错
+              stock: variantAvailableQuantity(product.variants, attributes ?? [], product.stock),
               status: product.status,
               quantity: qty,
               subtotal: round2(price * qty),
@@ -590,7 +596,9 @@ export function CheckoutFlow({
   const handleSubmit = async () => {
     // 下单幂等键：失败重试复用同一 key（服务端撞唯一约束返回首张单而非再开一张
     // 扣一份库存）；成功跳转后组件卸载即失效。ref 变更不触发重渲染。
-    const idemKey = idemKeyRef.current ?? crypto.randomUUID();
+    // randomUUID 仅 secure context（HTTPS/localhost）可用：纯 HTTP 部署下抛
+    // TypeError 下单不可用 —— 回退 getRandomValues（lib/utils 的 randomToken 不受限）。
+    const idemKey = idemKeyRef.current ?? (window.isSecureContext ? crypto.randomUUID() : randomToken(16));
     idemKeyRef.current = idemKey;
     if (lines.length === 0) {
       toast.error(t("Your order has no items"));
@@ -632,6 +640,17 @@ export function CheckoutFlow({
           couponCode: applied?.code ?? null,
         }),
       });
+      // 成功即清游客车（P1-1 商用审计）：游客单不清 localStorage 的话，付款后
+      // 回到商城购物袋徽标/drawer//cart 仍显示全部已购商品，再次结账会重复下单。
+      // 登录单走服务端车（下单事务内已清）不受影响；下一页 cart-provider
+      // 重读 localStorage 即看到空车。
+      if (!hasLoggedInCookie()) {
+        try {
+          localStorage.removeItem(GUEST_KEY);
+        } catch {
+          /* 隐私模式等场景忽略 */
+        }
+      }
       if (res?.paymentUrl) {
         // 游客单必须携带查单令牌：支付页与订单详情共用同一 token，
         // 缺失时 mock-pay / 订单详情会被 requireOrderAccess 拒绝（403，页面卡在 Processing）。

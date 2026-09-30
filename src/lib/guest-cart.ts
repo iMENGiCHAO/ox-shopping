@@ -12,6 +12,9 @@ import { apiFetch } from "@/lib/fetch-client";
 import { MAX_CART_ITEM_QUANTITY, LOGGED_IN_COOKIE } from "@/lib/constants";
 import { specKey, type SpecSelection } from "@/components/shop/types";
 import type { CartLine } from "@/components/shop/cart-provider";
+// 纯函数（无 server-only）：组合可售量与登录用户（getCart→specAvailableQuantity）、
+// 下单扣减同一口径；游客购物袋/结账页不再回落商品总库存
+import { variantAvailableQuantity } from "@/server/services/variant-stock";
 
 export const GUEST_KEY = "guest_cart";
 
@@ -91,6 +94,8 @@ interface PreviewProduct {
   price: number | string;
   stock: number;
   status: string;
+  /** 组合明细（仅 active）：按所选规格算组合可售量（与登录用户同口径） */
+  variants?: { attributes: { name: string; value: string }[]; stock: number }[] | null;
 }
 
 /**
@@ -118,7 +123,9 @@ export async function fetchGuestCartLines(entries?: GuestEntry[]): Promise<CartL
       slug: p.slug,
       image: Array.isArray(p.images) ? (p.images[0] ?? null) : null,
       price: safePrice,
-      stock: p.stock,
+      // 行级库存 = 该行规格的**组合可售量**（变体模式按所选组合；单规格即总库存）：
+      // 商品总库存是全部组合之和，回落会让售罄组合在游客端显示有货、结账才报错
+      stock: variantAvailableQuantity(p.variants, entry.attributes ?? [], p.stock),
       status: p.status,
       quantity: entry.quantity,
       subtotal: round2(safePrice * entry.quantity),

@@ -29,6 +29,7 @@ import { getProvider } from "@/lib/payment/providers";
 import { str } from "@/lib/payment/provider";
 import { effectivePaymentMode, mockPaymentAllowedInProd } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
+import { MAX_PRESALE_QTY } from "@/lib/inventory";
 import {
   findVariant,
   parseVariantAttributes,
@@ -38,7 +39,7 @@ import {
 import { notifyRestock } from "@/server/services/notify-me.service";
 import { logPayment } from "@/server/services/payment-log.service";
 import { sanitizePlainText } from "@/lib/sanitize";
-import { assertValidSpecs } from "@/server/services/cart.service";
+import { assertValidSpecs, specKey } from "@/server/services/cart.service";
 import type { SpecSelection } from "@/server/services/cart.service";
 import { calculateShippingFee } from "@/server/services/shipping.service";
 import {
@@ -404,6 +405,16 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
     }
   }
   const productById = new Map(products.map((p) => [p.id, p]));
+
+  // 预售单次上限（P1-3 商用审计）：单预售商品最多 5 件（lib/inventory 单一事实
+  // 来源，与 PDP/购物车页/抽屉同口径）—— 直接封顶订单行数量：小计/扣减/回补/
+  // 销量全部按封顶后的数量，API 直调也无法绕过 PDP 的数量上限
+  // （此前抽屉/立即购买可绕到 99 且下单被接受，PDP 承诺「最多 5 件」形同虚设）。
+  for (const item of input.items) {
+    if (productById.get(item.productId)?.isPresale) {
+      item.quantity = Math.min(item.quantity, MAX_PRESALE_QTY);
+    }
+  }
 
   // 订单备注：去 HTML 后入库存档（React 渲染默认转义，sanitize 为纵深防御）
   if (input.note) {
@@ -777,10 +788,19 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
       });
     }
 
-    // 4. 从Shopping BagRemove已下单商品（游客单无购物袋，跳过）
+    // 4. 从Shopping Bag移除已下单商品（游客单无购物袋，跳过）。
+    // 按 (productId, attributesKey) 逐行匹配（P2-1 商用审计）：购物车支持同商品
+    // 多规格行（唯一键含 attributesKey），只下单 S 不能把 M 行也删掉 ——
+    // 按 productId 整删会让同款其他规格被误清，需重新加购。
     if (input.userId) {
       await tx.cartItem.deleteMany({
-        where: { userId: input.userId, productId: { in: input.items.map((i) => i.productId) } },
+        where: {
+          userId: input.userId,
+          OR: input.items.map((i) => ({
+            productId: i.productId,
+            attributesKey: specKey(i.attributes),
+          })),
+        },
       });
     }
 
@@ -1374,12 +1394,16 @@ export async function cancelOrder(
       const p = productMap.get(item.productId);
       // 精确回补：新订单以 stockDeducted 记录为准；
       // 历史订单(无记录)保守处理——普通单全额回补，预售单不回补(宁少勿造)
-      // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径
+      // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径。
+      // 同样进 restockedProductIds（P2-3 商用审计）：变体商品因取消从售罄变有货时，
+      // 等待「到货提醒」的客户也要收到通知（notifyRestock 内部按组合匹配：
+      // 只有被回补的那个组合回货才通知，其它组合触发不发；stock<=0 不发）。
       if (await restoreVariantStock(tx, item as { productId: string | null; variantDeducted: unknown })) {
         await tx.product.update({
           where: { id: item.productId! },
           data: { soldCount: { decrement: item.quantity } },
         });
+        restockedProductIds.push(item.productId);
         continue;
       }
       const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
@@ -2144,6 +2168,9 @@ export async function markOrderRefundedByGateway(
   // 整单终态通知去重标志（业务闭环审计 D3）：并发重放（webhook + 对账同步
   // 双路径同时到达）时只有真正推进状态的那一方发通知。
   let didTransition = false;
+  // 回补累加器（P2-3 商用审计）：退款回补后变有货的商品要触达到货提醒
+  // （与 cancelOrder 同模式；notifyRestock 内部 stock<=0 不发、按组合匹配）
+  const restockedProductIds: string[] = [];
   const updated = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM orders WHERE id = ${order.id} FOR UPDATE`;
     const fresh = await tx.order.findUnique({ where: { id: order.id } });
@@ -2178,12 +2205,16 @@ export async function markOrderRefundedByGateway(
       for (const item of order.items) {
         if (!item.productId) continue;
         const p = map.get(item.productId);
-        // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径
+        // 变体模式（SKU 矩阵）：组合粒度回补 + 商品级库存重算，跳过维度池路径。
+      // 同样进 restockedProductIds（P2-3 商用审计）：变体商品因取消从售罄变有货时，
+      // 等待「到货提醒」的客户也要收到通知（notifyRestock 内部按组合匹配：
+      // 只有被回补的那个组合回货才通知，其它组合触发不发；stock<=0 不发）。
       if (await restoreVariantStock(tx, item as { productId: string | null; variantDeducted: unknown })) {
         await tx.product.update({
           where: { id: item.productId! },
           data: { soldCount: { decrement: item.quantity } },
         });
+        restockedProductIds.push(item.productId);
         continue;
       }
       const hasRecord = item.stockDeducted > 0 || item.specDeducted != null;
@@ -2194,6 +2225,7 @@ export async function markOrderRefundedByGateway(
             where: { id: item.productId },
             data: { stock: { increment: restoreQty }, soldCount: { decrement: item.quantity } },
           });
+          restockedProductIds.push(item.productId);
         } else if (item.quantity > 0) {
           await tx.product.update({
             where: { id: item.productId },
@@ -2269,6 +2301,11 @@ export async function markOrderRefundedByGateway(
       statusTextEn: "Order fully refunded",
       amount: `${order.currency} ${Number(order.total).toFixed(2)}`,
     });
+    // 回补后变有货的商品：触达等待「到货提醒」的客户（P2-3 商用审计，
+    // 与 cancelOrder 同口径；notifyRestock 内部按组合匹配 + stock>0 才发）
+    for (const pid of restockedProductIds) {
+      void notifyRestock(pid);
+    }
   }
 
   return updated!;

@@ -204,7 +204,13 @@ export default async function ProductDetailPage(props: DetailPageProps) {
       "@type": "Offer",
       priceCurrency: env.CURRENCY,
       price: price.toFixed(2),
-      availability: inStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      // 预售商品输出 PreOrder（P2-6 商用审计）：预售 stock=0 可预订购买，
+      // 输出 OutOfStock 会与「可下单」事实矛盾，Google Merchant 也会误判
+      availability: product.isPresale
+        ? "https://schema.org/PreOrder"
+        : inStock
+          ? "https://schema.org/InStock"
+          : "https://schema.org/OutOfStock",
       url: `${env.SITE_URL.replace(/\/$/, "")}/products/${product.slug}`,
     },
   };

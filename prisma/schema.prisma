@@ -359,6 +359,9 @@ model Product {
   @@index([slug])
   @@index([categoryId])
   @@index([status, createdAt])
+  /// sitemap 收录查询（P1-3 商用审计）：status=ACTIVE + updatedAt desc top-N，
+  /// 无此索引时每次爬虫抓 sitemap.xml 都是全表 seq scan + top-N sort
+  @@index([status, updatedAt(sort: Desc)])
   @@index([price])
   @@map("products")
 }
