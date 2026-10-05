@@ -11,13 +11,17 @@ import { logger } from "@/lib/logger";
 
 let initialized = false;
 
-function ensureInit() {
+/**
+ * 初始化 Sentry（幂等）。除 capture* 的懒初始化外，src/instrumentation.ts 的
+ * register() 会在**服务器启动时**调用 —— 页面渲染（RSC）崩溃此前没有任何入口
+ * 到达 Sentry（error boundary 只 console.error），onRequestError 钩子补上这一环。
+ */
+export function ensureInit() {
   if (initialized || !env.SENTRY_DSN) return;
   try {
     Sentry.init({
       dsn: env.SENTRY_DSN,
       environment: env.SENTRY_ENVIRONMENT,
-      tracesSampleRate: env.SENTRY_TRACES_SAMPLE_RATE,
       release: env.SENTRY_RELEASE || process.env.npm_package_version || "1.0.0",
       // 不采集请求体、Cookie 或用户 PII；业务上下文只放经显式脱敏的 extra。
       sendDefaultPii: false,

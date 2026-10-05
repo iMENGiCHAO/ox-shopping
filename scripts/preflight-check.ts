@@ -234,6 +234,24 @@ async function main() {
     }
   }
 
+  // 上线就绪门禁（审计修复：README 的「必须通过 /admin/launch-readiness」自此有
+  // 可执行载体）：CLI 直接调用同一 service，blocked>0 即 exit 1 → 本步阻塞。
+  // 与 vitest 同思路：launch-readiness-cli 顶部把 "server-only" 重定向到空 stub。
+  {
+    const r = spawnSync("npx", ["--no-install", "tsx", "scripts/launch-readiness-cli.ts"], {
+      cwd: process.cwd(),
+      env: process.env,
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+    if (r.status !== 0) {
+      fail("launch-readiness 门禁（0 阻塞项）", out.split("\n").slice(-1)[0] || "存在阻塞项");
+    } else {
+      pass("launch-readiness 门禁（0 阻塞项）", "收款/邮件/管理员等 7 项检查通过");
+    }
+  }
+
   console.log("\n===============================");
   const failures = report.filter((row) => !row.ok);
   for (const row of report) {

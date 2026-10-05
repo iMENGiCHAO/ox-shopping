@@ -20,7 +20,7 @@ import { getLang as getServerLang } from "@/lib/shop-i18n-server";
 import { getSiteSettings, pickLang } from "@/server/services/settings.service";
 import { pickName, pickDescription, buildAlternates } from "@/lib/shop-i18n";
 import { env, brandFallback } from "@/lib/env";
-import { selectableGroupsFromVariants } from "@/server/services/variant-stock";
+import { selectableGroupsFromVariants, variantPriceRange } from "@/server/services/variant-stock";
 
 export const dynamic = "force-dynamic";
 
@@ -151,6 +151,8 @@ export default async function ProductDetailPage(props: DetailPageProps) {
         value: string;
       }[],
       stock: v.stock,
+      // 组合覆盖价（资金审计 H1）：随面板下发，价格区间展示/后续联动取价用
+      price: v.price == null ? null : Number(v.price),
       // 组合图（可空 = 用商品主图）：选中组合后大图跟随切换（大爷 2026-10-01 需求）
       image: typeof v.image === "string" && v.image ? v.image : null,
     }));
@@ -175,9 +177,18 @@ export default async function ProductDetailPage(props: DetailPageProps) {
     : baseSelectable;
   const price = toNumberPrice(product.price);
   const inStock = product.stock > 0;
-  const priceText = await formatPrice(price);
+  // 价格区间（资金审计 H1）：存在变体覆盖价（大码加价等）时，静态价展示为
+  // 「min – max」—— 顾客在选规格**之前**就能看到加价的存在，加购后购物车/
+  // 结账页显示的实付价与实扣一致（区间下限 = schema.org Offer 的最低价口径）
+  const priceRange = variantPriceRange(activeVariants, price);
+  const minPrice = priceRange.min;
+  const priceText =
+    priceRange.min === priceRange.max
+      ? await formatPrice(price)
+      : `${await formatPrice(priceRange.min)} – ${await formatPrice(priceRange.max)}`;
   const compareNum = toNumberPrice(product.compareAtPrice);
-  const showCompare = compareNum > price;
+  // 划线原价与「区间下限」比较：区间展示时原价必须高于起价才有展示意义
+  const showCompare = compareNum > minPrice;
   const compareText = showCompare ? await formatPrice(compareNum) : "";
   // 尺码参数表：后台配置优先，未配置时回退官方抓取数据（与官方一致仅部分商品有）
   const dbChart =
@@ -205,7 +216,8 @@ export default async function ProductDetailPage(props: DetailPageProps) {
     offers: {
       "@type": "Offer",
       priceCurrency: env.CURRENCY,
-      price: price.toFixed(2),
+      // 变体覆盖价存在时按区间下限输出（schema.org Offer 的 price = 最低可得价）
+      price: minPrice.toFixed(2),
       // 预售商品输出 PreOrder（P2-6 商用审计）：预售 stock=0 可预订购买，
       // 输出 OutOfStock 会与「可下单」事实矛盾，Google Merchant 也会误判
       availability: product.isPresale
@@ -233,7 +245,11 @@ export default async function ProductDetailPage(props: DetailPageProps) {
             <Gallery images={images} alt={productName} productId={product.id} />
           </div>
 
-          <div className="flex flex-col gap-4 min-[1000px]:sticky min-[1000px]:top-24 min-[1000px]:col-start-2 min-[1000px]:row-start-1 min-[1000px]:self-start">
+          {/* [overflow-anchor:none]：Chrome 滚动锚定的 sticky 过冲修复（大爷 2026-10-04 反馈
+        「点色卡/下拉，大图跳一下」实测根因之一）：右栏规格联动重渲染时，scroll
+        anchoring 若把锚点选在本列，补偿会过冲至页首（实测 483→0）。禁用后锚点
+        落到高度恒定的左栏大图区，零补偿。 */}
+          <div className="flex flex-col gap-4 [overflow-anchor:none] min-[1000px]:sticky min-[1000px]:top-24 min-[1000px]:col-start-2 min-[1000px]:row-start-1 min-[1000px]:self-start">
             <h1 className="text-[length:var(--pdp-title-size)] font-normal leading-normal tracking-[0.01em] text-foreground">
               {productName}
             </h1>

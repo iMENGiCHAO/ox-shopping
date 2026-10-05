@@ -13,8 +13,9 @@ import { MAX_CART_ITEM_QUANTITY, LOGGED_IN_COOKIE } from "@/lib/constants";
 import { specKey, type SpecSelection } from "@/components/shop/types";
 import type { CartLine } from "@/components/shop/cart-provider";
 // 纯函数（无 server-only）：组合可售量与登录用户（getCart→specAvailableQuantity）、
-// 下单扣减同一口径；游客购物袋/结账页不再回落商品总库存
-import { variantAvailableQuantity } from "@/server/services/variant-stock";
+// 下单扣减同一口径；游客购物袋/结账页不再回落商品总库存。
+// effectiveUnitPrice 同理（资金审计 H1）：游客行价 = 变体覆盖价 ?? 商品价。
+import { effectiveUnitPrice, variantAvailableQuantity } from "@/server/services/variant-stock";
 
 export const GUEST_KEY = "guest_cart";
 
@@ -86,7 +87,7 @@ export function writeGuestEntries(entries: GuestEntry[]): void {
 }
 
 /** /api/cart/preview 返回的商品行 */
-interface PreviewProduct {
+export interface PreviewProduct {
   id: string;
   name: string;
   slug: string;
@@ -94,8 +95,16 @@ interface PreviewProduct {
   price: number | string;
   stock: number;
   status: string;
-  /** 组合明细（仅 active）：按所选规格算组合可售量（与登录用户同口径） */
-  variants?: { attributes: { name: string; value: string }[]; stock: number }[] | null;
+  /** 组合明细（仅 active）：按所选规格算组合可售量与**生效价**（与登录用户同口径）。
+   *  price 为 Decimal 的 JSON 字符串形态；isActive 供 findVariant 匹配。 */
+  variants?:
+    | {
+        attributes: { name: string; value: string }[];
+        stock: number;
+        price?: number | string | null;
+        isActive?: boolean;
+      }[]
+    | null;
 }
 
 /**
@@ -114,21 +123,22 @@ export async function fetchGuestCartLines(entries?: GuestEntry[]): Promise<CartL
   for (const entry of list) {
     const p = map.get(entry.productId);
     if (!p) continue; // 商品已下架/删除：跳过该行
-    const price = Number(p.price);
-    const safePrice = Number.isNaN(price) ? 0 : price;
+    // 行级生效价（资金审计 H1）：变体覆盖价 ?? 商品价 —— 与登录用户/下单同口径，
+    // 保证游客端「显示的 = 实扣的」
+    const price = effectiveUnitPrice(p.price, p.variants ?? null, entry.attributes ?? []);
     lines.push({
       id: guestLineId(entry),
       productId: p.id,
       name: p.name,
       slug: p.slug,
       image: Array.isArray(p.images) ? (p.images[0] ?? null) : null,
-      price: safePrice,
+      price,
       // 行级库存 = 该行规格的**组合可售量**（变体模式按所选组合；单规格即总库存）：
       // 商品总库存是全部组合之和，回落会让售罄组合在游客端显示有货、结账才报错
       stock: variantAvailableQuantity(p.variants, entry.attributes ?? [], p.stock),
       status: p.status,
       quantity: entry.quantity,
-      subtotal: round2(safePrice * entry.quantity),
+      subtotal: round2(price * entry.quantity),
       attributes: entry.attributes,
       attributesKey: specKey(entry.attributes),
     });

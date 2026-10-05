@@ -1,5 +1,10 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { compositeKey, rateLimit, resetRateLimit } from "@/lib/rate-limit";
+import {
+  compositeKey,
+  peekRateLimit,
+  rateLimit,
+  resetRateLimit,
+} from "@/lib/rate-limit";
 
 describe("rateLimit 内存 LRU 实现", () => {
   beforeEach(async () => {
@@ -38,6 +43,43 @@ describe("rateLimit 内存 LRU 实现", () => {
     expect((await rateLimit({ key: "test:key:1", limit: 1, windowSeconds: 60 })).ok).toBe(false);
     await resetRateLimit("test:key:1");
     expect((await rateLimit({ key: "test:key:1", limit: 1, windowSeconds: 60 })).ok).toBe(true);
+  });
+});
+
+/**
+ * peekRateLimit（登录失败锁定重构的配套原语）：
+ * 「失败才计数」策略要求先只读判断再决定是否 hit ——
+ * peek 绝不能改变计数（否则未知邮箱探测就能烧掉受害者的锁定额度）。
+ */
+describe("peekRateLimit 只读查看", () => {
+  beforeEach(async () => {
+    await resetRateLimit("peek:key:1");
+  });
+
+  it("无记录时 count=0 / ok=true", async () => {
+    const p = await peekRateLimit("peek:key:1", 3, 60);
+    expect(p.count).toBe(0);
+    expect(p.ok).toBe(true);
+    expect(p.remaining).toBe(3);
+  });
+
+  it("反映已有计数且自身不递增（连续两次 peek 读数一致）", async () => {
+    await rateLimit({ key: "peek:key:1", limit: 3, windowSeconds: 60 });
+    await rateLimit({ key: "peek:key:1", limit: 3, windowSeconds: 60 });
+    const p1 = await peekRateLimit("peek:key:1", 3, 60);
+    expect(p1.count).toBe(2);
+    const p2 = await peekRateLimit("peek:key:1", 3, 60);
+    expect(p2.count).toBe(2); // 关键：peek 没有把计数推到 3
+  });
+
+  it("超限时 ok=false + retryAfterSeconds > 0（仍不递增）", async () => {
+    for (let i = 0; i < 4; i++) {
+      await rateLimit({ key: "peek:key:1", limit: 3, windowSeconds: 60 });
+    }
+    const p = await peekRateLimit("peek:key:1", 3, 60);
+    expect(p.ok).toBe(false);
+    expect(p.count).toBe(4);
+    expect(p.retryAfterSeconds).toBeGreaterThan(0);
   });
 });
 

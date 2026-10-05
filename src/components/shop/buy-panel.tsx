@@ -3,15 +3,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { QuantityInput } from "@/components/shop/quantity-input";
 import { AddToCartButton } from "@/components/shop/add-to-cart-button";
+import { VariantSelect } from "@/components/shop/variant-select";
 import { BuyNowButton } from "@/components/shop/buy-now-button";
 import type { SpecSelection } from "@/components/shop/types";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { isScarceInStock, MAX_PRESALE_QTY } from "@/lib/inventory";
 import { useT } from "@/components/shop/lang-provider";
@@ -295,7 +289,18 @@ export function BuyPanel({
                           title={out ? `${v} — ${t("Sold out")}` : v}
                           aria-label={`${g.name}: ${v}`}
                           aria-pressed={active}
-                          onClick={() => setSelections((s) => ({ ...s, [g.name]: v }))}
+                          /* 防抖修复（大爷 2026-10-04 反馈：点色卡大图/整页跳一下）：
+                             Chrome 对 sticky 双栏布局内的按钮点击聚焦会按其文档流位置
+                             把页面滚动数百像素（实测 483→0），视觉上即「像重新加载」。
+                             拦截原生聚焦发生在 pointerdown（click 里补救为时已晚）：
+                             ① pointerdown preventDefault 阻止原生滚动聚焦；
+                             ② click 时 preventScroll 聚焦补回焦点（键盘 Tab 聚焦
+                                与 focus-visible 环不受影响，可访问性保持）。 */
+                          onPointerDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.currentTarget.focus({ preventScroll: true });
+                            setSelections((s) => ({ ...s, [g.name]: v }));
+                          }}
                           className={cn(
                             "relative h-[34px] w-[34px] rounded-full border p-0 transition-colors",
                             active ? "border-foreground" : "border-transparent hover:border-border",
@@ -319,41 +324,19 @@ export function BuyPanel({
                     })}
                   </div>
                 ) : (
-                  /* Square full-width select — dropdown matches trigger width,
-                     anchored directly below it (official behaviour) */
-                  <Select
+                  /* 下拉型规格：原生 radio + 内联展开（VariantSelect）——
+                     对齐原站真实实现（fieldset + 原生 radio）。此前的 Radix 浮层
+                     每次打开有 90~126ms 主线程长任务（大爷 2026-10-05「顿一下」），
+                     换成常驻 DOM 的原生 radio 面板后开销归零，外观逐类保持一致。
+                     注意：选项**不按已选父维度过滤**（售罄仅用文案标注，仍可选）。 */
+                  <VariantSelect
+                    groupName={g.name}
                     value={selections[g.name] ?? ""}
-                    onValueChange={(v) => setSelections((s) => ({ ...s, [g.name]: v }))}
-                  >
-                    <SelectTrigger
-                      aria-label={g.name}
-                      className="h-[46px] w-full rounded-none border-input bg-card px-3 text-sm text-foreground focus:outline-none focus-visible:ring-0 data-[state=open]:border-foreground"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent
-                      position="popper"
-                      sideOffset={2}
-                      align="center"
-                      className="select-content-full w-[var(--radix-select-trigger-width)] min-w-0 rounded-none border border-input bg-card"
-                    >
-                      {/* ⚠️ 这里**不要**按已选父维度过滤选项：Radix Select 若找不到
-                          当前 value 对应的 item，触发器会渲染成空白框（实拍发现）。
-                          售罄用文案标注即可（下方 isValueSoldOut），不做隐藏。 */}
-                      {g.values.map((v) => (
-                        <SelectItem
-                          key={v}
-                          value={v}
-                          /* 售罄选项仍可选（选中后切到货提醒） */
-                          className="text-sm"
-                        >
-                          {isValueSoldOut(g.name, v, soldOut)
-                            ? `${v} — ${t("Sold out")}`
-                            : v}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    options={g.values}
+                    isSoldOut={(v) => isValueSoldOut(g.name, v, soldOut)}
+                    onChange={(v) => setSelections((s) => ({ ...s, [g.name]: v }))}
+                    soldOutLabel={t("Sold out")}
+                  />
                 )}
               </div>
             );

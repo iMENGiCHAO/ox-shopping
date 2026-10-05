@@ -15,6 +15,12 @@ export const POST = apiHandler(async (req) => {
   if (!payload) throw badRequest("This verification link is invalid or has expired");
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
+  // 安全审计：令牌必须与**当前**邮箱绑定。此前只取 payload.sub —— 用户换邮箱后
+  // （user/email 路由会重置 emailVerified=false），旧邮箱收到的旧链接仍能把账号
+  // 重新置为已验证，绕过「未验证不得下单」门控（24h 有效期内可重放）。
+  if (user && payload.email && payload.email.toLowerCase() !== user.email.toLowerCase()) {
+    throw badRequest("This verification link is invalid or has expired");
+  }
   if (user && !user.emailVerified) {
     await prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
   }

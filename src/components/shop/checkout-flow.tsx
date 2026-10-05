@@ -11,8 +11,9 @@ import { formatSpecValues, type ShopAddress } from "@/components/shop/types";
 import { COUNTRIES, DEFAULT_COUNTRY, countryStates, getCountry } from "@/lib/countries";
 import { couponReasonMessage, type CouponRejectReason } from "@/lib/coupon";
 import { fetchGuestCartLines, hasLoggedInCookie, GUEST_KEY } from "@/lib/guest-cart";
-// 纯函数（无 server-only）：组合可售量与登录用户/下单扣减同一口径
-import { variantAvailableQuantity } from "@/server/services/variant-stock";
+// 纯函数（无 server-only）：与登录用户/下单同一取价与库存口径
+// （effectiveUnitPrice 为资金审计 H1 修复：变体覆盖价 ?? 商品价）
+import { effectiveUnitPrice, variantAvailableQuantity } from "@/server/services/variant-stock";
 import { toast } from "sonner";
 import { cn, randomToken } from "@/lib/utils";
 import {
@@ -71,8 +72,16 @@ interface PreviewProduct {
   stock: number;
   status: string;
   isPresale?: boolean;
-  /** 组合明细（仅 active）：按所选规格算组合可售量（与登录用户同口径） */
-  variants?: { attributes: { name: string; value: string }[]; stock: number }[] | null;
+  /** 组合明细（仅 active）：按所选规格算组合可售量与**生效价**（与登录用户同口径）。
+   *  price 为 Decimal 的 JSON 字符串形态；isActive 供 findVariant 匹配。 */
+  variants?:
+    | {
+        attributes: { name: string; value: string }[];
+        stock: number;
+        price?: number | string | null;
+        isActive?: boolean;
+      }[]
+    | null;
 }
 
 interface ShippingMethodLite {
@@ -284,7 +293,6 @@ export function CheckoutFlow({
             return;
           }
           const qty = Math.min(Math.max(1, Number(quantity) || 1), 99);
-          const price = Number(product.price) || 0;
           let attributes: { name: string; value: string }[] | undefined;
           try {
             const parsed = attrs ? (JSON.parse(attrs) as unknown) : null;
@@ -300,6 +308,13 @@ export function CheckoutFlow({
           } catch {
             attributes = undefined;
           }
+          // 行级生效价（资金审计 H1）：立即购买也要按「变体覆盖价 ?? 商品价」
+          // 取价 —— 与购物车/下单同口径，保证结账页显示的 = 实扣的
+          const price = effectiveUnitPrice(
+            product.price,
+            product.variants ?? null,
+            attributes ?? [],
+          );
           setLines([
             {
               id: product.id,

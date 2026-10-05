@@ -135,11 +135,6 @@ const envSchema = z.object({
     .trim()
     .min(1)
     .default(process.env.NODE_ENV ?? "development"),
-  SENTRY_TRACES_SAMPLE_RATE: z.coerce
-    .number()
-    .min(0)
-    .max(1)
-    .default(process.env.NODE_ENV === "production" ? 0.1 : 0),
   SENTRY_RELEASE: z.string().trim().optional().default(""),
 
   // 部署时区：日志、迁移和维护窗口统一使用显式 IANA 时区。

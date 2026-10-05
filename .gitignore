@@ -34,6 +34,7 @@ yarn-error.log*
 .env
 .env.local
 .env.development.local
+.env.test
 .env.test.local
 .env.production.local
 
@@ -78,3 +79,9 @@ Thumbs.db
 # 原站商品抓取缓存（脚本 fetch-shop-images.mjs 的中间产物，不入库）
 .shop-scrape/
 .tmp-*.mts
+
+# 开发规划产物（交付审计：不应入库）
+findings.md
+task_plan.md
+progress.md
+.workbuddy-ai/

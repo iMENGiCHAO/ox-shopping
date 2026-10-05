@@ -18,15 +18,7 @@ if (!isProduction) {
   globalForPrisma.prisma = prisma;
 }
 
-// 进程内定时任务（订单过期取消 / Token 清理 / 掉单对账）。
-// 挂在 prisma 单例上：本模块只会在 Node 服务端被导入，天然不进 edge 打包图；
-// startScheduler 内部有 globalThis 守卫，每进程仅启动一次。CRON_ENABLED=false 可关闭。
-if (
-  process.env.NEXT_RUNTIME !== "edge" &&
-  process.env.NEXT_PHASE !== "phase-production-build" &&
-  process.env.CRON_ENABLED !== "false"
-) {
-  void import("@/server/jobs/start")
-    .then((m) => m.startScheduler())
-    .catch(() => {});
-}
+// 进程内定时任务启动：已收敛到 src/instrumentation.ts 的 register()（服务器
+// 启动即拉起，含 Sentry 初始化）—— 此前的「import prisma 单例 = 起定时任务」
+// 隐式副作用已移除（解耦审计：数据库客户端不应携带定时任务副作用；
+// 顺序无关，startScheduler 的 globalThis 守卫保证与任何旧路径共存幂等）。

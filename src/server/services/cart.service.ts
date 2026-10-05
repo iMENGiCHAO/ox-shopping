@@ -7,6 +7,7 @@ import { pickName, type Lang } from "@/lib/shop-i18n";
 import { badRequest, notFound } from "@/lib/errors";
 import type { SpecSelection } from "@/components/shop/types";
 import {
+  effectiveUnitPrice,
   parseVariantAttributes,
   variantAvailableQuantity,
   type VariantLike,
@@ -137,6 +138,8 @@ export async function loadActiveVariants(
       attributes: parseVariantAttributes(v.attributes),
       stock: v.stock,
       isActive: v.isActive,
+      // 组合覆盖价（资金审计 H1）：购物车行价/小计按所选组合的真实价格
+      price: v.price == null ? null : Number(v.price),
     });
     out.set(v.productId, list);
   }
@@ -162,6 +165,16 @@ export async function getCart(
   const lines: CartLine[] = [];
   for (const item of items) {
     if (!item.product) continue;
+    // 行级生效单价（资金审计 H1）：变体覆盖价 ?? 商品价 ——
+    // 购物车页/抽屉/结账摘要显示的价格必须与下单实扣一致
+    const lineAttributes = Array.isArray(item.attributes)
+      ? (item.attributes as unknown as SpecSelection[])
+      : null;
+    const unitPrice = effectiveUnitPrice(
+      item.product.price,
+      variantsByProduct.get(item.productId) ?? null,
+      lineAttributes,
+    );
     lines.push({
       id: item.id,
       productId: item.product.id,
@@ -173,21 +186,17 @@ export async function getCart(
       image: Array.isArray(item.product.images)
         ? ((item.product.images[0] as string) ?? null)
         : null,
-      price: Number(item.product.price),
+      price: unitPrice,
       stock: specAvailableQuantity(
         item.product,
-        Array.isArray(item.attributes)
-          ? (item.attributes as unknown as SpecSelection[])
-          : null,
+        lineAttributes,
         variantsByProduct.get(item.productId) ?? null,
       ),
       status: item.product.status,
       quantity: item.quantity,
-      subtotal: round2(Number(item.product.price) * item.quantity),
+      subtotal: round2(unitPrice * item.quantity),
       isPresale: item.product.isPresale,
-      attributes: Array.isArray(item.attributes)
-        ? (item.attributes as unknown as SpecSelection[])
-        : undefined,
+      attributes: lineAttributes ?? undefined,
       attributesKey: item.attributesKey,
     });
   }

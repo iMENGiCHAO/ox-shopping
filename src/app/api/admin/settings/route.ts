@@ -13,10 +13,15 @@ export const runtime = "nodejs";
 
 /** GET /api/admin/settings — 全部站点设置 + 服务端环境状态（只读，不暴露任何密钥） */
 export const GET = apiHandler(async () => {
-  await requireStaff();
+  const actor = await requireStaff();
   const rows = await prisma.siteSetting.findMany();
   const settings: Record<string, unknown> = {};
-  for (const r of rows) settings[r.key] = r.value;
+  for (const r of rows) {
+    // 安全审计：邮件通道配置（smtpHost/用户名/加密后的密钥密文）仅 ADMIN 可见 ——
+    // SUPPORT 负责日常订单客服，不需要接触基础设施凭据（此前全量返回）。
+    if (r.key === "mail_config" && actor.role !== "ADMIN") continue;
+    settings[r.key] = r.value;
+  }
   return json({
     settings,
     /** 后端环境状态（只读，供设置页提示；密钥一律不返回） */

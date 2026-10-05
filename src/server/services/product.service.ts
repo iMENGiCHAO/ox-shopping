@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { cache } from "react";
 import { cacheGet, cacheSet, productsCacheKey } from "@/lib/cache";
 import { createHash } from "crypto";
 import { notFound } from "@/lib/errors";
@@ -159,7 +160,13 @@ export async function listProducts(params: ListProductsParams) {
   return { rows, total };
 }
 
-export async function getProductBySlug(slug: string) {
+/**
+ * 商品详情（按 slug）。
+ * React cache() = **请求内去重**（交付审计：PDP 的 generateMetadata 与页面 body
+ * 此前各查一次库，含 variants 关联；force-dynamic 下每个 PDP 命中都双查询）。
+ * 同一次请求内重复调用只打一次库；不同请求互不影响（不是跨请求缓存，无失效问题）。
+ */
+export const getProductBySlug = cache(async (slug: string) => {
   // DB 故障时同样走 notFound（渲染品牌 404 页），避免错误边界 500
   const product = await prisma.product
     .findUnique({ where: { slug }, include: { category: true, variants: { orderBy: { createdAt: "asc" } } } })
@@ -169,7 +176,7 @@ export async function getProductBySlug(slug: string) {
     });
   if (!product || product.status !== "ACTIVE") throw notFound("Product not found or no longer available");
   return product;
-}
+});
 
 export async function getProductById(id: string) {
   const product = await prisma.product.findUnique({

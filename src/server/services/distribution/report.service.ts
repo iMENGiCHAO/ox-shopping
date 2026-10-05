@@ -16,7 +16,7 @@ import {
 import { round2 } from "@/lib/distribution/rules";
 import { getDistributionConfig, getDistributionEnabledAt } from "./config.service";
 import { cnyText } from "./format-server";
-import { getClosure, getDescendantIds } from "./relation.service";
+import { getClosure, getCommissionChain, getDescendantIds } from "./relation.service";
 import {
   accrueForOrder,
   currentUsdToCny,
@@ -845,6 +845,18 @@ export async function reconcileDistribution(limit = 100): Promise<{
      且永远返回 0 行。7 天窗口远宽于补齐周期，已补齐的行不再命中（attribution
      非空 / commissions 非空），稳态扫描量 = 最近 7 天活跃集 ≈ 0 行。 */
   const reconcileFloor = new Date(Date.now() - 7 * 86_400_000);
+  /**
+   * 冲正/结算扫描水位（90 天，资金审计 M8 修复）：此前冲正候选与结算候选
+   * **无时间下界** —— 部分冲正的流水永远保持 status != REVERSED（按设计，
+   * 后续退款可继续追冲），于是「已追平但仍未全额冲正」的老单会**永久**命中
+   * 候选谓词、每轮空转并占据 take:limit 批次 —— 一旦这类单超过 limit，
+   * 新退款单被挤出批次（冲正兜底对新增事件永久失效）。
+   *
+   * 覆盖性不受影响：新增退款事件由 **refund 侧查询**按 refund.createdAt 捞
+   * （新退款的行天然在水窗口内，与订单年龄无关）；订单侧（CANCELLED 的
+   * 冲正兜底）超龄事件依赖取消钩子，90 天已是钩子兜底的宽裕上限。
+   */
+  const reversalFloor = new Date(Date.now() - 90 * 86_400_000);
   const orphans = await prisma.order.findMany({
     where: {
       createdAt: { gte: reconcileFloor },
@@ -875,7 +887,13 @@ export async function reconcileDistribution(limit = 100): Promise<{
       paidAt: { not: null },
       status: { in: COMMISSIONABLE },
       attribution: { distributorId: { not: null } },
-      commissions: { none: {} },
+      // 资金审计 M4 修复：此前只选「零佣金」订单 —— 部分计提（个别受益人
+      // 因结算币种折算失败被 flatMap 丢弃，其余级别已落库）的单永远不再命中，
+      // commission.service:337 的差集幂等注释所宣称的「对账补偿会补」落空。
+      // 补充信号：归属有直推分销商却缺 **level-1** 流水（部分计提的主形态）。
+      // accrueForOrder 幂等（差集 + createMany skipDuplicates），重跑即补漏、
+      // 永不双记；与「零佣金」同一 7 天水位，稳态扫描量仍 ≈ 0 行。
+      OR: [{ commissions: { none: {} } }, { commissions: { none: { level: 1 } } }],
     },
     select: { id: true },
     take: limit,
@@ -885,10 +903,50 @@ export async function reconcileDistribution(limit = 100): Promise<{
     accrued += res.count > 0 ? 1 : 0;
   }
 
+  // 资金审计（补漏第二形态）：**已有部分佣金但缺 level-2+** 的订单。
+  // 上面的 OR 只覆盖「零佣金」与「缺 level-1」，若某上级因结算币种折算失败被
+  // flatMap 丢弃、而其下级别已落库，该订单永远不再命中补偿 —— 这笔佣金永久漏发。
+  // 这里用「佣金链长度 vs 已计提行数」比对，不足才重跑 accrueForOrder（差集 +
+  // skipDuplicates 幂等，重跑即补漏、永不双记）。take 限制保证每分钟扫描成本有界。
+  const partialCandidates = await prisma.order.findMany({
+    where: {
+      createdAt: { gte: reconcileFloor },
+      paidAt: { not: null },
+      status: { in: COMMISSIONABLE },
+      attribution: { distributorId: { not: null } },
+      commissions: { some: {} },
+    },
+    select: {
+      id: true,
+      userId: true,
+      attribution: { select: { distributorId: true } },
+    },
+    take: 20,
+    orderBy: { createdAt: "desc" },
+  });
+  for (const o of partialCandidates) {
+    const distributorId = o.attribution?.distributorId;
+    if (!distributorId) continue;
+    const [chain, rows] = await Promise.all([
+      getCommissionChain(distributorId).catch(() => []),
+      prisma.commissionLog.count({ where: { orderId: o.id } }),
+    ]);
+    if (rows >= chain.length) continue; // 已计提完整（含无上级的边界：两者都是 0/1）
+    const res = await accrueForOrder(o.id);
+    if (res.count > 0) {
+      accrued += 1;
+      logger.warn(
+        { orderId: o.id, chainLen: chain.length, existing: rows, added: res.count },
+        "[distribution] 补齐部分计提订单的缺失佣金",
+      );
+    }
+  }
+
   // 冲正候选 = 整单退款/取消的订单 ∪ **存在已完成退款单**的订单（覆盖部分退款）
   const [stale, partial] = await Promise.all([
     prisma.order.findMany({
       where: {
+        createdAt: { gte: reversalFloor },
         status: { in: ["REFUNDED", "CANCELLED"] },
         // 只挑「还存在未冲正佣金」的订单：已冲干净的订单不再参与每分钟扫描
         commissions: { some: { status: { not: "REVERSED" } } },
@@ -901,6 +959,11 @@ export async function reconcileDistribution(limit = 100): Promise<{
     }),
     prisma.refund.findMany({
       where: {
+        // 资金审计 M8：水位放在**退款事件**上 —— 部分冲正订单的流水
+        // status != REVERSED 是常态（等后续退款继续追冲），不设水位会永久
+        // 命中并饿死批次。新退款的 createdAt 天然在水内，任何订单年龄的新
+        // 退款事件都能被兜住。
+        createdAt: { gte: reversalFloor },
         status: "REFUNDED",
         order: { commissions: { some: { status: { not: "REVERSED" } } } },
       },
@@ -921,7 +984,13 @@ export async function reconcileDistribution(limit = 100): Promise<{
   }
 
   const delivered = await prisma.order.findMany({
-    where: { status: "DELIVERED", commissions: { some: { status: "PENDING" } } },
+    where: {
+      // 资金审计 M8：同样加水位 —— 结算币种折算失败的 PENDING 流水会反复
+      // 进入候选（settleOrder 抛错回滚 claim），不设水位会永久占据批次。
+      createdAt: { gte: reversalFloor },
+      status: "DELIVERED",
+      commissions: { some: { status: "PENDING" } },
+    },
     select: { id: true },
     take: limit,
   });

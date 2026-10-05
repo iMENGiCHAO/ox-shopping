@@ -140,17 +140,23 @@ describe("COD 货到付款语义 + 分账恒等式", () => {
     expect(o.paidAt).toBeNull();
     // 无线上支付入口
     expect(data.paymentUrl).toBeNull();
-    // 到付参考金额 = 配送方式的 fee（不计入线上 total）
-    expect(o.codFee).toBe(7);
+    // 到付参考金额：配送方式 fee（7 USD 基础价）按订单汇率快照换算成**订单币种**后落库
+    // （币种口径回归：旧实现直接落 USD 原值，非 USD 订单的 total + codFee
+    //  会把美元数当本币相加 —— 订单页/邮件/后台「送达应收现金」全部算错）
+    expect(o.codFee).toBeGreaterThan(0);
     expect(o.shippingFee).toBe(0);
-    // 送达时应收现金 = total + codFee（>total）
+    // 送达时应收现金 = total + codFee（>total，两者同币种可直接相加）
     expect(o.total).toBeGreaterThan(0);
 
-    // 落库值再确认一次（防止响应序列化与库不一致）
+    // 落库值再确认一次（防止响应序列化与库不一致）。
+    // 与订单自身汇率快照自洽 —— 任何测试币种（.env.test 换 CURRENCY）下都成立
     const db = await prisma.order.findUniqueOrThrow({ where: { orderNumber: o.orderNumber } });
     expect(db.status).toBe("PROCESSING");
     expect(db.isCashOnDelivery).toBe(true);
-    expect(Number(db.codFee)).toBe(7);
+    const expectedCodFee = Math.round(7 * Number(db.exchangeRate) * 100) / 100;
+    expect(Number(db.codFee)).toBe(expectedCodFee);
+    // 响应与库一致
+    expect(o.codFee).toBe(Number(db.codFee));
     expect(db.paidAt).toBeNull();
   });
 

@@ -1,5 +1,8 @@
 import { apiHandler, json } from "@/lib/api";
 import { requireUser } from "@/lib/auth/session";
+import { rateLimited } from "@/lib/errors";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 
@@ -12,7 +15,11 @@ export const runtime = "nodejs";
  * 与账号活动。明确排除密码哈希、refresh token 哈希、预签名 URL、支付网关凭证和管理员备注。
  */
 export const GET = apiHandler(async (req) => {
-  const user = await requireUser();
+  // 限流（安全审计）：全量 PII 导出，单用户 3 次/小时
+  const actor = await requireUser();
+  const rl = await rateLimit({ key: `user-export:${actor.id}`, ...RATE_LIMITS.userExport });
+  if (!rl.ok) throw rateLimited();
+  const user = actor;
   const userId = user.id;
 
   const [

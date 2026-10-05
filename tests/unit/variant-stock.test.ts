@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   availableValuesFor,
+  effectiveUnitPrice,
   findVariant,
   isVariantSoldOut,
   parseVariantAttributes,
@@ -159,5 +160,55 @@ describe("聚合口径", () => {
     ];
     expect(variantPriceRange(priced, 99)).toEqual({ min: 100, max: 120 });
     expect(variantPriceRange([v("a", { 尺码: "M" }, 1)], 99)).toEqual({ min: 99, max: 99 });
+  });
+});
+
+/**
+ * effectiveUnitPrice（资金审计 H1 回归）：变体覆盖价必须真实生效于
+ * 下单/试算/购物车全链路 —— 此前覆盖价被静默丢弃（运营设 129 实收 99）。
+ */
+describe("effectiveUnitPrice：行级生效价", () => {
+  it("选中带覆盖价的组合 → 用覆盖价", () => {
+    const variants = [
+      v("a", { 尺码: "M" }, 5, { price: 100 }),
+      v("b", { 尺码: "L" }, 5, { price: 120 }),
+    ];
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "L" }])).toBe(120);
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "M" }])).toBe(100);
+  });
+
+  it("选中无覆盖价的组合（price=null）→ 回落商品价", () => {
+    const variants = [v("a", { 尺码: "M" }, 5, { price: null })];
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "M" }])).toBe(99);
+  });
+
+  it("无变体 / 无规格选择 / 组合不匹配 → 回落商品价", () => {
+    expect(effectiveUnitPrice(99, null, [{ name: "尺码", value: "L" }])).toBe(99);
+    expect(effectiveUnitPrice(99, [], undefined)).toBe(99);
+    const variants = [v("a", { 尺码: "M" }, 5, { price: 120 })];
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "XXL" }])).toBe(99);
+    expect(effectiveUnitPrice(99, variants, [])).toBe(99);
+  });
+
+  it("覆盖价为字符串（preview Decimal JSON 形态）/ 非法值 → 正确收敛/回落", () => {
+    const variants = [
+      v("a", { 尺码: "M" }, 5, { price: "129.00" as unknown as number }),
+      v("b", { 尺码: "L" }, 5, { price: "abc" as unknown as number }),
+    ];
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "M" }])).toBe(129);
+    expect(effectiveUnitPrice(99, variants, [{ name: "尺码", value: "L" }])).toBe(99);
+  });
+
+  it("窄结构（无 id/isActive 缺省，preview 行形态）可用", () => {
+    const narrow = [
+      { attributes: [{ name: "尺码", value: "M" }], stock: 5, price: 88 },
+      { attributes: [{ name: "尺码", value: "L" }], stock: 5 },
+    ];
+    expect(effectiveUnitPrice(99, narrow, [{ name: "尺码", value: "M" }])).toBe(88);
+    expect(effectiveUnitPrice(99, narrow, [{ name: "尺码", value: "L" }])).toBe(99);
+  });
+
+  it("Decimal 形态商品价（toString 收敛）", () => {
+    expect(effectiveUnitPrice({ toString: () => "66.60" }, null, null)).toBe(66.6);
   });
 });

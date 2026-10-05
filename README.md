@@ -227,7 +227,7 @@ sudo certbot certonly --standalone -d shop.example.com
 
 ### CI/CD（GitHub Actions）
 
-`.github/workflows/ci.yml` 包含四个任务：**Lint & Typecheck**、**单元+集成测试**（Postgres/Redis 服务容器，自动迁移+种子）、**生产构建**、**Playwright E2E**。推送到 `main` 自动执行。
+`.github/workflows/ci.yml` 包含八个任务：**Lint & Typecheck + QA 静态门禁**（硬编码/错误文案/死链）、**依赖审计**（运行时依赖 high 阻断）、**迁移一致性门禁**（空库 deploy + 与 schema 的 drift 比对）、**单元+集成测试**（Postgres/Redis 服务容器，自动迁移+种子）、**生产构建**、**Playwright E2E**、**Docker 镜像冒烟**、**Docker Compose 全栈冒烟**。推送到 `main` 自动执行。
 
 ### 生产检查清单
 

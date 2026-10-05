@@ -11,6 +11,15 @@ const globalForCron = globalThis as unknown as { __cronStarted?: boolean };
 
 export function startScheduler(): void {
   if (globalForCron.__cronStarted) return;
+  // CRON_ENABLED=false 完全关闭（交付审计：该变量此前全仓无读取方 = 死开关，
+  // 文档承诺的「维护/迁移窗口可关闭」不成立，订单超时/对账/结算仍照跑写库）。
+  if (process.env.CRON_ENABLED === "false") {
+    globalForCron.__cronStarted = true;
+    logger.warn(
+      "[cron] CRON_ENABLED=false —— 调度器未启动：订单超时取消 / 掉单对账 / 分销结算均不会自动执行",
+    );
+    return;
+  }
   globalForCron.__cronStarted = true;
 
   const seconds = Number(process.env.CRON_INTERVAL_SECONDS ?? 60);

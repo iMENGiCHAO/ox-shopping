@@ -465,7 +465,20 @@ export async function applyWithdraw(input: {
         where: { userId: input.userId, balance: { gte: amount } },
         data: { balance: { decrement: amount }, frozen: { increment: amount } },
       });
-      if (claimed.count === 0) throw badRequest("Insufficient withdrawable balance");
+      if (claimed.count === 0) {
+        // 欠款语境（资金审计 M6）：余额为负是被「已提现后退款冲正」扣穿的显式台账
+        // 状态 —— 拒绝提现时把原因说清，不再让分销商面对一句干巴巴的「余额不足」
+        const acct = await tx.distributorAccount.findUnique({
+          where: { userId: input.userId },
+          select: { debt: true, settlementCurrency: true },
+        });
+        if (acct && Number(acct.debt) > 0) {
+          throw badRequest(
+            `Insufficient withdrawable balance: your account carries a debt of ${Number(acct.debt).toFixed(2)} ${acct.settlementCurrency} from a refunded order — future commissions will automatically offset it`,
+          );
+        }
+        throw badRequest("Insufficient withdrawable balance");
+      }
 
       return tx.withdrawRecord.create({
         data: {

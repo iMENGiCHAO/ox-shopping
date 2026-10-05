@@ -72,6 +72,46 @@ export function findVariant<T extends VariantLike>(
 }
 
 /**
+ * 行级生效单价（USD 基准）：变体覆盖价优先，否则商品基础价。
+ *
+ * 商业缺陷修复（资金审计 H1）：ProductVariant.price 支持「大码加价」等组合级定价，
+ * 后台可编辑、可落库，但下单/试算/购物车此前全部只读商品价 —— 覆盖价被静默丢弃，
+ * 系统性少收。本助手是**全链路唯一的取价口径**：下单小计、行小计、OrderItem.price、
+ * 券试算、购物车行价都经它解析，保证「页面显示的 = 实际扣款的」。
+ *
+ * 与 variantAvailableQuantity 同约定：接受窄结构 { attributes, stock, isActive?, price? }
+ * （preview 接口的行没有 id，且服务端已过滤 active 故 isActive 可缺省）；
+ * 完整 VariantLike 亦兼容。productPrice 接受 Prisma Decimal / number / string。
+ *
+ * 容错口径：无变体 / 未选中规格 / 选不到匹配组合 / 覆盖价非法 → 回落商品价
+ * （组合不存在时下单会在库存扣减阶段报「不可购」，价格显示无所谓对错）。
+ */
+export function effectiveUnitPrice(
+  productPrice: number | string | { toString(): string },
+  variants:
+    | {
+        attributes: VariantAttributes[];
+        stock: number;
+        isActive?: boolean;
+        price?: number | string | null;
+      }[]
+    | null
+    | undefined,
+  attributes: VariantAttributes[] | null | undefined,
+): number {
+  const base = Number(productPrice) || 0;
+  if (!variants || variants.length === 0) return base;
+  const sig = variantSignature(normalizeSelection(attributes ?? []));
+  if (!sig) return base;
+  const v = variants.find((x) => (x.isActive ?? true) && variantSignature(x.attributes) === sig);
+  if (v && v.price != null) {
+    const n = Number(v.price);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return base;
+}
+
+/**
  * 由变体列表推导「可选组与值」——前台选择器的真实可选项：
  * 只包含**至少存在一个 active 组合**的组/值（红色没有 L 组合 → L 不出现在红色的选项里）。
  * 返回顺序按首次出现顺序（与后台录入顺序一致）。

@@ -1,7 +1,9 @@
 import { apiHandler, json, readJson } from "@/lib/api";
-import { badRequest } from "@/lib/errors";
+import { badRequest, rateLimited } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import { getPresignedUpload, normalizeUploadPurpose, validateUpload } from "@/lib/storage";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -17,7 +19,13 @@ const presignBodySchema = z.object({
 
 /** POST /api/admin/uploads/presign — S3 预签名上传 */
 export const POST = apiHandler(async (req) => {
-  await requireStaff();
+  const actor = await requireStaff();
+  // 存储限流（安全审计）：与本地直传同一策略（预签名也占用对象存储）
+  const rl = await rateLimit({
+    key: `admin-upload:${actor.id}`,
+    ...RATE_LIMITS.adminUpload,
+  });
+  if (!rl.ok) throw rateLimited();
   const input = await readJson(req, presignBodySchema);
 
   // 预签名阶段只能校验客户端声明值；完成闸门会再次读取对象并校验真实字节。

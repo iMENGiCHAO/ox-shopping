@@ -14,6 +14,11 @@ export interface RateLimitResult {
   retryAfterSeconds: number;
 }
 
+/** 只读查看结果：额外带窗口内已有计数（peek 不递增、不重置窗口）。 */
+export interface RateLimitPeekResult extends RateLimitResult {
+  count: number;
+}
+
 export interface RateLimitOptions {
   key: string;
   limit: number;
@@ -54,6 +59,21 @@ class LruCounter {
     };
   }
 
+  /** 只读查看（不递增）：固定窗口过期视为 0。 */
+  peek(key: string, limit: number, windowSeconds: number): RateLimitPeekResult {
+    const now = Math.floor(Date.now() / 1000);
+    const cur = this.map.get(key);
+    if (!cur || cur.windowStart + windowSeconds <= now) {
+      return { count: 0, ok: true, remaining: limit, retryAfterSeconds: 0 };
+    }
+    return {
+      count: cur.count,
+      ok: cur.count <= limit,
+      remaining: Math.max(limit - cur.count, 0),
+      retryAfterSeconds: cur.count > limit ? cur.windowStart + windowSeconds - now : 0,
+    };
+  }
+
   delete(key: string): void {
     this.map.delete(key);
   }
@@ -88,6 +108,13 @@ if n == 1 then
 end
 local ttl = redis.call('TTL', KEYS[1])
 return {n, ttl}
+`;
+
+// 只读查看：GET 计数 + TTL，不产生任何写副作用
+const REDIS_PEEK_SCRIPT = `
+local c = redis.call('GET', KEYS[1])
+if not c then return {0, 0} end
+return {c, redis.call('TTL', KEYS[1])}
 `;
 
 /* ───────────────────────── 公共 API ───────────────────────── */
@@ -167,6 +194,41 @@ export async function resetRateLimit(key: string): Promise<void> {
     }
   }
   memoryBuckets.delete(key);
+}
+
+/**
+ * 只读查看限流计数（**不递增、不重置窗口、不写 Redis**）。
+ *
+ * 用途：「失败才计数」的锁定策略 —— 先 peek 判断是否已锁/该延迟，
+ * 只有**真实业务失败**发生时才 hit 计数。这样：
+ *   - 未知邮箱探测/撞库喷洒烧不动受害者的计数器（对 401 统一口径的分支零副作用）；
+ *   - 被上游限流拦下的请求也不会误烧账号级锁定。
+ * peek 与 hit 必须使用**完全相同的 key/limit/windowSeconds**，否则读数口径漂移。
+ */
+export async function peekRateLimit(
+  key: string,
+  limit: number,
+  windowSeconds: number,
+): Promise<RateLimitPeekResult> {
+  const redis = getRedis();
+  if (redis) {
+    try {
+      const [count, ttl] = (await redis.eval(REDIS_PEEK_SCRIPT, 1, `ratelimit:${key}`)) as [
+        number,
+        number,
+      ];
+      const n = Number(count) || 0;
+      return {
+        count: n,
+        ok: n <= limit,
+        remaining: Math.max(limit - n, 0),
+        retryAfterSeconds: n > limit ? Math.max(Number(ttl) || 0, 1) : 0,
+      };
+    } catch (err) {
+      logger.warn({ err }, "redis rate limit peek failed, fallback to memory");
+    }
+  }
+  return memoryBuckets.peek(key, limit, windowSeconds);
 }
 
 /* ───────────────────────── 复合 key 助手 ───────────────────────── */

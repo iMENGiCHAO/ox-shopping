@@ -29,6 +29,10 @@ jobs:
         run: npm run lint
       - name: TypeScript
         run: npm run typecheck
+      # 交付审计：qa:static（硬编码扫描 / 顾客可见错误文案语言 / 静态死链）
+      # 此前零 CI 门禁，只能在开发者本机拦 —— PR 可带病合入
+      - name: QA 静态门禁（硬编码 / 错误文案 / 死链）
+        run: npm run qa:static
 
   audit:
     name: Dependency Audit
@@ -40,8 +44,14 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci --ignore-scripts
-      - name: npm audit（high/critical 阻断）
-        run: npm audit --audit-level=high
+      - name: npm audit（运行时依赖 high/critical 阻断）
+        # --omit=dev：只审计生产运行时依赖（standalone 镜像不含 devDependencies）。
+        # dev 链上已知的 braces GHSA-vfj7-8cjw-p6xm（tailwindcss→chokidar→braces、
+        # eslint-config-next→fast-glob→micromatch→braces，文件监视/静态分析工具）
+        # 目前**无任何已修复版本可升**（braces 3.0.3 即最新），唯一根治是 tailwind 4
+        # 迁移——已立项跟踪，不作为运行时安全门禁的阻断项。运行时依赖（undici/nodemailer
+        # 等）依旧零容忍：出现即红。
+        run: npm audit --omit=dev --audit-level=high
 
   migration-gate:
     name: Empty DB Migration Gate
@@ -106,6 +116,43 @@ jobs:
             exit 1
           fi
           echo "仅存在已登记的 raw partial unique index 差异"
+
+  backup-restore-drill:
+    # 交付审计：备份此前只做 pg_dump + 非空校验，**从未验证过可恢复性** ——
+    # 不可恢复的备份等于没有备份。本 job 在真实 Postgres 上跑完整
+    # dump → 建临时库 → restore → 表数/关键表校验 → 清理。
+    name: Backup Restore Drill
+    runs-on: ubuntu-latest
+    needs: [migration-gate]
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ecommerce
+          POSTGRES_PASSWORD: ecommerce
+          POSTGRES_DB: ecommerce_drill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ecommerce -d ecommerce_drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_drill?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: 建表（空库跑全量迁移）
+        run: npx prisma migrate deploy
+      - name: 备份可恢复性演练
+        run: bash scripts/backup-restore-drill.sh
 
   test:
     name: Unit & Integration Tests
@@ -262,3 +309,18 @@ jobs:
       - name: 清理 smoke 容器
         if: always()
         run: docker rm --force ox-shopping-smoke || true
+
+  compose-smoke:
+    # 运维审计 H2（覆盖缺口）：compose 是文档承诺的部署路径，历史上两次 P0
+    # （「生产/演示两条路径全部起不来」）都发生在 compose 编排层 —— 而 raw
+    # `docker run` 的 docker-smoke 探不到 compose（env 插值 / SEED_ON_START /
+    # depends_on 健康门 / minio 初始化 / db-backup sidecar）。这里跑完整的
+    # scripts/smoke-compose.sh：构建→起栈→迁移→种子→健康→关键页→后台登录→日志无 ERROR。
+    name: Docker Compose Full-Stack Smoke
+    runs-on: ubuntu-latest
+    needs: [docker-smoke]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 运行 compose 冒烟（本地演示模式，无需任何 .env）
+        run: bash scripts/smoke-compose.sh

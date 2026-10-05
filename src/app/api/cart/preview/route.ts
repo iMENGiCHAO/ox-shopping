@@ -41,10 +41,13 @@ export const GET = apiHandler(async (req) => {
       // 游客车与游客结账页需要用同一谓词判断「售罄但仍可购」：
       // 预售商品 stock=0 仍是可购状态，漏传会让购物车/结账摘要误判或丢失预售标识。
       isPresale: true,
-      // 组合明细（仅 active）：前端按行规格算组合可售量（与登录用户同口径）
+      // 组合明细（仅 active）：前端按行规格算组合可售量（与登录用户同口径）。
+      // price/isActive 同步下发（资金审计 H1）：游客行价也按「变体覆盖价 ?? 商品价」
+      // 解析 —— isActive 供 findVariant 匹配（缺省会全量 not found），price 为
+      // Decimal → JSON 字符串形态，客户端统一 Number() 收敛。
       variants: {
         where: { isActive: true },
-        select: { attributes: true, stock: true },
+        select: { attributes: true, stock: true, price: true, isActive: true },
         orderBy: { createdAt: "asc" },
       },
     },

@@ -127,7 +127,6 @@ services:
       # Sentry 可选；配置错误 DSN 会由 env.ts 启动时拒绝。
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
-      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
       SENTRY_RELEASE: ${SENTRY_RELEASE:-}
       # TZ 必须在 Node 进程启动前设置；APP_TIMEZONE 供应用配置显式记录/校验。
       TZ: ${TZ:-UTC}

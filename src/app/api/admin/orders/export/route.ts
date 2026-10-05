@@ -1,11 +1,13 @@
 import { apiHandler, searchParam } from "@/lib/api";
-import { badRequest } from "@/lib/errors";
+import { badRequest, rateLimited } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import { dateString } from "@/lib/utils";
 import { toCsv, normalizeRows } from "@/lib/csv";
 import { ORDER_STATUS_LABELS } from "@/lib/order-status";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import type { OrderStatus } from "@prisma/client";
 import { Prisma } from "@prisma/client";
 
@@ -24,6 +26,13 @@ const ORDER_STATUSES: OrderStatus[] = [
 /** GET /api/admin/orders/export — 订单 CSV 导出(上限 5000 条) */
 export const GET = apiHandler(async (req) => {
   const actor = await requireStaff();
+  // PII 限流（安全审计）：导出含收件人姓名/电话/邮箱，被盗/内部滥用的会话
+  // 不应能无限循环拉取 —— 单管理员 4 次/10 分钟
+  const rl = await rateLimit({
+    key: `admin-export:${actor.id}`,
+    ...RATE_LIMITS.adminExport,
+  });
+  if (!rl.ok) throw rateLimited("Export limit reached — please retry in a few minutes");
   const sp = new URL(req.url).searchParams;
   const status = searchParam(sp, "status");
   const q = searchParam(sp, "q");

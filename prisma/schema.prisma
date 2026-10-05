@@ -195,6 +195,7 @@ model PasswordResetRequest {
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([handledById])
   @@map("password_reset_requests")
 }
 
@@ -416,9 +417,10 @@ model Order {
   // 汇率快照：订单创建时 1 USD 兑订单币种的汇率，确保已结算订单金额不再随汇率变动
   exchangeRate     Decimal     @default(1) @db.Decimal(12, 6)
   addressSnapshot  Json // { recipientName, phone, province, city, district, detail }
-  paymentProvider  String? // stripe | mock
+  paymentProvider  String? // stripe | mock | 渠道 code（payment_channels）
   paymentId        String? // Stripe PaymentIntent id
-  // 支付会话 ID（Stripe Checkout Session，掉单对账用预留字段；mock 模式为空）
+  // 支付会话凭据：Stripe Checkout Session id，或渠道化支付 createPayment 返回的
+  // 网关侧会话/交易 id（资金审计 H3：回调丢失时凭此对账与人工退款追溯）；mock 为空
   paymentSessionId String?
   trackingCompany  String?
   trackingNumber   String?
@@ -438,6 +440,8 @@ model Order {
   /// 货到付款参考金额：顾客在送达时应向承运商支付的到付费（订单 total 之外）。
   /// 仅 COD 订单有值（非 COD 为 null）；total 不含该金额——货到付款的运费不计入在线支付总额，
   /// 落库后仓库/客服可直接从订单看到「送达时应收现金 = total + codFee」。
+  /// 币种口径：**订单币种**（与 total/subtotal 同口径，按下单时 exchangeRate 快照
+  /// 从物流方式的 USD 基础费换算而来）—— 两者可直接相加，USD 旧口径已废弃。
   codFee           Decimal?    @db.Decimal(10, 2)
   // 运营节点：被某个 admin/support 认领处理（防止多端重复处理 / 漏处理）
   assigneeId       String?
@@ -470,6 +474,7 @@ model Order {
   /// 运营默认视图按 [isUnread desc, createdAt desc] 排序：无此索引时
   /// 50 万行 seq scan + top-N sort（性能审计高危）。
   @@index([isUnread, createdAt(sort: Desc)])
+  @@index([shippingMethodId])
   /// 资金口径统计/对账全靠 paidAt 过滤（营收、趋势、reconcile）：
   /// 此前全 schema 无 paidAt 索引，全部 seq scan（性能审计高危）。
   /// PG 单列 b-tree 不含 NULL 行，`paidAt IS NOT NULL` 谓词直接命中。
@@ -1003,6 +1008,9 @@ model RebindRequest {
 
   @@index([status, createdAt])
   @@index([customerId])
+  @@index([fromDistributorId])
+  @@index([toDistributorId])
+  @@index([reviewedById])
   @@map("rebind_requests")
 }
 
@@ -1093,6 +1101,8 @@ model CommissionLog {
   /// 风控自购检测（90 天窗口倒序）/ 报表按时间过滤：单列时间索引支撑，
   /// 此前风控 SQL 无命中时全表扫 100 万行（性能审计中危）。
   @@index([createdAt])
+  /// 交付审计：外键列索引（PostgreSQL 不为 FK 自动建，report groupBy 全表扫）
+  @@index([fromUserId])
   @@map("commission_logs")
 }
 
@@ -1112,6 +1122,10 @@ model DistributorAccount {
   balance            Decimal   @default(0) @db.Decimal(12, 2)
   /// 提现冻结（已申请未打款）
   frozen             Decimal   @default(0) @db.Decimal(12, 2)
+  /// 欠款台账（资金审计 M6）：冲正扣穿余额时显式记录，= max(0, -balance)。
+  /// 与余额同币种（账户结算币种）；由冲正/结算路径同一事务内派生维护，
+  /// 提现与风控读显式字段，不再依赖「balance < 0」的暗约定。
+  debt               Decimal   @default(0) @db.Decimal(12, 2)
   /// 累计已结算佣金（含已提现）
   totalCommission    Decimal   @default(0) @db.Decimal(12, 2)
   updatedAt          DateTime  @updatedAt
@@ -1192,6 +1206,7 @@ model WithdrawRecord {
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([auditedById])
   @@map("withdraw_records")
 }
 

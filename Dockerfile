@@ -3,6 +3,11 @@ FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json* ./
+# postinstall 会跑 `prisma generate`，deps 阶段必须先有 schema（P0 复发修复：
+# 此前只有 package.json 就 npm ci，postinstall 找不到 prisma/schema.prisma 直接
+# exit 1 —— docker build 在第一步就失败，compose 生产/演示与 CI docker-smoke 全挂）。
+# 只 COPY schema 这一个文件：依赖层缓存仍只受 package*.json + schema 变化影响。
+COPY prisma/schema.prisma ./prisma/
 RUN npm ci --no-audit --no-fund
 
 # ============ 构建阶段 ============

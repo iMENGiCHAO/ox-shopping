@@ -1,5 +1,6 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { DIST_REF_COOKIE } from "@/lib/distribution/contract";
+import { env } from "@/lib/env";
 
 /**
  * 推广标识（referral）的生成与签名。
@@ -45,7 +46,10 @@ export function normalizeReferralInput(raw: string | null | undefined): string |
 }
 
 function refSecret(): string {
-  const base = process.env.JWT_ACCESS_SECRET || "distribution-ref-dev-secret";
+  // 硬编码治理：不再有兜底字面量 —— 生产守卫保证 JWT_ACCESS_SECRET 必在
+  //（env.ts 弱密钥拒启动）；此处缺密钥即显式失败，不静默降级到公开常量。
+  const base = env.JWT_ACCESS_SECRET;
+  if (!base) throw new Error("JWT_ACCESS_SECRET is required for referral cookie signing");
   return createHmac("sha256", base).update("distribution-ref-v1").digest("hex");
 }
 

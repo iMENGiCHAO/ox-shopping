@@ -1,5 +1,5 @@
 import { apiHandler, json } from "@/lib/api";
-import { badRequest } from "@/lib/errors";
+import { badRequest, rateLimited } from "@/lib/errors";
 import { requireStaff } from "@/lib/auth/session";
 import {
   effectiveStorageDriver,
@@ -8,6 +8,8 @@ import {
   validateUpload,
 } from "@/lib/storage";
 import { audit } from "@/lib/audit";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
 import { UPLOAD_MAX_BYTES } from "@/lib/constants";
 
 export const runtime = "nodejs";
@@ -15,6 +17,12 @@ export const runtime = "nodejs";
 /** POST /api/admin/uploads — 本地直传 */
 export const POST = apiHandler(async (req) => {
   const actor = await requireStaff();
+  // 存储限流（安全审计）：无成本上限的上传是存储/备份费用放大器
+  const rl = await rateLimit({
+    key: `admin-upload:${actor.id}`,
+    ...RATE_LIMITS.adminUpload,
+  });
+  if (!rl.ok) throw rateLimited();
   if (effectiveStorageDriver !== "local") throw badRequest("请使用预签名上传接口");
 
   // multipart 解析本身会分配内存；先用 Content-Length 做廉价上限检查。

@@ -17,8 +17,18 @@ import type { RateLimitOptions } from "@/lib/rate-limit";
 export type RateLimitPolicy = Omit<RateLimitOptions, "key">;
 
 export const RATE_LIMITS = {
-  /** 登录失败锁定：同一邮箱（跨 IP）连错 5 次 → 锁 15 分钟，防分布式爆破 */
+  /** 登录失败锁定（硬锁）：单 IP×邮箱 连续 5 次口令失败 → 锁 15 分钟。
+   * 键含 IP：攻击者只能锁掉自己的 IP 组合，受害者从他自己的 IP 登录不受影响
+   * （安全审计修复：此前键为纯邮箱，任何人 5 次错密码即可把已知账号永久锁死 ——
+   * 未授权永久 DoS，含管理员账号）。计数只在**真实口令失败**后递增（peek+hit 分离），
+   * 被上游限流拒绝的请求与未知邮箱探测不再误烧锁定额度。 */
   loginLock: { limit: 5, windowSeconds: 900 },
+  /** 登录失败节流（分布式爆破兜底，跨 IP 的纯邮箱维度）：
+   * 只计真实口令失败；第 4 次起响应前追加指数延迟（0.5s→10s 封顶，见 login 路由），
+   * 15 分钟内累计 10 次失败 → 硬锁（_botnet 并行猜测必须可阻断，纯延迟可被并行绕过）。
+   * 残余权衡：知道邮箱的定向攻击者可用 10 次请求让该邮箱硬锁 15 分钟 —— 这是
+   * 「防爆破」与「防 DoS」在无验证码体系下的固有取舍，触发时会落审计告警供运营识别。 */
+  loginThrottle: { limit: 10, windowSeconds: 900 },
   /** 登录尝试：单 IP×邮箱 5 次/分钟；全站熔断 900 次/分钟（防轮换 IP 撞库横向扫多账号） */
   loginAttempt: {
     limit: 5,
@@ -83,6 +93,32 @@ export const RATE_LIMITS = {
   distBind: { limit: 10, windowSeconds: 3600 },
   /** 分销提现申请：单用户 5 次/小时（另有单笔在途约束兜底） */
   distWithdraw: { limit: 5, windowSeconds: 3600 },
+  /** 支付入口（发起/重试支付会话）：单订单 10 次/分钟 —— 每次都会创建网关会话，
+   *  防脚本反复拉取（与 mockPay 同口径）。 */
+  orderPay: { limit: 10, windowSeconds: 60 },
+  /** 汇率刷新（触发外部汇率 API 调用）：单管理员 6 次/小时 —— 上游是免费接口，
+   *  滥用会被限流/封禁。 */
+  adminCurrencyRefresh: { limit: 6, windowSeconds: 3600 },
+  /** 用户自助数据导出（GDPR 第 15 条）：单用户 3 次/小时 ——
+   *  单次返回全量 PII（资料/地址/订单/退款/会话元数据），防被反复整包拉取。 */
+  userExport: { limit: 3, windowSeconds: 3600 },
+  /** 站内检索（页面/FAQ/商品参数表）：单 IP 30 次/分钟 + 全站熔断 600 次/分钟 ——
+   *  公开端点且含 `"sizeChart"::text ILIKE` 全表扫，无限流时可被刷满 DB CPU
+   *  （安全审计：q 也无长度上限）。 */
+  searchPages: {
+    limit: 30,
+    windowSeconds: 60,
+    breakerKey: "search-pages:__global__",
+    breakerLimit: 600,
+    breakerWindowSeconds: 60,
+  },
   /** 后台邮件通道自检：单管理员 10 次/小时（测试邮件会真实发出，防手抖连点） */
   adminMailTest: { limit: 10, windowSeconds: 3600 },
+  /** 后台订单导出：单管理员 4 次/10 分钟 —— 导出含收件人姓名/电话/邮箱（PII），
+   *  单次最多 5000 行；被盗或内部滥用的 SUPPORT 会话不应能无限循环拉取
+   *  （安全审计：此前 admin 路由除 mail-test 外零限流） */
+  adminExport: { limit: 4, windowSeconds: 600 },
+  /** 后台上传（本地直传 + S3 预签名）：单管理员 30 次/10 分钟 ——
+   *  防脚本化会话灌满对象存储/本地盘（无成本上限的上传是存储费用放大器） */
+  adminUpload: { limit: 30, windowSeconds: 600 },
 } satisfies Record<string, RateLimitPolicy>;

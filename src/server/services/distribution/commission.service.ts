@@ -533,6 +533,9 @@ export async function settleOrder(orderId: string, req?: NextRequest): Promise<n
         create: { userId: log.toUserId, balance: net, totalCommission: net },
         update: { balance: { increment: net }, totalCommission: { increment: net } },
       });
+      // 负余额台账（资金审计 M6）：入账同事务重算 debt —— 后续佣金抵扣欠款时
+      // 余额回升穿过 0，debt 同步归零（「由后续佣金抵扣」的兑现路径）
+      await tx.$executeRaw`UPDATE "distributor_accounts" SET "debt" = GREATEST(0, -"balance") WHERE "userId" = ${log.toUserId}`;
       settled += 1;
     }
   });
@@ -714,6 +717,9 @@ export async function applyOrderReversal(
             totalCommission: { decrement: deltaSettle },
           },
         });
+        // 负余额台账（资金审计 M6）：debt = max(0, -balance)，与扣款**同事务**派生。
+        // 此前欠款只是 balance<0 的暗约定：提现被静默拦、无告警、无追偿口径。
+        await tx.$executeRaw`UPDATE "distributor_accounts" SET "debt" = GREATEST(0, -"balance") WHERE "userId" = ${log.toUserId}`;
         const prev = reversedByUser.get(log.toUserId);
         reversedByUser.set(log.toUserId, {
           amount: round2((prev?.amount ?? 0) + deltaSettle),
@@ -746,6 +752,23 @@ export async function applyOrderReversal(
       }
     } catch (err) {
       logger.error({ err, orderId }, "分销：冲正通知组装失败（已忽略）");
+    }
+
+    /* 负余额台账告警（资金审计 M6）：本次冲正是否把受益人扣成欠款（已提现后退款）。
+       此前该状态完全静默 —— 分销商提现被拒不知为何，财务也无主动信号。 */
+    try {
+      const debtors = await prisma.distributorAccount.findMany({
+        where: { userId: { in: [...reversedByUser.keys()] }, debt: { gt: 0 } },
+        select: { userId: true, debt: true, settlementCurrency: true },
+      });
+      for (const acc of debtors) {
+        captureMessage(
+          `[distribution] 用户 ${acc.userId} 因订单退款冲正产生欠款 ${Number(acc.debt).toFixed(2)} ${acc.settlementCurrency}（已提现佣金被追回）—— 后续佣金将自动抵扣，请运营知悉`,
+          "warning",
+        );
+      }
+    } catch (err) {
+      logger.error({ err, orderId }, "分销：欠款告警查询失败（已忽略）");
     }
 
     await audit({

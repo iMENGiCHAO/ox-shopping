@@ -1,4 +1,8 @@
 import { apiHandler, json, searchParam } from "@/lib/api";
+import { rateLimited } from "@/lib/errors";
+import { rateLimit } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/rate-limits";
+import { getClientIp } from "@/lib/server/utils-server";
 import { prisma } from "@/lib/prisma";
 import { matchSearchablePages } from "@/lib/searchable-pages";
 import { searchSizeChartProducts } from "@/server/services/chart-search";
@@ -13,7 +17,13 @@ export interface SearchPageResult {
 
 /** GET /api/search/pages?q= — Pages 检索：静态页面 + FAQ 内容 + 商品参数对照表（官方同构） */
 export const GET = apiHandler(async (req) => {
-  const q = (searchParam(new URL(req.url).searchParams, "q") ?? "").trim();
+  // 限流 + 长度上限（安全审计）：公开端点 + ILIKE 全表扫，无限流可刷满 DB CPU
+  const rl = await rateLimit({
+    key: `search-pages:${getClientIp(req)}`,
+    ...RATE_LIMITS.searchPages,
+  });
+  if (!rl.ok) throw rateLimited();
+  const q = (searchParam(new URL(req.url).searchParams, "q") ?? "").trim().slice(0, 80);
   if (!q) return json({ pages: [] });
 
   const pages: SearchPageResult[] = matchSearchablePages(q).map((pg) => ({

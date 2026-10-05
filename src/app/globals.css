@@ -1323,3 +1323,19 @@ body.search-open [data-testid="header-shell"] > header {
 [data-apple-area] a.bg-primary:hover {
   background-color: hsl(240 3% 22%);
 }
+
+/* 移动端规格面板（VariantSelect）：底部满宽展开——与原站移动端的底部选择器
+   一致（此前 Radix 时代靠 .select-content-full 的 popper 包装层 hack 实现）。 */
+@media (max-width: 639px) {
+  .variant-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: auto;
+    width: 100vw;
+    max-height: 60vh;
+    overflow-y: auto;
+    z-index: 70;
+  }
+}

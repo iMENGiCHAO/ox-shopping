@@ -2,6 +2,9 @@ import "server-only";
 import { render } from "@react-email/render";
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
+// nodemailer@10 的 @types（≥6.4.18）改为命名导出 Transporter，
+// 旧的「默认导入当命名空间用类型」（nodemailer.Transporter）不再成立。
+import type { Transporter as NodemailerTransporter } from "nodemailer";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { env, brandFallback } from "@/lib/env";
@@ -250,7 +253,7 @@ export interface SendMailInput<T extends MailTemplate = MailTemplate> {
 /* 客户端按**配置指纹**缓存：配置在后台改过后必须重建 —— 否则改了主机/密码
    仍会用旧连接池发信（表现为「保存成功但发信还是失败」的诡异现象）。 */
 let resendClient: { key: string; client: Resend } | null = null;
-let smtpTransport: { fingerprint: string; transport: nodemailer.Transporter } | null = null;
+let smtpTransport: { fingerprint: string; transport: NodemailerTransporter } | null = null;
 
 /** 实际生效通道：声明通道缺凭据时降级为 console（状态里会显式告警） */
 function effectiveChannel(cfg: MailRuntimeConfig): "resend" | "smtp" | "console" {
@@ -295,8 +298,19 @@ async function sendViaSmtp(to: string, subject: string, html: string, cfg: MailR
 }
 
 async function sendViaConsole(to: string, subject: string, html: string, template: string) {
-  // 开发模式：打印日志并落盘 HTML 便于浏览器预览
-  logger.info({ to, subject, template }, "[mock-mail] 邮件内容(未配置邮件服务)");
+  // 安全审计：console 通道是**开发兜底**。此前直接 logger.info({ to })（redact 只覆盖
+  // email 字段名，to 不会被脱敏）且把含验证链接 token 的 HTML 落盘 —— 生产漏配
+  // MAIL_PROVIDER 时 PII 与令牌会进日志/磁盘。现在：日志收件人脱敏；生产环境
+  // 不落盘并给出明确告警（邮件未送达需立即处理）。
+  // 注意：不要用 String.replace 的 $1 占位写法 —— qa:hardcode 的
+  // 「写死的美元金额」规则会把 "$1***$2" 判成 P0 泄漏（实测拦截）。
+  const at = to.indexOf("@");
+  const masked = at > 0 ? `${to[0]}***${to.slice(at)}` : "***";
+  logger.info({ to: masked, subject, template }, "[mock-mail] 邮件内容(未配置邮件服务)");
+  if (env.NODE_ENV === "production") {
+    logger.error({ to: masked, template }, "[mock-mail] 生产环境未配置真实邮件通道，邮件未送达 —— 请配置 MAIL_PROVIDER/SMTP");
+    return;
+  }
   try {
     // 落盘目录可配置：默认 .mail-out，部署可指向卷外(避免备份盘膨胀)
     const dir = process.env.MAIL_OUT_DIR || path.join(process.cwd(), ".mail-out");

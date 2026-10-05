@@ -9,6 +9,148 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-10-05（日）· 商业交付审查批次（安全 / 资金 / 工程化 三路并行复查）
+
+> 交付前按资深全栈标准做三路独立复查，本轮修复 **14 项**；全部带文件级证据与回归验证。
+> 验证：typecheck 0 错 / lint 0 错 / qa:static 三门禁 / 单测 **310/310** /
+> 集成（COD·下单·资金完整性·分销）全绿 / 生产构建 exit 0。
+
+### 安全（3）
+
+- **邮箱验证令牌绑定当前邮箱**：此前只取 `payload.sub`，用户换邮箱后（`emailVerified`
+  被重置）**旧邮箱收到的旧链接仍能把账号置为已验证**，绕过「未验证不得下单」门控。
+- **公开搜索端点限流 + 长度上限**：`/api/search/pages` 含 `"sizeChart"::text ILIKE`
+  全表扫且无限流，可刷满 DB CPU —— 现为单 IP 30 次/分钟 + 全站熔断 600 次/分钟 + q≤80 字符。
+- **console 邮件通道止血**：收件人日志脱敏（redact 只覆盖 `email` 字段名，`to` 不脱敏）、
+  生产环境不再落盘（含验证 token 的 HTML 曾被写入容器磁盘）并给出明确告警。
+
+### 资金 / 业务（4）
+
+- **COD 排除自动确认收货**：丢件/拒收时 15 天后曾被自动置 DELIVERED 并写 `paidAt`
+  （假收款），据此**结算分销佣金并开放全额退款** —— 平台钱货两空。
+- **退款回补库存与退货挂钩**：已发货（SHIPPED/DELIVERED）退款曾无条件回补库存 ——
+  货未退回即回补会让已卖出的货被再次售出（真超卖）。现仅未发货订单回补。
+- **COD 管理员退款守卫**：顾客入口有拦截但 admin 状态接口仍可 `PROCESSING→REFUNDED`
+  （从未收过现金）→ 假退款台账；现拒绝并引导走「取消订单」。
+- **订单号冲突换号重试**：订单号 6 位随机（90 万/日空间），高单量必然碰撞，
+  此前 P2002 只处理 `idempotencyKey` → 撞车直接丢单；现识别并换号重试 3 次。
+
+### 工程化（7）
+
+- **`CRON_ENABLED` 死开关落地**：该变量此前全仓无读取方，文档承诺的
+  「维护/迁移窗口可关闭」不成立（订单超时/对账/结算照跑写库）。
+- **`.env.test` 出库**：含测试库连接串与弱密钥却被 git 跟踪 —— 已 `git rm --cached`
+  + 补 `.gitignore` + 新增 `.env.test.example` 模板。
+- **CI 接入 `qa:static` 门禁**：硬编码扫描/顾客可见错误文案语言/静态死链此前零 CI 门禁。
+- **补齐 7 个外键索引**（migration `20261005100000_add_missing_fk_indexes`）：
+  PostgreSQL 不为 FK 自动建索引，`groupBy fromUserId`、物流方式删除计数等曾走全表扫。
+- **i18n 词典键同步** + 修复漏到后台界面的 Markdown 星号（渠道页文案）。
+- **仓库卫生**：开发规划产物出库（findings.md / task_plan.md / progress.md / .workbuddy-ai/）。
+- **README 对齐**：CI 任务说明由「四个」更正为实际八个（含 compose 全栈冒烟）。
+
+### 未完成（下期）
+
+分销「仅缺 level-2+」漏补（需链深比较）｜sanitize / variant-select / instrumentation 补测试｜
+CI 加备份恢复演练｜PDP 缓存｜user/export 等限流缺口｜settings GET 对 SUPPORT 的字段白名单。
+
+## 2026-10-04（六）· 商用交付体检 P0 批次：Docker 构建 / 依赖门禁 / 登录双缺陷 / COD 币种 / 变体加价全链路
+
+> 全栈交付体检（独立四线并行：安全 / 资金 / 运维 / 文档真实性）发现的 P0/P1 修复。
+> 本批全部有复现证据与回归测试；`tsc` 0 错、单测 **310/310**、关键集成（auth/cod/shop-flow/
+> commercial-hardening）**20/20** 全绿、生产构建 exit 0。
+
+### P0-1 Docker 构建在 deps 阶段即失败（部署完全不可用，已修）
+
+- **根因**：`postinstall: prisma generate` 在 `COPY prisma/schema.prisma` 之前运行，
+  `npm ci` 在 deps 阶段因找不到 schema **exit 1** —— `docker compose up --build` 与
+  CI `docker-smoke` 在第一步全部挂掉（与 Dockerfile 注释里记录的上一次 P0 同类，
+  换了个形式复发）。已用临时目录**独立复现**确认（修复前 exit 1 / 修复后 exit 0，
+  Prisma Client 正常生成）。
+- **修复**：deps 阶段在 `npm ci` 前 COPY `prisma/schema.prisma`（builder 本就显式
+  `prisma generate`，依赖层缓存只受 package*.json + schema 影响）。
+
+### P0-2 CI 依赖审计门禁常红（10 high，运行时 0 容忍，已修）
+
+- `undici`（**运行时**链 isomorphic-dompurify→jsdom，sanitize 用）经 `npm audit fix` 修复。
+- `nodemailer` **运行时**依赖，新增 advisory 含「跨租户 SMTP 凭据泄露」（进程级 DNS 缓存
+  复用 TLS servername）——升级 `^9.1.1 → ^10.0.13`；`@types` 改命名导出后同步调整
+  `mail/index.ts` 的 `Transporter` 类型引用。API 面（createTransport/sendMail）无变化。
+- `braces`（GHSA-vfj7-8cjw-p6xm）**无任何已修复版本可升**（3.0.3 即最新），唯一根治是
+  tailwind 4 迁移（另行立项）；经查它由 **`tailwindcss-animate` 被误放进 dependencies**
+  拖入生产树 —— 已移回 devDependencies（它只在 `tailwind.config.ts:172` 构建期使用），
+  生产树从此不含该链。
+- CI audit 门禁改 `--omit=dev`：**运行时依赖零容忍**（现在 0 漏洞、exit 0），
+  dev 工具链（文件监视/静态分析）已知问题单独立项跟踪，不再把门禁打成永久红。
+
+### P1-1 登录双缺陷（账号枚举预言机 + 邮箱单键锁定 = 未授权永久 DoS，已修）
+
+- **枚举预言机**：`DISABLED` 分支在 `verifyPassword` **之前**直接 403 —— 任何人不用
+  口令即可区分「已注册且被禁用」vs「未注册」，且免 bcrypt 形成时间侧信道。已移到
+  口令校验之后（持正确口令者才可见 403，与「口令错误」的 401 不可区分）。
+- **锁定 DoS**：`login-lock` 原为**纯邮箱**键、进门即计数 —— 知道受害者邮箱的人
+  5 次错密码即可让其（含管理员）永久无法登录。重构为两层，且**只在真实口令失败后计数**：
+  硬锁键改 `ip+email`（攻击者只能锁自己的 IP 组合）；跨 IP 兜底保留邮箱维度
+  （10 次/15 分钟硬锁 + 第 4 次起 0.5s→10s 指数延迟），成功登录清零、
+  触发硬锁落审计告警。限流器为此新增 `peekRateLimit`（只读不递增，peek+hit 分离）。
+
+### P1-2 COD 到付费币种错配（非 USD 订单收错现金，已修）
+
+- `codFee` 落库的是 **USD 基础价**，而 `total` 等全部是**订单币种** —— 订单页/邮件/
+  后台「送达应收现金 = total + codFee」把美元数当本币相加（EUR/¥ 订单系统性多收）。
+  已改为按订单汇率快照换算后落库，全链路两侧同币种；schema 注释同步口径。
+  `cod-flow.test.ts` 断言改为**按订单自身汇率快照自洽**（任何测试币种下成立，比死值更强）。
+
+### P1-3 变体覆盖价全链路生效（「大码加价」被静默丢弃 = 系统性少收，已修）
+
+- **根因**：`ProductVariant.price` 后台可编辑、可落库，但下单小计/行小计/`OrderItem.price`/
+  券试算/购物车**全部只读商品价**；唯一能暴露它的 `variantPriceRange()` 全项目零调用点。
+- **修复**：新增 `effectiveUnitPrice()` 作为全链路唯一取价口径（窄结构，前后端共用）——
+  下单事务（计价与扣库存复用**同一**解析结果，二者永不漂移）、`quoteOrderAmounts`、
+  `getCart`、`/api/cart/preview`、游客车共享读取器、立即购买结账全部切换；
+  PDP 存在覆盖价时显示「min – max」价格区间（选中前即披露加价），JSON-LD 按区间下限输出。
+- 单测 +6（覆盖窄结构/字符串 Decimal 形态/非法回落），上线走查清单补「变体加价」人跑项。
+
+### 文档纠偏
+
+- `PRODUCTION_CHECKLIST.md` 删除三处**已下线功能**（联系表单 `ContactMessage`，
+  2026-09-23 已移除）的强制项 —— 此前运维按该清单会被不存在的功能卡住上线；
+  登录限流口径同步更新为新设计。
+
+### 第二批：观测性 / 对账饿死 / 渠道凭据 / admin 限流 / compose 门禁
+
+- **服务器引导钩子 `src/instrumentation.ts`**（Next 16 file convention，v15 起稳定）：
+  `register()` 启动即初始化 Sentry + 拉起 cron 调度器（幂等守卫共存）—— 此前
+  两者都是「首个请求触发的懒加载」：**页面渲染（RSC）崩溃对 Sentry 完全不可见**
+  （error boundary 只 console.error），冷启动后到首个请求前订单超时取消/退款
+  重试全部不跑。`onRequestError` 钩子把服务端捕获的所有错误（含 RSC 崩溃，
+  digest 可关联客户端）上报，只取 path/method（PII 纪律，与 logger 脱敏同口径）。
+  注：docs 示例的 `Instrumentation` 类型未从 `"next"` 公开导出（16.3.6 实测），
+  按内部 `InstrumentationOnRequestError` 签名结构化书写。
+- **分销对账三处饿死/漏扫修复**（资金审计 M4/M8）：
+  ① 漏计佣扫描补 OR 信号——「归属有直推分销商却缺 level-1 流水」的部分计提单
+  从此可被重试（`accrueForOrder` 差集幂等，重跑即补、永不双记；此前只选零佣金单，
+  `commission.service:337` 注释宣称的「对账补偿会补」对部分计提落空）；
+  ② 冲正/结算扫描加 **90 天水位**——「已追平但未全额冲正」的流水按设计永远
+  `status != REVERSED`，不设水位会永久命中并占满 `take:limit` 批次，把新退款单
+  挤出兜底扫描。覆盖性不变：新退款事件由 refund 侧查询按 refund.createdAt 捞
+  （与订单年龄无关）；超龄订单结算由 `settleDueOrders`（paidAt 截止、无水位）兜住。
+- **渠道化支付凭据落库**（资金审计 H3 结构修复）：非 Stripe 渠道的
+  `createPayment` 返回的网关侧会话/交易 id 此前只进 PaymentLog、不挂订单 ——
+  回调永久丢失时订单与网关交易之间无任何外显关联（钱被扣、单已取消、无法人工
+  退款）。现在与 stripe 分支同语义写 `paymentSessionId`（mock 站内收银台除外）。
+  四个预留渠道 `isReady=false` 不可达，但下一个接真实网关的渠道不再继承该缺口。
+- **admin 导出/上传限流**（安全审计）：订单导出（单次 5000 行收件人 PII）单管理员
+  4 次/10 分钟；本地直传 + S3 预签名共用 30 次/10 分钟 —— 此前 admin 路由除
+  mail-test 外零限流，被盗/内部 SUPPORT 会话可无限循环拉取。
+- **CI 补 compose 全栈冒烟门禁**（运维审计 H2）：新增 `compose-smoke` job 跑
+  `scripts/smoke-compose.sh`（构建→起完整栈→迁移→种子→健康→关键页→后台登录→
+  日志无 ERROR）—— compose 是文档承诺的部署路径、历史上两次 P0 都发生在编排层，
+  而 raw `docker run` 的 docker-smoke 探不到（env 插值/SEED_ON_START/depends_on
+  健康门/minio 初始化）。
+- 验证：typecheck 0 错、单测 310/310、分销集成 43/43、支付/调度/下单/资金
+  集成 32/32 全绿。
+
+
 ## 2026-10-01（四）· 分销系统衔接稳健性审核 + 工程化落地检查（大爷点名「分销能不能稳健地跟主站衔接好」）
 
 ### 分销 ↔ 主站衔接：审核通过（无需改动）

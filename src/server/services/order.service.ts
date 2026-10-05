@@ -31,6 +31,7 @@ import { effectivePaymentMode, mockPaymentAllowedInProd } from "@/lib/env";
 import { planSpecDeduction, applySpecRestock } from "@/server/services/spec-stock";
 import { MAX_PRESALE_QTY } from "@/lib/inventory";
 import {
+  effectiveUnitPrice,
   findVariant,
   parseVariantAttributes,
   planVariantDeduction,
@@ -210,6 +211,28 @@ export async function quoteOrderAmounts(input: {
   const products = await prisma.product.findMany({ where: { id: { in: ids } } });
   const byId = new Map(products.map((p) => [p.id, p]));
 
+  // 变体覆盖价（资金审计 H1）：试算与下单必须同口径取「生效单价」，
+  // 否则结算页显示基础价、实扣变体加价 —— 试算就没有意义了。
+  const variantRows = ids.length
+    ? await prisma.productVariant.findMany({
+        where: { productId: { in: ids }, isActive: true },
+      })
+    : [];
+  const variantsByProduct = new Map<string, VariantLike[]>();
+  for (const v of variantRows) {
+    const list = variantsByProduct.get(v.productId) ?? [];
+    list.push({
+      id: v.id,
+      attributes: parseVariantAttributes(v.attributes),
+      stock: v.stock,
+      isActive: v.isActive,
+      price: v.price == null ? null : Number(v.price),
+      image: v.image,
+      sku: v.sku,
+    });
+    variantsByProduct.set(v.productId, list);
+  }
+
   let subtotalUsd = 0;
 
   for (const item of input.items) {
@@ -217,7 +240,12 @@ export async function quoteOrderAmounts(input: {
     if (!p || p.status !== "ACTIVE") {
       throw badRequest(`"${p?.name ?? "Item"}" is no longer available`);
     }
-    subtotalUsd += Number(p.price) * item.quantity;
+    const unitPrice = effectiveUnitPrice(
+      p.price,
+      variantsByProduct.get(item.productId) ?? [],
+      item.attributes ?? [],
+    );
+    subtotalUsd += unitPrice * item.quantity;
   }
   subtotalUsd = Math.round(subtotalUsd * 100) / 100;
 
@@ -262,6 +290,19 @@ export async function quoteOrderAmounts(input: {
 
 function d(n: number): Prisma.Decimal {
   return new Prisma.Decimal(n.toFixed(2));
+}
+
+/**
+ * 退款上限（资金审计 M5 修复）：COD 单顾客交给快递的现金 = total + codFee，
+ * 线下现金退款封顶必须含到付费 —— 此前只对 order.total，客服按系统提示
+ * 退现金时永远少退 codFee（顾客白付到付费）。非 COD 单即订单总额。
+ */
+export function refundableCeiling(
+  order: Pick<Order, "total" | "codFee" | "isCashOnDelivery">,
+): number {
+  const base = Number(order.total);
+  if (!order.isCashOnDelivery || order.codFee == null) return base;
+  return Math.round((base + Number(order.codFee)) * 100) / 100;
 }
 
 /**
@@ -364,26 +405,35 @@ async function resolveContactEmail(input: CreateOrderInput): Promise<string | nu
  * 为 NULL 不受约束，行为与从前完全一致。
  */
 export async function createOrder(input: CreateOrderInput): Promise<OrderWithItems> {
-  try {
-    const created = await createOrderTx(input);
-    // 性能审计：下单即扣库存/加销量 —— 必须清商品列表缓存，否则售罄后最长
-    // CACHE_TTL(60s) 列表仍显示可买（与未缓存的 PDP 自相矛盾）
-    void invalidateProductsCache();
-    return created;
-  } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      (err as { code?: string }).code === "P2002" &&
-      input.idempotencyKey
-    ) {
-      const existing = await prisma.order.findUnique({
-        where: { idempotencyKey: input.idempotencyKey },
-        include: { items: true },
-      });
-      if (existing) return existing;
+  // 订单号冲突重试（交付审计）：订单号为 ORD+日期+6 位随机（90 万/日空间），
+  // 高单量下必然碰撞（3000 单/日 ≈ 5 次/天）。此前 P2002 只处理 idempotencyKey，
+  // 订单号撞车直接抛错丢单。这里识别「orderNumber 唯一约束」并换号重试（事务整体
+  // 回滚无副作用，createOrderTx 每次重新生成订单号）。
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const created = await createOrderTx(input);
+      // 性能审计：下单即扣库存/加销量 —— 必须清商品列表缓存，否则售罄后最长
+      // CACHE_TTL(60s) 列表仍显示可买（与未缓存的 PDP 自相矛盾）
+      void invalidateProductsCache();
+      return created;
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+      const target = String((err as { meta?: { target?: unknown } } | null)?.meta?.target ?? "");
+      // 幂等键命中：直接回读首张单（双击/重试）
+      if (code === "P2002" && input.idempotencyKey) {
+        const existing = await prisma.order.findUnique({
+          where: { idempotencyKey: input.idempotencyKey },
+          include: { items: true },
+        });
+        if (existing) return existing;
+      }
+      // 订单号撞车：换号重试（最多 3 次）
+      if (code === "P2002" && target.includes("orderNumber") && attempt < 3) {
+        logger.warn({ attempt }, "[order] 订单号唯一约束冲突，换号重试");
+        continue;
+      }
+      throw err;
     }
-    throw err;
   }
 }
 
@@ -472,6 +522,33 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
     const freshById = new Map(freshList.map((p) => [p.id, p]));
 
     // 0. 金额计算全部以锁行后的最新数据为准（杜绝改价窗口内按旧价成交）
+    // 0a. 变体明细先载入：组合粒度是库存与**价格**的真相。行级生效单价 =
+    //     变体覆盖价 ?? 商品价（effectiveUnitPrice，资金审计 H1 修复：此前小计/行小计/
+    //     OrderItem.price 全部只读商品价，运营设置的「大码加价」被静默丢弃 → 系统性少收）。
+    //     此处解析出的变体在下方库存扣减循环**复用同一结果**（resolvedVariants），
+    //     从结构上保证「计价的组合 = 扣库存的组合」，二者永不漂移。
+    const variantProductIds = [...new Set(input.items.map((i) => i.productId).filter(Boolean))];
+    const variantRows = variantProductIds.length
+      ? await tx.productVariant.findMany({
+          where: { productId: { in: variantProductIds }, isActive: true },
+        })
+      : [];
+    const variantsByProduct = new Map<string, VariantLike[]>();
+    for (const v of variantRows) {
+      const list = variantsByProduct.get(v.productId) ?? [];
+      list.push({
+        id: v.id,
+        attributes: parseVariantAttributes(v.attributes),
+        stock: v.stock,
+        isActive: v.isActive,
+        price: v.price == null ? null : Number(v.price),
+        image: v.image,
+        sku: v.sku,
+      });
+      variantsByProduct.set(v.productId, list);
+    }
+    const resolvedVariants: (VariantLike | null)[] = [];
+    const unitPricesUsd: number[] = [];
     let subtotal = 0;
     // 预售同商品多行的已记扣量（见预售分支注释）
     const presaleDeductedTotal = new Map<string, number>();
@@ -482,7 +559,11 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
           `"${productById.get(item.productId)?.name ?? "Item"}" is no longer available`,
         );
       }
-      subtotal += Number(fresh.price) * item.quantity;
+      const itemVariants = variantsByProduct.get(item.productId ?? "") ?? [];
+      resolvedVariants.push(findVariant(itemVariants, item.attributes ?? []));
+      const unitPrice = effectiveUnitPrice(fresh.price, itemVariants, item.attributes ?? []);
+      unitPricesUsd.push(unitPrice);
+      subtotal += unitPrice * item.quantity;
     }
     subtotal = Number(d(subtotal));
 
@@ -529,35 +610,16 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
     const totalUser = amountsUser.total;
 
     // 行小计对齐：Σ 行小计 = 订单小计（订单页明细求和必须等于 Subtotal 行）
+    // 行基准 = 生效单价（变体覆盖价 ?? 商品价）× 数量 —— 与 0a 小计同一取价口径
     const lineSubtotalsUser = allocateLineAmounts(
-      input.items.map((item) => Number(freshById.get(item.productId)!.price) * item.quantity),
+      input.items.map((item, idx) => unitPricesUsd[idx]! * item.quantity),
       subtotalUser,
       exchangeRate,
     );
 
     // SKU 矩阵（ProductVariant）：有变体的商品走**组合粒度**（颜色×尺码各自独立库存，
     // 可表达「不同颜色有不同尺码范围」）；无变体回落规格维度池（specStock，兼容存量）。
-    // 一次批量读取，避免每行一次查询。
-    const variantProductIds = [...new Set(input.items.map((i) => i.productId).filter(Boolean))];
-    const variantRows = variantProductIds.length
-      ? await tx.productVariant.findMany({
-          where: { productId: { in: variantProductIds }, isActive: true },
-        })
-      : [];
-    const variantsByProduct = new Map<string, VariantLike[]>();
-    for (const v of variantRows) {
-      const list = variantsByProduct.get(v.productId) ?? [];
-      list.push({
-        id: v.id,
-        attributes: parseVariantAttributes(v.attributes),
-        stock: v.stock,
-        isActive: v.isActive,
-        price: v.price == null ? null : Number(v.price),
-        image: v.image,
-        sku: v.sku,
-      });
-      variantsByProduct.set(v.productId, list);
-    }
+    // （变体明细已在 0a 载入并解析；此处只消费 resolvedVariants/variantsByProduct）
 
     // 1. 库存扣减（商品级 + 规格级；普通单不足即失败，预售允许缺口并记录实际扣减量）
     interface ItemDeduction {
@@ -580,9 +642,11 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
         throw badRequest(`"${snapshot.name}" is no longer available`);
 
       // —— 变体模式（组合粒度）——
+      // 复用 0a 已解析的组合：计价与扣库存用**同一个** variant（资金审计 H1
+      // 一致性约束 —— 若此处重新 findVariant，两次解析理论上可能因数据竞态不同步）
       const productVariants = variantsByProduct.get(item.productId ?? "") ?? [];
       if (productVariants.length > 0) {
-        const variant = findVariant(productVariants, item.attributes ?? []);
+        const variant = resolvedVariants[i]!;
         const vplan = planVariantDeduction(variant, item.quantity, fresh.isPresale);
         if (!vplan.ok) {
           const label = variant
@@ -719,8 +783,12 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
         shippingMethodId,
         // 货到付款（运费不计入 total）
         isCashOnDelivery: isCOD,
-        // 到付参考金额落库：仓库/客服从订单即可见「送达时应收现金 = total + codFee」
-        codFee: isCOD ? d(shippingCalc.method.fee) : null,
+        // 到付参考金额落库：仓库/客服从订单即可见「送达时应收现金 = total + codFee」。
+        // ⚠️ 币种口径修复：method.fee 是 USD 基础价，而 total/subtotal 等全部是**订单币种**，
+        // 直接落库会让「total + codFee」在非 USD 订单上把美元数值当本币数字相加
+        // （EUR/¥ 订单系统性收错现金）。必须经订单汇率快照换算，与 allocateRateAmounts
+        // 同源；结算页 checkout-flow 显示的 format(fee) 也是换算后的值，两侧从此一致。
+        codFee: isCOD ? d(toUserCurrency(Number(shippingCalc.method.fee))) : null,
         // 新订单默认未读（admin 进 /orders 后自动标记为已读）
         isUnread: true,
         addressSnapshot: {
@@ -740,7 +808,8 @@ async function createOrderTx(input: CreateOrderInput): Promise<OrderWithItems> {
           create: input.items.map((item, idx) => {
             const p = productById.get(item.productId)!;
             const plan = plans[idx]!;
-            const priceUsd = Number(freshById.get(item.productId)!.price);
+            // 生效单价（变体覆盖价 ?? 商品价）：加价规格按真实价格入订单明细
+            const priceUsd = unitPricesUsd[idx]!;
             // 订单条目单价也转换为用户币种（订单详情页/管理端展示用）
             const priceUser = toUserCurrency(priceUsd);
             return {
@@ -918,6 +987,17 @@ export async function createPaymentUrl(
       },
       channel.config,
     );
+    // 网关凭据落库（资金审计 H3 修复）：渠道化支付创建的网关侧会话/交易 id 必须挂到
+    // 订单上。此前只写 PaymentLog：回调永久丢失时（订单 30 分钟被自动取消、库存已
+    // 回补、迟到退款分支因无凭据进不去、掉单对账扫不到）—— 钱被扣、单没了、且
+    // 订单↔网关交易之间没有任何外显关联可做人工退款。与 stripe 分支同语义：
+    // paymentSessionId = 网关侧会话凭据，供对账扫描与人工追溯。
+    // mock 为站内收银台（无网关对象、站内确认），跳过。
+    if (channel.provider !== "mock" && result.transactionId) {
+      await prisma.order
+        .update({ where: { id: order.id }, data: { paymentSessionId: result.transactionId } })
+        .catch(() => {});
+    }
     void logPayment({
       orderId: order.id,
       provider: channel.provider,
@@ -1567,6 +1647,15 @@ export async function updateOrderStatus(
     return cancelled;
   }
   if (to === "REFUNDED") {
+    // 资金审计：COD 在确认收款（DELIVERED）前从未收到过现金 —— 直接置退款会生成
+    // total+codFee 的退款台账但无对应收款（假退款、报表失真）。应走「取消订单」。
+    if (order.isCashOnDelivery && order.status !== "DELIVERED") {
+      throw new ApiError(
+        400,
+        "BAD_REQUEST",
+        "Cash-on-delivery orders cannot be refunded before delivery & cash collection — use Cancel instead",
+      );
+    }
     if (!["PAID", "PROCESSING", "SHIPPED", "DELIVERED"].includes(order.status)) {
       throw new ApiError(
         400,
@@ -1716,7 +1805,10 @@ export async function autoConfirmDeliveries(): Promise<number> {
   if (AUTO_CONFIRM_DELIVERY_DAYS <= 0) return 0;
   const staleBefore = new Date(Date.now() - AUTO_CONFIRM_DELIVERY_DAYS * 86_400_000);
   const due = await prisma.order.findMany({
-    where: { status: "SHIPPED", shippedAt: { lt: staleBefore } },
+    // COD（货到付款）**排除自动确认**（资金审计）：其「送达」意味着快递代收现金，
+    // 必须人工确认收款。自动确认会在丢件/拒收时写入 paidAt（假收款），进而按
+    // 「已收款」结算分销佣金并开放全额退款 —— 平台钱货两空。
+    where: { status: "SHIPPED", shippedAt: { lt: staleBefore }, isCashOnDelivery: false },
     include: { items: true },
     take: 50,
     orderBy: { shippedAt: "asc" },
@@ -1778,9 +1870,9 @@ export async function approveRefund(
       _sum: { amount: true },
     });
     const used = Number(occupied._sum.amount ?? 0);
-    if (used + Number(fresh.amount) > Number(order.total) + 1e-9) {
+    if (used + Number(fresh.amount) > refundableCeiling(order) + 1e-9) {
       throw badRequest(
-        `Total refund exceeds the order total: already used/refunded ${used.toFixed(2)}, this request ${Number(fresh.amount).toFixed(2)}, order total ${Number(order.total).toFixed(2)}`,
+        `Total refund exceeds the refundable total: already used/refunded ${used.toFixed(2)}, this request ${Number(fresh.amount).toFixed(2)}, refundable total ${refundableCeiling(order).toFixed(2)}`,
       );
     }
     const updated = await tx.refund.update({
@@ -2040,7 +2132,7 @@ export async function processRefundOutboxItem(refundId: string): Promise<RefundE
     where: { orderId: order.id, status: "REFUNDED" },
     _sum: { amount: true },
   });
-  if (Number(completed._sum.amount ?? 0) >= Number(order.total) - 1e-9) {
+  if (Number(completed._sum.amount ?? 0) >= refundableCeiling(order) - 1e-9) {
     // 整单终态：markOrderRefundedByGateway 内部统一发「已全额退款」通知
     await markOrderRefundedByGateway(order, gatewayRefundId);
   } else {
@@ -2099,7 +2191,7 @@ async function refundEntireOrder(
     });
     const remaining = Math.max(
       0,
-      Math.round((Number(order.total) - Number(occupied._sum.amount ?? 0)) * 100) / 100,
+      Math.round((refundableCeiling(order) - Number(occupied._sum.amount ?? 0)) * 100) / 100,
     );
     const existing = await tx.refund.findFirst({
       where: { orderId: order.id, status: "REQUESTED" },
@@ -2189,10 +2281,14 @@ export async function markOrderRefundedByGateway(
     });
     didTransition = true;
 
-    // 库存回补
-    const productIds = [
-      ...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v)),
-    ].sort();
+    // 库存回补（资金审计：退款 ≠ 退货）
+    // 货已出库（SHIPPED/DELIVERED）时**不得回补**——未收到退货就回补库存会让已卖出
+    // 的货被再次售出（真超卖）。仅未发货（待支付/已付/处理中）的整单退款回补；
+    // 已发货场景需走退货入库流程后由后台手工调整库存。
+    const shouldRestock = ["PENDING_PAYMENT", "PAID", "PROCESSING"].includes(order.status);
+    const productIds = shouldRestock
+      ? [...new Set(order.items.map((i) => i.productId).filter((v): v is string => !!v))].sort()
+      : [];
     if (productIds.length > 0) {
       await tx.$queryRaw`SELECT id FROM products WHERE id IN (${Prisma.join(productIds)}) FOR UPDATE`;
       const products = await tx.product.findMany({

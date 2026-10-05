@@ -8,6 +8,8 @@ import { createNotification, notifyAdmins } from "@/server/services/notification
 import { prisma } from "@/lib/prisma";
 import { refundRequestSchema } from "@/lib/validations/cart-order";
 import { REFUNDABLE_STATUSES } from "@/lib/order-status";
+// COD 封顶含到付费（资金审计 M5）：与审批端/整单退款同一口径
+import { refundableCeiling } from "@/server/services/order.service";
 import { routeParam } from "@/app/api/_lib/params";
 import { sanitizePlainText } from "@/lib/sanitize";
 import { rateLimit } from "@/lib/rate-limit";
@@ -66,9 +68,9 @@ export const POST = apiHandler(async (req, ctx) => {
       _sum: { amount: true },
     });
     const usedSoFar = Number(sumResult._sum.amount ?? 0);
-    if (input.amount + usedSoFar > Number(order.total) + 1e-9) {
+    if (input.amount + usedSoFar > refundableCeiling(order) + 1e-9) {
       throw badRequest(
-        `Refund amount exceeds the refundable total: order total ${Number(order.total).toFixed(2)}, already refunded/reserved ${usedSoFar.toFixed(2)}`,
+        `Refund amount exceeds the refundable total: refundable total ${refundableCeiling(order).toFixed(2)}, already refunded/reserved ${usedSoFar.toFixed(2)}`,
       );
     }
 
