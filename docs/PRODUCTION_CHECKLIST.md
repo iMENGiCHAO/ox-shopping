@@ -31,6 +31,24 @@
 
 ---
 
+## 〇之三、部署顺序铁律（2026-10-05 实战事故，务必遵守）
+
+**生产模式下绝不可在服务运行期间执行 `npm run build`。**
+
+- 现象：后台 `/admin` 报 `InvariantError: The client reference manifest for route "/admin" does not exist`，
+  前台部分页面因 chunk 已缓存仍可打开，极具迷惑性。
+- 原因：Next 生产进程运行时按需读取 `.next` 目录（client/server reference manifest、路由清单），
+  `build` 会整体覆盖该目录 → 运行中的进程读到不一致的产物。
+- 正确顺序：**改代码 → `npm run build` → 停旧进程 → 启新进程**。
+  即「先构建、后重启」，任何情况下都不要反过来。
+- 快速定位与重启（本机）：
+  ```bash
+  /usr/sbin/lsof -ti:3000 | xargs kill -9      # 取 PID 杀旧进程（进程名是 next-server，grep node 找不到）
+  cp -r .next/static .next/standalone/.next/ && cp -r public/. .next/standalone/public/
+  PORT=3000 node .next/standalone/server.js
+  ```
+- 容器化部署天然规避此问题（镜像内产物不可变），但**裸机/PM2 部署必须遵守**。
+
 ## 〇之二、2026-09-20 修订说明（本轮新增能力，部署时知晓即可）
 
 - **B-2 原站式找回密码（人工审批）**：前台提交申请（`POST /api/auth/forgot-password`，防枚举 + 单 IP 3/min + 单邮箱 3/h）
