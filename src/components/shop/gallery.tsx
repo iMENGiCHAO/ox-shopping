@@ -14,10 +14,13 @@ export interface GalleryProps {
   className?: string;
 }
 
-/* 放大镜自定义光标(上游参考站 同款观感) — 白色小圆 + 中间加号
-   （白色：黑色/深色商品图与纯黑灯箱底上依然清晰可见，黑线会"黑图压黑线"看不见） */
+/* 放大镜自定义光标 —— 原站资产逐字复刻（2026-10-07 借代理抓取原站实测）：
+   原站 `--cursor-zoom-in-svg-url: cursor-zoom-in.svg`，CSS 用法
+   `.product-gallery[allow-zoom] .product-gallery__media{cursor:var(--cursor-zoom-in-svg-url) 18 18,zoom-in}`
+   36×36 视口 = **实心白圆**（fill #ffffff）+ **居中黑色加号**（fill #1c1c1c），热点 18,18。
+   此前用的是「圆 + 手柄」的放大镜图标，与原站不一致（大爷实拍指正）。 */
 const CURSOR_ZOOM_IN =
-  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='30' height='30' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2'><circle cx='10.5' cy='10.5' r='7'/><line x1='15.8' y1='15.8' x2='21' y2='21'/><line x1='7.5' y1='10.5' x2='13.5' y2='10.5'/><line x1='10.5' y1='7.5' x2='10.5' y2='13.5'/></svg>\") 15 15, zoom-in";
+  "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'><path d='M36 18c0 9.941-8.059 18-18 18S0 27.941 0 18 8.059 0 18 0s18 8.059 18 18Zm0 0' fill='%23ffffff'/><path d='M24.688 18.516h-6.172v6.172h-1.032v-6.172h-6.172v-1.032h6.172v-6.172h1.032v6.172h6.172' fill='%231c1c1c'/></svg>\") 18 18, zoom-in";
 
 /**
  * 官方两级放大实测（1440×900 视口）：

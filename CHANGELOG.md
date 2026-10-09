@@ -9,6 +9,65 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-10-09（四）· 页脚 FOUC 露白修复 + 尺码表数据回填 + 全仓四维体检
+
+> 大爷反馈「部分页面加载时页脚下方露白」「原站有尺码表但本地没有」。
+> 验证：typecheck 0 错 / qa:static 三门禁 / 单测 **323/323** / 集成 **172/172** 全绿。
+
+### 页脚露白（FOUC 帧级定位）
+- **dev 专用 FOUC 骨架兜底**（`src/app/layout.tsx`）：dev 下 Turbopack 的 CSS 由 JS chunk 注入、
+  不阻塞首帧——露白帧实测 `stylesheets=0`、容器 `display:block`，`flex/min-h-screen` 均未生效 →
+  页脚紧跟内容、下方露 body 白底（帧级探针：/collections 607px、/cart 705px 各 1 帧；另有 `<p>`
+  的 UA 默认 margin 塌陷出页脚形成的固定 16px）。修复：React 19 提升内联骨架
+  （`body{margin:0}` + `[data-shop-root]` 满屏 flex 列 + main flex-1），无样式帧页脚也贴底；
+  **仅 dev 注入**——生产 CSS 走 `<head>` 阻塞式 `<link>` 首帧即带样式，且内联 style 会撞
+  per-request nonce CSP。帧级探针验收：10 页 × 全程采样 **0 露白帧**。
+
+### 尺码表数据回填（数据运营漏洞）
+- 根因：**9-26 尺码表注册表迁移后从未重跑 seed** → 28 品 `sizeChart` 全空 →
+  PDP 条件渲染（有数据才渲染）永远不成立。跑幂等 `npm run db:seed`：
+  补填 **15 个服装品**（T恤/卫衣/连帽衫/童装；帽/杯/袜无表——与原站品类边界一致）。
+- 与原站逐格 DOM 比对（ox-hoodie ↔ the-xai-hoodie）：Size/Chest/Sleeve 三行**逐格一致**；
+  /zh/ 中文站同步渲染 ✓。种子顺手补建的演示 `admin@example.com` 已删（管理员维持单一账号）。
+- 后台可编辑性实测：API PUT 加行 → 前台即时出现 → PUT 还原 → 前台恢复（数据驱动，零硬编码）。
+
+### 全仓四维体检（大爷点名：bug / 硬编码 / 数据孤岛 / 死代码）
+- **bug**：verify 全绿 + 集成 172 全过（本轮 6 文件改动后回归）。
+- **硬编码**：品牌名/邮箱/电话全走 settings/env 令牌（唯一兜底 `PLACEHOLDER_BRAND`）；
+  qa:hardcode 门禁通过；页脚版权 `{siteName} © {year}` 动态。
+- **数据孤岛**：前台渲染层零内置注册表（尺码表旧注册表确认已迁移）；FAQ/政策页
+  「DB 空时回落内置」为**有文档的刻意兜底**（后台保存优先、编辑不被遮蔽）——
+  已知 P2 边界：管理员无法做出「FAQ 全空」的页面形态，非 bug 不阻塞。
+- **死代码**：shop/admin 组件、lib、server/services 全量引用计数**零孤儿**；
+  src 无 `console.log` 调试残留。
+
+### 工程化
+- `.gitignore` 新增 `release/`（源码交付包输出目录）。
+
+## 2026-10-07（二）· PDP 售罄样式与放大光标逐字对齐原站（代理实测取证）
+
+> 大爷连续三轮实拍对比指出差异。x.com 被墙，shell 借本机 xray 代理（socks5://127.0.0.1:10808）
+> 直读原站 `theme.css` 与浏览器**计算样式**（含 ::before），全部按实测值复刻。
+
+### 售罄色卡斜杠（buy-panel.tsx）
+- 原站 `.color-swatch.is-disabled::before` 实测：`linear-gradient(to right bottom, …)` 色带
+  → **正斜杠「/」**、1px（`calc(50%±.5px)`）；未选中线色 `rgb(221,221,221)`(#DDD)、
+  选中 `currentColor`(#1C1C1C)——**原站从不用白线**（此前的「对比色白线」是错的）；
+  未选中线盒 28×28（=色圆外框，线端顶到方框角 → 略出头）、**选中 margin 归零 → 32×32
+  明显画出头**；色圆 28px（34px − 2×1px 边框 − 2×2px padding）；未选中边框 #DDD、选中黑环。
+- 同步修正注释口径（rotate -45° = 正斜杠「/」）。
+
+### 规格下拉（variant-select.tsx）
+- **面板黑底白字**（bg-foreground / 售罄灰字 text-background/60）+ **售罄文案靠右**
+  （规格名居左 justify-between，弃「M — 售罄」内联）——大爷实拍指出的原站形态。
+- 单测断言同步（variant-select.test.ts：售罄靠右独立渲染，防回退旧格式）。
+- 注：到货提醒弹窗内为原生 `<select>`，option 行右对齐受 OS 渲染限制，保持内联。
+
+### 放大光标（gallery.tsx）
+- 抓取原站资产 `cursor-zoom-in.svg`：**36×36 实心白圆(#ffffff) + 居中黑色加号(#1c1c1c)**，
+  热点 18,18 —— 大爷描述的「实心白圆中间黑色+号」。替换此前「圆+手柄」放大镜 SVG；
+  path 数据与原站逐字一致，页面计算样式实测对齐。
+
 ## 2026-10-05（日）· 商业交付审查批次（安全 / 资金 / 工程化 三路并行复查）
 
 > 交付前按资深全栈标准做三路独立复查，本轮修复 **14 项**；全部带文件级证据与回归验证。

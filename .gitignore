@@ -63,6 +63,9 @@ pg-data/
 /tmp-pg/
 /pg.log
 
+# 交付打包输出
+release/
+
 # 工具链临时
 .eslintcache
 *.log

@@ -110,6 +110,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang={lang} className={isAdmin ? "admin-theme" : undefined}>
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
+        {/* 开发期 FOUC 骨架兜底（大爷 2026-10-09 反馈「加载时页脚下方露白」）：
+            dev 下 Turbopack 的 CSS 由 JS chunk 注入、不阻塞首帧——SSR HTML 先绘制
+            （探针实测露白帧 stylesheets=0、容器 display=block），此刻 flex/min-h-screen
+            均未生效：页脚紧跟内容、下方露出 body 白底（短页最多露 700px+；另有
+            <p> 的 UA 默认 margin 塌陷出页脚形成固定 16px 露白）。
+            这份内联骨架让无样式帧也具备「容器满屏 flex 列 + main 拉伸 + 页脚贴底」
+            的正确结构，白闪窗口内页脚不再悬空。选择器与 Tailwind 类同值
+            （特异性同为 0-1-0，后注入者胜出），加载完成后被正常样式无缝接管。
+            生产模式 CSS 走 <head> 阻塞式 <link>、首帧即带样式，无此问题；
+            且内联 style 会撞生产的 per-request nonce CSP —— 故仅 dev 注入。 */}
+        {process.env.NODE_ENV !== "production" && (
+          <style
+            href="dev-fouc-skeleton"
+            precedence="dev-fouc"
+          >{`body{margin:0}[data-shop-root]{display:flex;min-height:100vh;flex-direction:column}[data-shop-root]>main{flex:1 1 0%}`}</style>
+        )}
         {children}
         <Toaster position="top-center" toastOptions={{ unstyled: false }} />
       </body>

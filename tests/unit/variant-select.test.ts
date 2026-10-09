@@ -47,9 +47,12 @@ describe("VariantSelect：原生 radio + 常驻面板", () => {
     expect(html).toContain("Size");
   });
 
-  it("售罄项仍可选，仅追加文案标注", () => {
+  it("售罄项仍可选，售罄文案靠右独立渲染（原站样式）", () => {
     const html = render({ isSoldOut: (v) => v === "XL" });
-    expect(html).toContain("XL — Sold out");
+    // 选项名与售罄标注分离：规格名居左（独立 span），Sold out 靠右（独立 span）
+    expect(html).toContain(">XL</span>");
+    expect(html).toContain("Sold out");
+    expect(html).not.toContain("XL — Sold out");
     expect(html.match(/type="radio"/g)?.length).toBe(4); // 未因售罄而移除
   });
 

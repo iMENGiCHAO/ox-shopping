@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { QuantityInput } from "@/components/shop/quantity-input";
 import { AddToCartButton } from "@/components/shop/add-to-cart-button";
 import { VariantSelect } from "@/components/shop/variant-select";
@@ -91,6 +91,29 @@ const COLOR_HEX: Record<string, string> = {
 function isColorGroup(name: string, values: string[]): boolean {
   if (/colou?r|颜色/i.test(name)) return true;
   return values.every((v) => COLOR_HEX[v] !== undefined);
+}
+
+/**
+ * 售罄斜线（原站实测复刻 2026-10-07，借本机代理读原站 theme.css 与计算样式）：
+ *
+ * 原站 `.color-swatch.is-disabled::before` 的完整规格：
+ *   · 盒子 = 绝对定位铺满色卡，`margin: var(--swatch-disabled-margin, 2px)`
+ *     未选中 28×28（= 色圆外框，线两端顶到方框四角 → 略出头）
+ *     选中 **margin 归零 → 32×32**（比色圆大一圈 → 出头更明显，大爷说的「画出头」）
+ *   · 线 = `linear-gradient(to right bottom, transparent calc(50% - .5px),
+ *     COLOR calc(50% - .5px) calc(50% + .5px), transparent calc(50% + .5px))`
+ *     —— 轴是「\」，色带垂直于轴 → 渲染为**正斜杠「/」**，1px 细线
+ *   · 颜色：未选中 `rgb(221,221,221)`（#DDD 浅灰），选中 `currentColor`（#1C1C1C）
+ *     —— **原站从不使用白线**（此前的对比色白线是错的）
+ */
+function soldOutStrikeStyle(active: boolean): CSSProperties {
+  const color = active ? "hsl(var(--foreground))" : "hsl(var(--border))";
+  const size = active ? 32 : 28;
+  return {
+    width: size,
+    height: size,
+    background: `linear-gradient(to right bottom, transparent calc(50% - 0.5px), ${color} calc(50% - 0.5px), ${color} calc(50% + 0.5px), transparent calc(50% + 0.5px))`,
+  };
 }
 
 /**
@@ -266,7 +289,9 @@ export function BuyPanel({
                   <span>{`${g.name}: ${selections[g.name] ?? g.values[0] ?? ""}`}</span>
                 </p>
                 {colorMode ? (
-                  /* Round swatches — 官方 34px,active 黑环;售罄加正斜杠。
+                  /* Round swatches — 原站实测规格（2026-10-07 借代理读原站计算样式）：
+                     34px 色卡 / 1px 边框（未选中 #DDD、选中 #1C1C1C）/ 2px 内边距 /
+                     28px 色圆；售罄叠 1px 正斜杠（未选中 28px 盒、选中 32px 盒）。
                      当前选中值即使与已选其他维度无真实组合也保留渲染（P2-5 商用审计）：
                      此前选 Black 后把 Size 切到 M（Black/M 不存在）→ Black 色块
                      被过滤消失，但标签仍显示 "Color: Black" 且无法点回 ——
@@ -280,7 +305,7 @@ export function BuyPanel({
                       .map((v) => {
                       const active = selections[g.name] === v;
                       /* 售罄但**仍可点**：选中后整页按钮切到货提醒（大爷反馈的核心交互）。
-                         售罄仅用反斜杠 + title 提示，不 disabled，保证可选中登记到货通知。 */
+                         售罄仅用斜线 + title 提示，不 disabled，保证可选中登记到货通知。 */
                       const out = isValueSoldOut(g.name, v, soldOut);
                       return (
                         <button
@@ -303,20 +328,23 @@ export function BuyPanel({
                           }}
                           className={cn(
                             "relative h-[34px] w-[34px] rounded-full border p-0 transition-colors",
-                            active ? "border-foreground" : "border-transparent hover:border-border",
+                            /* 原站：未选中 #DDD 细边（白卡也可见轮廓），选中 currentColor 黑环 */
+                            active ? "border-foreground" : "border-border",
                           )}
                         >
-                          {/* 可见色圆比触摸区小（原站观感更精细）：34px 按钮内 24px 色圆，
-                              1px 极淡描边；此前用满尺寸 34px 实心圆 + 描边，视觉上偏大偏粗糙 */}
+                          {/* 28px 色圆（原站 content-box 实测值）：34px 按钮 - 2×1px 边框 - 2×2px 内边距 */}
                           <span
-                            className="absolute left-1/2 top-1/2 block h-6 w-6 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full ring-1 ring-black/10"
+                            className="absolute left-1/2 top-1/2 block h-7 w-7 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full"
                             style={{ backgroundColor: COLOR_HEX[v] ?? "#D4D4D4" }}
                           />
-                          {/* 官方售罄样式：反斜杠细线，两端略超出圆外更易识别 */}
+                          {/* 售罄斜线：原站 ::before 同款 —— 渐变画的 1px 正斜杠「/」，
+                              未选中 28×28（色圆外框，线端顶到方框角 → 略出头），
+                              选中 32×32（margin 归零 → 明显画出头）。 */}
                           {out ? (
                             <span
                               aria-hidden="true"
-                              className="pointer-events-none absolute left-1/2 top-1/2 h-[1.5px] w-[42px] -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-full bg-[#1c1c1c]"
+                              className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                              style={soldOutStrikeStyle(active)}
                             />
                           ) : null}
                         </button>

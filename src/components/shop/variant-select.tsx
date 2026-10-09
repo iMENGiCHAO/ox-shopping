@@ -101,20 +101,22 @@ export function VariantSelect({
         <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
       </button>
 
-      {/* 常驻 DOM 的内联面板：`hidden` 切换显隐 —— 点开零挂载、零定位计算 */}
+      {/* 常驻 DOM 的内联面板：`hidden` 切换显隐 —— 点开零挂载、零定位计算。
+          面板黑底白字（大爷 2026-10-07 对齐原站：原站下拉是黑色的）；
+          售罄文案靠右（原站选项行 = 规格名居左 + Sold out 右对齐）。 */}
       <div
         ref={panelRef}
         role="listbox"
         aria-label={groupName}
         hidden={!open}
-        className="variant-panel absolute left-0 top-full z-[60] w-full border border-input bg-card shadow-md"
+        className="variant-panel absolute left-0 top-full z-[60] w-full border border-foreground bg-foreground text-background shadow-md"
       >
         {options.map((option) => {
           const out = isSoldOut(option);
           return (
             <label
               key={option}
-              className="flex cursor-pointer select-none items-center px-3 py-2 text-sm hover:bg-muted has-[:focus-visible]:bg-muted has-[:checked]:font-medium"
+              className="flex cursor-pointer select-none items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-white/10 has-[:focus-visible]:bg-white/10 has-[:checked]:font-medium"
             >
               <input
                 type="radio"
@@ -127,9 +129,10 @@ export function VariantSelect({
                 }}
                 className="sr-only"
               />
-              <span className="truncate">
-                {out ? `${option} — ${soldOutLabel}` : option}
-              </span>
+              <span className="truncate">{option}</span>
+              {out ? (
+                <span className="shrink-0 text-background/60">{soldOutLabel}</span>
+              ) : null}
             </label>
           );
         })}
