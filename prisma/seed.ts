@@ -96,21 +96,26 @@ async function seedCategories() {
 
   const map = new Map<string, string>();
   for (const cat of demoCollections) {
-    /* 这 4 个集合是**导航结构**，
-       seed 视 `demo-collections.ts` 为权威并同步名称/顺序/图片 ——
-       否则历史改名会让 /collections 与目录不一致，且换机器重新部署无法复现。
-       运营若要自定义，请**新增**集合而不是改这 4 个。
-       唯一保留的运营字段：`isActive`（下架集合）与 `parentId`。 */
+    /* 4 个演示集合的字段契约（2026-10-09 事故修订）：
+       · **结构字段**（name/nameEn/description/sortOrder）：seed 视 `demo-collections.ts`
+         为权威持续同步 —— 集合导航是演示数据的一部分，改名/顺序修正要能随种子下发。
+         运营若要自定义名称，请新增集合而不是改这 4 个。
+       · **视觉/运营字段**（image/cardImage/homeSortOrder）：**已有分类一律不动**
+         —— 不仅非空值不能覆盖，**null 也不能补**：homeSortOrder=null 是运营的
+         「退出首页横幅」显式语义（首轮实现「仅空值补填」实测翻车：大爷把
+         ox-collection 退出横幅置 null 后，重跑 seed 又把它填回 1，与 Mens 撞位）。
+         视觉字段只在 **create**（新库/新集合）时给注册表默认；既有库的图与横幅
+         次序完全归后台。2026-10-09 实测事故背景：无条件同步曾把大爷配置的
+         Mens/Womens 首页横幅（banner-shop 实拍图）覆盖回 ox 占位图。
+       · `bannerImage` 本就不在 seed 写入面内；`isActive`/`parentId` 保留运营权。 */
     const row = await prisma.category.upsert({
       where: { slug: cat.slug },
       update: {
         name: cat.name,
         nameEn: cat.nameEn,
         description: cat.description,
-        image: cat.image,
-        cardImage: cat.cardImage ?? null,
         sortOrder: cat.sortOrder,
-        homeSortOrder: cat.homeSortOrder ?? null,
+        /* image/cardImage/homeSortOrder 不在 update 里 —— 运营字段含 null 都是有效状态 */
       },
       create: {
         name: cat.name,
@@ -125,7 +130,7 @@ async function seedCategories() {
     });
     map.set(cat.slug, row.id);
   }
-  console.log(`✓ 分类创建完成（${demoCollections.length} 个）`);
+  console.log(`✓ 分类创建完成（${demoCollections.length} 个，已有分类的图/横幅次序不受 seed 影响）`);
   return map;
 }
 

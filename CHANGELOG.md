@@ -9,6 +9,37 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-10-09（四）晚 · 集合内页透明顶栏对齐原站改版 + seed 覆盖事件复盘
+
+> 大爷反馈「分类内页顶栏到顶要透明、悬停/搜索恢复黑」+「横图没了」。
+> 复核发现**原站 9 月底已改版**（SpaceXAI 主题）：9-20 的旧实测（横幅不钻顶栏）作废。
+> 验证：typecheck 0 错 / 该文件 ESLint 0 问题 / 单测 **323/323**。
+
+### 集合内页透明顶栏（collection-listing.tsx）
+- 原站现行机制（借代理直读 DOM + theme.css）：hero 声明 `[allow-transparent-header]`
+  → 顶栏顶部时透明（--background 归零、负 margin 让 hero 垫底）；
+  `:hover` / 滚动后 `.is-solid` / 导航弹层 `[open]` 恢复实心黑（0.2s 过渡）。
+- 本地对接：hero（有 bannerImage 时）声明 `data-transparent-header` +
+  `.collection-hero-under-header` 负边距上提 65px（CSS 类此前已在 globals.css，
+  9-20 时误移除——旧实测过时）。悬停/搜索/滚动的实心恢复走 HeaderShell 既有状态机。
+- 全状态实测（Playwright）：到顶透明 bg=rgba(0,0,0,0) / 悬停黑 / 搜索黑 / 下滚实心+阴影 /
+  回顶透明 / hero 顶边 y=0；首页保持实心（原站首页未声明透明，不跟风）。
+
+### seed 覆盖事件复盘 + 契约修订（数据运营边界）
+- 现象：大爷此前把首页横幅配置为 Mens/Womens（banner-shop 实拍图），下午为补尺码表跑
+  `npm run db:seed` 时被 `seedCategories` 的「权威同步」覆盖回注册表默认
+  （ox 集合 + **近乎空白的占位图**：banner-ox* 平均亮度 211 / 方差 12 / 颜色桶 18，
+  对照实拍图 shop-1 的 39/24/52 —— 即「横图没有图」的观感来源）。
+- **契约修订（prisma/seed.ts）**：4 个演示集合的字段分两类——
+  · 结构字段（name/nameEn/description/sortOrder）：注册表持续同步（导航结构需随种子可复现）；
+  · 视觉/运营字段（image/cardImage/homeSortOrder）：**已有分类一律不动**。
+    首轮「仅空值补填」实现被回放验证推翻——`homeSortOrder=null` 是运营的
+    「退出首页横幅」显式语义，不能当空值回填（ox-collection 退出后被填回 1 与 Mens 撞位）。
+    最终口径：**含 null 在内，既有库的图与横幅次序完全归后台**；仅 create（新库/新集合）给默认。
+- 配置恢复（走管理 API，含缓存失效）：Mens=左(1)+shop-1、Womens=右(2)+shop-2、
+  ox 两集合退出横幅；seed 连跑三轮回放配置零漂移；首页实测 Mens/Womens 横幅 +
+  实拍图 + 占位图残留 0。
+
 ## 2026-10-09（四）· 页脚 FOUC 露白修复 + 尺码表数据回填 + 全仓四维体检
 
 > 大爷反馈「部分页面加载时页脚下方露白」「原站有尺码表但本地没有」。

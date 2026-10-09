@@ -51,12 +51,19 @@ export async function CollectionListing({ categorySlug }: { categorySlug: string
 
   return (
     <div className="pb-16">
-      {/* 原站实测（2026-09-20，1440 视口）：集合页横幅**不从顶栏下方钻上去**——
-          页头 0..65、横幅 65..477。此前用 `collection-hero-under-header`
-          （margin-top: -header-h）+ data-transparent-header 把横幅上提 65px，
-          导致横幅与整片商品卡整体比原站高 65px。 */}
+      {/* 原站 2026-10-09 复核（借代理直读现行 DOM）：集合内页已改版为「透明顶栏叠在
+          首屏 hero 上」——hero 声明 [allow-transparent-header]，顶栏在页面顶部时透明
+          （--background 归零），:hover / 滚动后 .is-solid / 导航弹层 [open] 三种情况
+          恢复实心黑（0.2s 过渡）；header 以负 margin 让 hero 垫到自己下方。
+          2026-09-20 的旧实测（「横幅不从顶栏下钻」）随原站 9 月底改版作废。
+          本地对接：hero 声明 data-transparent-header（HeaderShell 检测该属性，
+          未滚动且未悬停时透明）+ .collection-hero-under-header 负边距上提 65px；
+          悬停/搜索展开/滚动的实心恢复由 HeaderShell 与 globals.css 既有规则处理。 */}
       {heroImage ? (
-        <section className="relative aspect-[3.49/1] max-h-[560px] min-h-[220px] w-full overflow-hidden bg-ink">
+        <section
+          data-transparent-header
+          className="collection-hero-under-header relative aspect-[3.49/1] max-h-[560px] min-h-[220px] w-full overflow-hidden bg-ink"
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={heroImage}
