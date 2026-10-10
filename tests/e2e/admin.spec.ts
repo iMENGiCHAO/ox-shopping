@@ -28,9 +28,10 @@ test.describe("管理后台", () => {
     await dialog.getByLabel("SKU").fill(`E2E-${Date.now()}`);
     await dialog.getByLabel("价格").fill("66.6");
     await dialog.getByLabel("库存").fill("10");
-    // 分类为必填项：表单中第一个下拉框（种子分类为 X Collection / Ox Shopping Collection）
+    // 分类为必填项：表单中第一个下拉框（种子分类为 Ox Collection / Ox Essentials Collection
+    // —— prisma/demo-catalog.ts 已中性化为虚构品牌，勿再断言旧第三方商标名）
     await dialog.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: /X Collection|Ox Shopping/ }).first().click();
+    await page.getByRole("option", { name: /Ox Collection|Ox Essentials/ }).first().click();
     // 状态保持默认「草稿」（不切「上架」）：避免测试商品进入前台商城目录污染生产数据
     // 后台列表默认「所有状态」，草稿也会出现在列表中，不影响“列表可见”断言
     await dialog.getByRole("button", { name: /创建商品|保存修改/ }).click();

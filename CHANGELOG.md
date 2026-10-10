@@ -9,6 +9,39 @@
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
 
+## 2026-10-10（五） · 仓库上 GitHub + CI 首跑清障（安全 / 脚本兼容 / E2E 断言与视觉基线）
+
+> 项目首次推送 GitHub（iMENGiCHAO/ox-shopping，公开仓库）。CI 全套在真实 runner
+> 首跑，暴露三个本地环境从未踩到的问题，逐一修复；顺带完成 README 门面升级。
+
+### 依赖安全（Dependency Audit job 首跑即红）
+- next 16.3.6 → 16.4.0：修复 6 个新披露 high 通告（use cache Draft Mode 泄漏、
+  SSG/ISR 缓存投毒 ×2、MCP 信息泄露、metadata 图片路由绕过、Image Optimization SSRF）。
+- eslint-config-next 16.3.3 → 16.4.0 配套同步；sharp 0.35.4 → 0.35.5（librsvg
+  CVE-2026-96889）、source-map-js → 1.2.2（事件循环 DoS）随 lockfile 更新。
+- 验证：本地 `npm run typecheck` 0 错；`npm audit --omit=dev --audit-level=high` 0 漏洞。
+
+### 备份演练脚本 psql URI 兼容（Backup Restore Drill job 首跑即挂）
+- `scripts/backup-restore-drill.sh` 把 Prisma 风格连接串（`?schema=public`）直接交给
+  psql/pg_dump/pg_restore，libpq 以「invalid URI query parameter」拒绝。
+- 修复：移植 `scripts/backup-db.sh` 既有 `normalize_pg_url`（urllib 剥 schema 参数，
+  凭据/主机/库名原样保留），入口统一清洗后全脚本生效。
+
+### E2E 首跑修复
+- admin.spec「等 X Collection 分类选项」超时 ×2 轮：prisma/demo-catalog.ts 9 月底
+  法务中性化（虚构品牌）后，本地旧库残留旧分类名掩盖了问题，CI 全新种子必挂。
+  断言正则改为真实种子名（Ox Collection / Ox Essentials）。
+- 视觉基线平台错位：基线 9-24 生成于 macOS，CI 为 ubuntu + headless chromium，
+  字体渲染/子像素抗锯齿差异导致 5 个视觉用例全红（且部分页面基线已落后于 9-24 后改版）。
+  新增 `.github/workflows/update-visual-baselines.yml`（workflow_dispatch）：
+  CI 同款环境 `--update-snapshots` 生成基线 → 不带更新参数复跑验证两轮一致 →
+  上传基线工件供维护者覆盖提交。**基线约定：以 CI 平台（Linux）产出的为准**。
+
+### GitHub 仓库与 README 门面
+- README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、
+  界面预览（Playwright 基线截图裁切后入 docs/screenshots/）、技术栈速览表；
+  原有详细章节（目录结构/启动/部署/FAQ 等）全部保留。仓库 About 区配置描述与 topics。
+
 ## 2026-10-09（四）晚 · 集合内页透明顶栏对齐原站改版 + seed 覆盖事件复盘
 
 > 大爷反馈「分类内页顶栏到顶要透明、悬停/搜索恢复黑」+「横图没了」。
