@@ -37,13 +37,22 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/prisma ./node_modules/prisma
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
+# 注意：不能 COPY node_modules/.bin/prisma —— Docker 会把符号链接解引用成普通文件，
+# prisma CLI 以 __dirname 定位 prisma_schema_build_bg.wasm 时会落在 .bin/ 下而
+# ENOENT（CI docker-smoke 首跑实测）。改为复制完整包后建真符号链接。
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tsx ./node_modules/tsx
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/esbuild ./node_modules/esbuild
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
+# 种子链路（SEED_ON_START=true，compose 本地演示模式）：`prisma db seed` 从
+# package.json 读取 prisma.seed 配置；prisma/seed.ts 又 import src/lib/faq-defaults。
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/faq-defaults.ts ./src/lib/faq-defaults.ts
+RUN mkdir -p ./node_modules/.bin \
+  && ln -sfn ../prisma/build/index.js ./node_modules/.bin/prisma \
+  && ln -sfn ../tsx/dist/cli.mjs ./node_modules/.bin/tsx
 
 USER nextjs
 EXPOSE 3000

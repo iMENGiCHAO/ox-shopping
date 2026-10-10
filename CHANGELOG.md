@@ -43,6 +43,13 @@
   此前该 job 因上游 e2e 失败一直被 skip，R5 加固引入该 import 后首次真跑才暴露。
 - 修复：`playwright.config.ts` 加入 `.dockerignore`——E2E 配置属于测试基础设施，
   生产镜像不运行 Playwright，无需参与 next build 类型检查（本地 tsc/eslint 照常覆盖）。
+- 镜像运行阶段 `.bin/prisma` 修复：`COPY node_modules/.bin/prisma` 会被 Docker 把
+  符号链接**解引用成普通文件**，CLI 以 `__dirname` 定位 `prisma_schema_build_bg.wasm`
+  落到 .bin/ 下 ENOENT → entrypoint 迁移必挂。改为复制完整包后 `ln -sfn` 建真链接
+  （node 对主入口默认取 realpath，`__dirname` 回到 prisma/build/）。
+- 种子链路补全（compose 本地演示 `SEED_ON_START=true` 走 `prisma db seed`）：
+  补 COPY `package.json`（prisma 从中读取 prisma.seed 配置）与
+  `src/lib/faq-defaults.ts`（seed.ts 的跨目录 import），并补 `.bin/tsx` 链接。
 
 ### GitHub 仓库与 README 门面
 - README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、
