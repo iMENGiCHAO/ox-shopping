@@ -66,6 +66,10 @@
   改用 S3 兼容的 RustFS（9000/9001 端口对齐），桶初始化从 minio/mc 换成 AWS
   官方 CLI 镜像（标准 SigV4：head-bucket 幂等建桶 + 公开读桶策略）。凭据沿用
   minioadmin/minioadmin 演示约定，README 相关表述同步更新。
+- 冒烟脚本 5/7 登录步骤（历史上从未真正执行过）两处首跑修正：CSRF 接口返回的
+  JSON 字段是 `token`（`csrf_token` 是 cookie 名，旧 grep 恒为空）；容器内
+  NODE_ENV=production 使 cookie 带 Secure 标志、curl 走 http 不回传——改为
+  手工双提交（Cookie + x-csrf-token 同值），不依赖 cookie jar。
 
 ### GitHub 仓库与 README 门面
 - README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、
