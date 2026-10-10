@@ -73,9 +73,9 @@ log "5/7 后台种子账号登录（仅本地演示模式）"
 if [ "${REQUIRE_STRONG:-}" != "true" ]; then
   # CSRF 双提交校验（proxy: cookie csrf_token === header x-csrf-token，无服务端状态）。
   # 容器内 NODE_ENV=production → cookie 带 Secure 标志，curl 走 http 不会回传 Secure
-  # cookie，因此手工同时携带 Cookie 与请求头；token 取自 GET /api/auth/csrf 的
-  # JSON 字段 token（注意不是 csrf_token——那是 cookie 名，此前的 grep 一直解不出）。
-  csrf=$(curl -s "$URL/api/auth/csrf" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') || fail "CSRF token 获取失败"
+  # cookie，因此手工同时携带 Cookie 与请求头；token 取自 GET /api/auth/csrf 响应的
+  # data.token（apiHandler 的 json() 统一包 { data } 信封；csrf_token 是 cookie 名）。
+  csrf=$(curl -s "$URL/api/auth/csrf" | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["token"])') || fail "CSRF token 获取失败"
   [ -n "$csrf" ] || fail "CSRF token 为空"
   body=$(curl -s -X POST "$URL/api/auth/login" -H 'content-type: application/json' \
     -H "Cookie: csrf_token=$csrf" -H "x-csrf-token: $csrf" \
