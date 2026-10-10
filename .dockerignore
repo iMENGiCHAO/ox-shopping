@@ -13,5 +13,9 @@ coverage
 test-results
 playwright-report
 tests
+# playwright.config.ts imports tests/helpers/*（tests 已排除）。E2E 配置属于
+# 测试基础设施，生产镜像不运行 Playwright，也不参与 next build 类型检查；
+# 若留在上下文里，Docker 内 `next build` 会因解析不到 tests/ 直接失败。
+playwright.config.ts
 README.md
 *.md

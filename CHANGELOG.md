@@ -37,6 +37,13 @@
   CI 同款环境 `--update-snapshots` 生成基线 → 不带更新参数复跑验证两轮一致 →
   上传基线工件供维护者覆盖提交。**基线约定：以 CI 平台（Linux）产出的为准**。
 
+### Docker 冒烟首跑修复（Final Docker Build & Start Smoke）
+- `docker build` 内 `next build` 类型检查报 TS2307：playwright.config.ts import
+  `tests/helpers/global-setup`，而 `.dockerignore` 排除了整个 tests/ 目录。
+  此前该 job 因上游 e2e 失败一直被 skip，R5 加固引入该 import 后首次真跑才暴露。
+- 修复：`playwright.config.ts` 加入 `.dockerignore`——E2E 配置属于测试基础设施，
+  生产镜像不运行 Playwright，无需参与 next build 类型检查（本地 tsc/eslint 照常覆盖）。
+
 ### GitHub 仓库与 README 门面
 - README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、
   界面预览（Playwright 基线截图裁切后入 docs/screenshots/）、技术栈速览表；
