@@ -1,30 +1,85 @@
-# Ox Shopping（Ecommerce）
+# Ox Shopping
 
-面向商业交付的全栈电商独立站，提供本地一键演示与生产部署两种模式。生产放量前必须通过 [当前能力矩阵](docs/CURRENT_CAPABILITY_MATRIX.md)、[商业交付手册](docs/COMMERCIAL_DELIVERY_RUNBOOK.md) 和上线自检；演示模式不等于生产收款能力。技术栈：
+> **生产级全栈电商独立站**：覆盖「浏览 → 加购 → 支付 → 发货 → 退款 → 通知」的完整商业闭环，内置管理后台、多币种、一键 Docker 演示与 8 道工序的 CI 门禁。
 
-- **框架**：Next.js 16（App Router，Turbopack）+ TypeScript（严格模式）+ React 19
-- **样式**：Tailwind CSS + shadcn/ui（Radix UI）
-- **数据库**：PostgreSQL 16 + Prisma ORM
-- **缓存/限流**：Redis（ioredis，可通过环境变量关闭，自动降级内存实现）
-- **认证**：自建 JWT（jose）+ httpOnly Cookie + Refresh Token 轮换（重放检测）+ bcrypt 密码哈希 + CSRF double-submit
-- **支付**：Stripe Checkout + Webhook 为当前真实收款通道；支付宝/微信/银行卡/PayPal 为预留接口；模拟支付仅用于本地演示，绝不等于生产收款
-- **邮件**：Resend / Nodemailer SMTP / 控制台（未配置时打印日志并落盘 `.mail-out/`）；模板使用 react-email
-- **文件存储**：S3 兼容（AWS S3 / Cloudflare R2 / MinIO，预签名上传）；本地磁盘只用于开发/演示，生产必须使用对象存储
-- **验证**：Zod（请求与表单）
-- **测试**：Vitest（单元 + 集成）+ Playwright（E2E）
-- **部署**：Docker 多阶段构建 + docker-compose + Nginx + GitHub Actions CI
-- **日志**：pino 结构化日志 + 请求 ID 追踪
-- **监控**：Sentry（可选，`SENTRY_DSN` 配置即启用）
-- **其他**：发票 PDF（pdfkit + 中文字体）、审计日志、限流、GDPR Cookie 横幅、政策页面、数据删除请求入口
-- **设计与交互**：前端按 上游参考站（Ox Shop）风格重做——黑白极简、0 圆角、
-  常规字重排版；多币种显示（9 种币种 + 实时汇率）、购物车侧滑抽屉、搜索弹层、
-  商品卡 hover 双图切换/快速加购/色卡、详情图点击放大，详见
-  [docs/DESIGN.md](docs/DESIGN.md)
-- **后台管理**：独立设计令牌（`.admin-theme` 作用域）——现代 SaaS 风格（8px 圆角 +
-  柔和阴影 + 浅灰分层，前台零影响）；统一数据表规范（sticky 操作列 / 状态徽章不换行 /
-  长文本截断）；**双向信息通知闭环**：前端动作（新订单/付款/退款/新用户/补货）
-  自动通知后台「消息中心」，后台处理（发货/退款/取消）自动邮件+站内通知客户；
-  分类编辑内置落地页横幅（首页横幅由前两个分类驱动）；侧栏可收起/展开
+[![CI](https://github.com/iMENGiCHAO/ox-shopping/actions/workflows/ci.yml/badge.svg)](https://github.com/iMENGiCHAO/ox-shopping/actions/workflows/ci.yml)
+![Next.js 16](https://img.shields.io/badge/Next.js%2016-000000?style=flat-square&logo=nextdotjs&logoColor=white)
+![React 19](https://img.shields.io/badge/React%2019-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![Prisma](https://img.shields.io/badge/Prisma-2D3748?style=flat-square&logo=prisma&logoColor=white)
+![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL%2016-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+![Stripe](https://img.shields.io/badge/Stripe-635BFF?style=flat-square&logo=stripe&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=flat-square&logo=playwright&logoColor=white)
+
+面向商业交付，提供**本地一键演示**与**生产部署**两种模式。生产放量前必须通过 [当前能力矩阵](docs/CURRENT_CAPABILITY_MATRIX.md)、[商业交付手册](docs/COMMERCIAL_DELIVERY_RUNBOOK.md) 和上线自检；演示模式不等于生产收款能力。
+
+---
+
+## ✨ 核心特性
+
+**🛒 商城前台** —— 黑白极简设计（0 圆角排版），交互细节见 [docs/DESIGN.md](docs/DESIGN.md)
+
+- 完整购物链路：商品列表 / 商品详情 / 购物车侧滑抽屉 / 结算 / 订单跟踪 / 售后退款
+- 多币种显示（9 种币种 + 实时汇率）、搜索弹层、商品卡 hover 双图切换 / 快速加购 / 色卡、详情图点击放大
+- 站内通知 + 邮件通知双通道；政策页面、GDPR Cookie 横幅、数据删除请求入口
+- 发票 PDF（pdfkit + 中文字体）、未支付订单自动过期
+
+**🛠️ 管理后台** —— 独立设计令牌（`.admin-theme` 作用域，现代 SaaS 风格，前台零影响）
+
+- 商品 / 分类 / 订单 / 用户 / 退款 / 审计 / 设置全模块管理，分类编辑内置落地页横幅（首页横幅由前两个分类驱动）
+- **双向信息通知闭环**：前端动作（新订单 / 付款 / 退款 / 新用户 / 补货）自动进后台「消息中心」；后台处理（发货 / 退款 / 取消）自动邮件 + 站内通知客户
+- 统一数据表规范（sticky 操作列 / 状态徽章不换行 / 长文本截断），侧栏可收起/展开
+- ADMIN / SUPPORT 分级 RBAC，API 层与页面层双重校验
+
+**🔐 安全与资金**
+
+- 自建 JWT 认证：httpOnly Cookie + Refresh Token 轮换（重放检测）+ bcrypt(12) 密码哈希 + CSRF double-submit
+- Stripe Checkout + Webhook 签名验证 + 事件幂等为当前真实收款通道；支付宝/微信/银行卡/PayPal 为预留接口；模拟支付仅用于本地演示
+- 防超卖（下单事务内原子扣库存）、限流（Redis Lua 原子实现，可降级内存）、敏感操作审计日志、订单状态机校验
+
+**⚙️ 工程化**
+
+- Vitest 单元 + 集成测试、Playwright E2E 与视觉回归基线
+- 8 道 CI 门禁：Lint/Typecheck + QA 静态门禁、依赖审计、空库迁移一致性、备份可恢复演练、测试、生产构建、Docker 冒烟、Compose 全栈冒烟
+- Docker 多阶段构建 + docker-compose 一键起栈（Postgres / Redis / MinIO / 备份 sidecar）
+- pino 结构化日志 + 请求 ID 追踪 + Sentry（可选，`SENTRY_DSN` 配置即启用）
+
+---
+
+## 🖼️ 界面预览
+
+**商城首页**（顶栏多币种切换 · hover 双图切换商品卡）：
+
+![首页](docs/screenshots/home.png)
+
+| 商品列表（PLP） | 商品详情（PDP） |
+| :---: | :---: |
+| ![商品列表](docs/screenshots/plp.png) | ![商品详情](docs/screenshots/pdp.png) |
+
+| 搜索弹层 | 购物车空态 |
+| :---: | :---: |
+| ![搜索弹层](docs/screenshots/search.png) | ![购物车](docs/screenshots/cart.png) |
+
+> 截图取自 Playwright 视觉回归基线（`tests/e2e/__screenshots__/`），CI 的 E2E 环节每次运行自动比对，界面回归即时拦截。
+
+---
+
+## 🧰 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 框架 | Next.js 16（App Router，Turbopack）+ React 19 + TypeScript（严格模式） |
+| 样式 | Tailwind CSS + shadcn/ui（Radix UI） |
+| 数据库 | PostgreSQL 16 + Prisma ORM（版本化迁移历史） |
+| 缓存/限流 | Redis（ioredis，可通过环境变量关闭，自动降级内存实现） |
+| 支付 | Stripe Checkout + Webhook；模拟支付仅本地演示 |
+| 邮件 | Resend / Nodemailer SMTP / 控制台（未配置时打印日志并落盘 `.mail-out/`），模板 react-email |
+| 文件存储 | S3 兼容（AWS S3 / Cloudflare R2 / MinIO，预签名上传）；本地磁盘仅开发/演示 |
+| 验证 | Zod（请求与表单） |
+| 测试 | Vitest（单元 + 集成）+ Playwright（E2E + 视觉回归） |
+| 部署 | Docker 多阶段构建 + docker-compose + Nginx + GitHub Actions CI |
+| 日志/监控 | pino 结构化日志 + 请求 ID 追踪；Sentry 可选 |
 
 ---
 
@@ -307,3 +362,7 @@ Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种�
 - `INVOICE_FONT_PATH`（可选，未配置时用 `public/fonts/NotoSansCJKsc-Regular.otf`）
 - 邮件 `MAIL_FROM` 用自家域名（`MAIL_FROM="Ox Shopping <no-reply@yourdomain.com>"`）
 - Stripe `STRIPE_WEBHOOK_SECRET` 必须在 Stripe Dashboard 创建 webhook 并复制签名密钥
+
+---
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
