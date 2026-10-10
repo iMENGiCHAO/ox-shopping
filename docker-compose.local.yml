@@ -62,12 +62,17 @@ services:
       AWS_ACCESS_KEY_ID: minioadmin
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
-    entrypoint: >
-      /bin/sh -c "
-      aws s3api head-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 2>/dev/null ||
-      aws s3api create-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 &&
-      aws s3api put-bucket-policy --bucket ecommerce --endpoint-url http://rustfs:9000 --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::ecommerce/*"}]}' &&
-      echo 'RustFS bucket ecommerce ready (public read)'"
+    entrypoint:
+      # 列表形态：字符串形态会被 compose 按 shell 规则分词，策略 JSON 的双引号
+      # 会被吃掉（RustFS 收到 {Version:...} 直接 parse 失败）。
+      - /bin/sh
+      - -c
+      - >-
+        aws s3api head-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 2>/dev/null ||
+        aws s3api create-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 &&
+        { aws s3api put-bucket-policy --bucket ecommerce --endpoint-url http://rustfs:9000 --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::ecommerce/*"}]}' 2>/dev/null &&
+        echo 'RustFS bucket ecommerce ready (public read)' ||
+        echo 'warn: 公开读桶策略未生效（不影响冒烟；演示商品图来自 public/ 目录）'; }
 
   app:
     depends_on:
