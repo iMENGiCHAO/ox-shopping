@@ -57,11 +57,24 @@
 | :---: | :---: |
 | ![商品列表](docs/screenshots/plp.png) | ![商品详情](docs/screenshots/pdp.png) |
 
-| 搜索弹层 | 购物车空态 |
-| :---: | :---: |
-| ![搜索弹层](docs/screenshots/search.png) | ![购物车](docs/screenshots/cart.png) |
+| 集合索引 | 搜索弹层 | 购物车空态 |
+| :---: | :---: | :---: |
+| ![集合页](docs/screenshots/collections.png) | ![搜索弹层](docs/screenshots/search.png) | ![购物车](docs/screenshots/cart.png) |
 
 > 截图取自 Playwright 视觉回归基线（`tests/e2e/__screenshots__/`），CI 的 E2E 环节每次运行自动比对，界面回归即时拦截。
+
+---
+
+## 📚 文档导航
+
+| 想做什么 | 看哪份 |
+| --- | --- |
+| 了解架构与数据模型（组件图 / ER 图 / 认证机制） | [docs/architecture.md](docs/architecture.md) |
+| 参与开发（目录职责 / 数据库工作流 / 常见任务配方） | [docs/development.md](docs/development.md) |
+| 跑测试 / 更新视觉回归基线 | [docs/testing.md](docs/testing.md) |
+| 部署生产（必填变量表 / 备份演练 / Nginx） | [docs/deployment.md](docs/deployment.md) |
+| 使用管理后台（26 个页面图文手册） | [docs/admin-guide.md](docs/admin-guide.md) |
+| 接入 Stripe 真实收款 | [docs/payment-channels.md](docs/payment-channels.md) |
 
 ---
 

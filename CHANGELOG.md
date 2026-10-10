@@ -3,11 +3,34 @@
 记录面向商业化交付的系统性修复与改进。每一项均经过代码层面的修改并可直接验证。
 
 > **接手必读**：
-> - 整体开发文档：[docs/PROJECT_DEVELOPMENT.md](docs/PROJECT_DEVELOPMENT.md)
-> - 速查手册：[docs/QUICKSTART_2026-09.md](docs/QUICKSTART_2026-09.md)（10 分钟上手）
-> - 部署上线：[docs/PRODUCTION_DEPLOY_2026.md](docs/PRODUCTION_DEPLOY_2026.md)
+> - 文档导航中心：[docs/README.md](docs/README.md)（架构 / 开发 / 测试 / 部署 / 后台手册）
+> - 整体开发文档：[docs/development.md](docs/development.md)
+> - 速查手册：[README](README.md)（一键启动 + 本地开发 + 环境变量参考）
+> - 部署上线：[docs/deployment.md](docs/deployment.md)
 > - 上线清单：[docs/PRODUCTION_CHECKLIST.md](docs/PRODUCTION_CHECKLIST.md)
 > - 历史会话/审计文档已归档清理（以当前文档为最终基准）。
+
+## 2026-10-11（六） · 开发文档体系化（图文并茂）
+
+> 目标：外人拿到仓库即可自助上手——常青文档 + 真实截图 + 导航，取代带日期的内部叙事文档。
+
+- 新增常青文档六份 + 导航中心（[docs/README.md](docs/README.md)）：
+  · [架构说明](docs/architecture.md)——组件关系、请求生命周期、认证机制、核心 ER 图、
+    CI 流水线（Mermaid 全套）；
+  · [开发指南](docs/development.md)——目录职责红线、数据库工作流（迁移/种子/守卫）、
+    命令速查、常见任务配方；
+  · [测试体系](docs/testing.md)——四层测试金字塔、`_test` 库安全守卫、视觉基线
+    更新工作流（含平台一致性教训）；
+  · [部署手册](docs/deployment.md)——生产与演示差异表、必填变量表、备份演练、
+    Nginx/HTTPS、升级流程；
+  · [后台使用手册](docs/admin-guide.md)——26 个后台页面的图文速查；
+  · payment-channels.md 保持为支付渠道深度文档并纳入导航。
+- 后台截图 9 张：本地生产模式真实渲染（Playwright + API 会话注入逐页截图），覆盖
+  登录/仪表盘/商品/订单/支付渠道/分销/用户/设置/前台登录。
+- 前台补集合页截图（collections.png）；README 预览区扩为三列并新增「文档导航」章节；
+  CHANGELOG 接手必读指针全部指向新文档。
+- 一致性保障：所有相对链接/图片经脚本校验零死链；机制参数（token TTL、守卫行为）
+  取自 src/lib/env.ts 等源码实况，不凭记忆。
 
 ## 2026-10-10（五） · 仓库上 GitHub + CI 首跑清障（安全 / 脚本兼容 / E2E 断言与视觉基线）
 
