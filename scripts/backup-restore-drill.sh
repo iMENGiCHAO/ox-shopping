@@ -13,15 +13,6 @@
 set -euo pipefail
 SECONDS=0
 
-SRC_URL="${DATABASE_URL:?需要 DATABASE_URL（源库，演练只读它）}"
-SRC_URL="$(normalize_pg_url "$SRC_URL")"
-DRILL_DB="${DRILL_DB:-ecommerce_restore_drill}"
-DUMP_FILE="${BACKUP_OUT:-/tmp/backup-restore-drill-$$.dump}"
-ADMIN_URL="${ADMIN_URL:-}"   # 可选：用于 CREATEDB/DROPDB 的管理库 URL（缺省用源库连)
-
-log()  { printf '\033[1;36m[drill]\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m[drill] ✗\033[0m %s\n' "$*" >&2; exit 1; }
-
 # Prisma URLs carry `?schema=public`, which libpq/psql reject as an unknown
 # URI query parameter（同 scripts/backup-db.sh）。本脚本全程使用原生
 # PostgreSQL 工具（psql/pg_dump/pg_restore），入口处统一剥离该参数。
@@ -34,6 +25,15 @@ query = [(k, v) for k, v in parse_qsl(u.query, keep_blank_values=True) if k != "
 print(urlunsplit((u.scheme, u.netloc, u.path, urlencode(query), u.fragment)))
 PY
 }
+
+SRC_URL="${DATABASE_URL:?需要 DATABASE_URL（源库，演练只读它）}"
+SRC_URL="$(normalize_pg_url "$SRC_URL")"
+DRILL_DB="${DRILL_DB:-ecommerce_restore_drill}"
+DUMP_FILE="${BACKUP_OUT:-/tmp/backup-restore-drill-$$.dump}"
+ADMIN_URL="${ADMIN_URL:-}"   # 可选：用于 CREATEDB/DROPDB 的管理库 URL（缺省用源库连)
+
+log()  { printf '\033[1;36m[drill]\033[0m %s\n' "$*"; }
+fail() { printf '\033[1;31m[drill] ✗\033[0m %s\n' "$*" >&2; exit 1; }
 
 cleanup() {
   psql "$SRC_URL" -c "DROP DATABASE IF EXISTS \"$DRILL_DB\" WITH (FORCE)" >/dev/null 2>&1 || true

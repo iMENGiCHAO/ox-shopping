@@ -3,11 +3,14 @@ name: Update Visual Baselines
 # 手动触发的视觉回归基线再生成工具。
 #
 # 为什么需要它：toHaveScreenshot 基线必须在与 CI 执行环境一致的平台
-# （ubuntu-latest + headless chromium）上生成——在不同 OS（如 macOS 本地）生成的
+# （ubuntu-latest + headless chromium）上生成——在其它 OS（如 macOS 本地）生成的
 # 基线会因字体渲染/子像素抗锯齿差异整页像素漂移，导致 CI 永红。
 #
 # 流程：--update-snapshots 生成基线 → 不带更新参数再跑一轮验证两轮一致
 # → 一致才上传基线工件。维护者下载工件后覆盖 tests/e2e/__screenshots__/ 提交即可。
+#
+# 注：库名必须带 _test 后缀——tests/helpers/global-setup.assertSafeTestDatabaseUrl
+# 是 E2E 启动服务器的硬性护栏（防止误伤真实库）。
 
 on:
   workflow_dispatch:
@@ -18,7 +21,7 @@ concurrency:
 
 env:
   NODE_VERSION: "20"
-  DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce?schema=public
+  DATABASE_URL: postgresql://ecommerce:ecommerce@localhost:5432/ecommerce_test?schema=public
 
 jobs:
   update:
@@ -31,11 +34,11 @@ jobs:
         env:
           POSTGRES_USER: ecommerce
           POSTGRES_PASSWORD: ecommerce
-          POSTGRES_DB: ecommerce
+          POSTGRES_DB: ecommerce_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ecommerce -d ecommerce"
+          --health-cmd "pg_isready -U ecommerce -d ecommerce_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -46,7 +49,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci
-      - name: 准备数据库（生产迁移路径 + 种子，与 CI e2e 完全一致）
+      - name: 准备数据库（迁移 + 种子，与 CI e2e 完全一致）
         run: |
           echo "DATABASE_URL=$DATABASE_URL" > .env
           echo "PAYMENT_MODE=mock" >> .env
