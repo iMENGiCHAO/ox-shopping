@@ -23,41 +23,55 @@ services:
         - CMD-SHELL
         - redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG
 
-  minio:
-    image: minio/minio:latest
-    container_name: ecommerce-minio
+  # 本地演示对象存储：MinIO 已于 2025-10 官宣停发免费镜像并从 Docker Hub / quay.io
+  # 全部撤下（pull access denied），本地演示改用 RustFS——S3 兼容的直接替代
+  # （9000=S3 API，9001=控制台）。凭据沿用 minioadmin/minioadmin 演示约定。
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: ecommerce-rustfs
     restart: unless-stopped
-    command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: minioadmin
+      RUSTFS_SECRET_KEY: minioadmin
+      # CI runner / Mac 的容器存储多为 overlayfs，会触发 RustFS 严格的磁盘拓扑检查；
+      # 本地演示无数据可靠性诉求，显式跳过（生产存储不适用本文件）。
+      RUSTFS_UNSAFE_BYPASS_DISK_CHECK: "true"
     ports:
       - "9000:9000"
       - "9001:9001"
     volumes:
       - miniodata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "sh", "-c", "curl -f http://127.0.0.1:9000/health"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  minio-init:
-    image: minio/mc:latest
-    container_name: ecommerce-minio-init
+  # 桶初始化：minio/mc 镜像同样已撤下，改用 AWS 官方 CLI 镜像（SigV4 标准 S3 调用）。
+  rustfs-init:
+    image: amazon/aws-cli:latest
+    container_name: ecommerce-rustfs-init
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
     entrypoint: >
       /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/ecommerce &&
-      mc anonymous set download local/ecommerce &&
-      echo 'MinIO bucket ecommerce ready'"
+      aws s3api head-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 2>/dev/null ||
+      aws s3api create-bucket --bucket ecommerce --endpoint-url http://rustfs:9000 &&
+      aws s3api put-bucket-policy --bucket ecommerce --endpoint-url http://rustfs:9000 --policy '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*","Action":"s3:GetObject","Resource":"arn:aws:s3:::ecommerce/*"}]}' &&
+      echo 'RustFS bucket ecommerce ready (public read)'"
 
   app:
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
     environment:
       SITE_URL: http://localhost:3000
@@ -78,7 +92,7 @@ services:
       # 本地演示保留 example.com（仅写日志/落文件）；生产不得预设此域（会架空发件域守卫）
       MAIL_FROM: "Ox Shopping <no-reply@example.com>"
       STORAGE_DRIVER: s3
-      S3_ENDPOINT: http://minio:9000
+      S3_ENDPOINT: http://rustfs:9000
       S3_REGION: us-east-1
       S3_BUCKET: ecommerce
       S3_ACCESS_KEY_ID: minioadmin

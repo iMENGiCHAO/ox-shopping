@@ -60,6 +60,12 @@
     NODE_ENV=production 会让种子默认跳过演示账号（生产护栏），冒烟的
     admin@example.com 后台登录会失败。
   种子链路经「模拟镜像运行时布局」本地端到端验证（migrate deploy + db seed 全绿）。
+- 本地演示对象存储从 MinIO 换到 RustFS：MinIO 于 2025-10 官宣停发免费 Docker
+  镜像，并把 Docker Hub 与 quay.io 上的存量镜像全部撤下（CI compose 冒烟实测
+  `pull access denied`，quay 签发的匿名 token 对 minio/* 的 actions 为空）。
+  改用 S3 兼容的 RustFS（9000/9001 端口对齐），桶初始化从 minio/mc 换成 AWS
+  官方 CLI 镜像（标准 SigV4：head-bucket 幂等建桶 + 公开读桶策略）。凭据沿用
+  minioadmin/minioadmin 演示约定，README 相关表述同步更新。
 
 ### GitHub 仓库与 README 门面
 - README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、

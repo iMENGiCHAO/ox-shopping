@@ -42,7 +42,7 @@
 
 - Vitest 单元 + 集成测试、Playwright E2E 与视觉回归基线
 - 8 道 CI 门禁：Lint/Typecheck + QA 静态门禁、依赖审计、空库迁移一致性、备份可恢复演练、测试、生产构建、Docker 冒烟、Compose 全栈冒烟
-- Docker 多阶段构建 + docker-compose 一键起栈（Postgres / Redis / MinIO / 备份 sidecar）
+- Docker 多阶段构建 + docker-compose 一键起栈（Postgres / Redis / RustFS 对象存储 / 备份 sidecar）
 - pino 结构化日志 + 请求 ID 追踪 + Sentry（可选，`SENTRY_DSN` 配置即启用）
 
 ---
@@ -120,7 +120,7 @@ ecommerce/
 
 前置：安装 Docker + Docker Compose（本仓库在 macOS / Linux 上验证）。
 
-本地演示（模拟支付 + MinIO + 种子数据，无需任何环境变量）：
+本地演示（模拟支付 + RustFS 对象存储 + 种子数据，无需任何环境变量）：
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
@@ -133,14 +133,14 @@ cp .env.example .env   # 填写 SITE_URL / POSTGRES_PASSWORD / JWT_* 等必填�
 docker compose up -d --build
 ```
 
-首次启动会自动：创建 Postgres/Redis/MinIO 容器 → 等待数据库就绪 → 执行 Prisma 迁移 → （本地演示）写入种子数据 → 启动应用。
+首次启动会自动：创建 Postgres/Redis/RustFS 容器 → 等待数据库就绪 → 执行 Prisma 迁移 → （本地演示）写入种子数据 → 启动应用。
 生产容器默认**不执行种子**（`SEED_ON_START=false`），运营数据不会被重置。
 
 | 服务                       | 地址                                             |
 | -------------------------- | ------------------------------------------------ |
 | 商城前台                   | http://localhost:3000                            |
 | 管理后台                   | http://localhost:3000/admin                      |
-| MinIO 控制台（仅本地演示） | http://localhost:9001（minioadmin / minioadmin） |
+| RustFS 控制台（仅本地演示） | http://localhost:9001（minioadmin / minioadmin） |
 
 **种子账号**（密码均为对应 `@123456` 形式）：
 
@@ -251,7 +251,7 @@ npm run test:e2e           # E2E（需要 dev 服务器 + 种子数据库）
 # 首次运行 E2E 需安装浏览器
 npx playwright install chromium
 # 启动依赖（任选其一）
-docker compose up -d postgres redis minio minio-init
+docker compose up -d postgres redis rustfs rustfs-init
 # 或本地 brew 服务 + 种子数据
 npm run test:e2e
 ```
@@ -322,7 +322,7 @@ sudo certbot certonly --standalone -d shop.example.com
 Stripe 不支持人民币。将 `CURRENCY=USD`（或其他 Stripe 支持币种），或保持 `PAYMENT_MODE=mock`。
 
 **Q：上传的图片 404？**
-本地模式确认 `STORAGE_DRIVER=local`；S3/MinIO 模式确认 `S3_PUBLIC_URL` 前缀正确且桶公开读（compose 中 minio-init 已自动设置）。MinIO 控制台在 9001 端口。
+本地模式确认 `STORAGE_DRIVER=local`；S3/RustFS 模式确认 `S3_PUBLIC_URL` 前缀正确且桶公开读（compose 中 rustfs-init 已自动设置）。RustFS 控制台在 9001 端口。
 
 **Q：邮件收不到？**
 默认 `MAIL_PROVIDER=console`：查看 app 日志中的 `[mock-mail]` 行或 `.mail-out/` 目录的 HTML。改用 Resend/SMTP 时确认密钥与发件人域名验证。
