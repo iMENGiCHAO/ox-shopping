@@ -42,14 +42,20 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modul
 # ENOENT（CI docker-smoke 首跑实测）。改为复制完整包后建真符号链接。
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/tsx ./node_modules/tsx
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/esbuild ./node_modules/esbuild
+# esbuild 运行时按平台解析二进制（lib/main.js require @esbuild/<platform>），
+# 只复制 esbuild 本体会在 tsx 转译种子时报 "The package @esbuild/<platform> could not be found"
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@esbuild ./node_modules/@esbuild
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/dotenv ./node_modules/dotenv
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bcryptjs ./node_modules/bcryptjs
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # 种子链路（SEED_ON_START=true，compose 本地演示模式）：`prisma db seed` 从
-# package.json 读取 prisma.seed 配置；prisma/seed.ts 又 import src/lib/faq-defaults。
+# package.json 读取 prisma.seed 配置；prisma/seed.ts 又 import 以下 src 叶子模块
+# （均为纯数据/纯 Node 工具，无其它传递依赖）。
 COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/src/lib/faq-defaults.ts ./src/lib/faq-defaults.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/lib/payment/channel-crypto-core.ts ./src/lib/payment/channel-crypto-core.ts
+COPY --from=builder --chown=nextjs:nodejs /app/src/components/shop/currency.ts ./src/components/shop/currency.ts
 RUN mkdir -p ./node_modules/.bin \
   && ln -sfn ../prisma/build/index.js ./node_modules/.bin/prisma \
   && ln -sfn ../tsx/dist/cli.mjs ./node_modules/.bin/tsx

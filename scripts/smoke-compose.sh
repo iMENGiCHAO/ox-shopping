@@ -18,6 +18,22 @@ FILES=(-f docker-compose.yml -f docker-compose.local.yml)
 STRICT_ARGS=()
 [ "${REQUIRE_STRONG:-}" = "true" ] && FILES=(-f docker-compose.yml) && STRICT_ARGS=(--env-file .env)
 
+# 演示模式兜底：docker-compose.yml 对 POSTGRES_PASSWORD 等用了 ${VAR:?} 强制插值，
+# 在没有 .env 的干净环境（CI runner / 全新 clone）里 config/up 会在插值阶段直接
+# 拒绝解析。local overlay 只覆盖各服务 environment 的最终值，救不了基座文件里的
+# 强制插值文本（db-backup 不在 overlay 覆盖范围内；不同子命令的插值时机亦有差异）。
+# 兜底值与 docker-compose.local.yml 的演示值保持一致；严格模式仍必须用真实 .env。
+if [ "${REQUIRE_STRONG:-}" != "true" ]; then
+  export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-ecommerce}"
+  export REDIS_PASSWORD="${REDIS_PASSWORD:-ecommerce-local-redis}"
+  export SITE_URL="${SITE_URL:-http://localhost:3000}"
+  export JWT_ACCESS_SECRET="${JWT_ACCESS_SECRET:-docker-compose-access-secret-change-in-prod}"
+  export JWT_REFRESH_SECRET="${JWT_REFRESH_SECRET:-docker-compose-refresh-secret-change-in-prod}"
+  export PAYMENT_CHANNEL_ENC_KEY="${PAYMENT_CHANNEL_ENC_KEY:-local-demo-payment-channel-enc-key-change-me}"
+  export SITE_NAME="${SITE_NAME:-Ox Shopping}"
+  export MAIL_PROVIDER="${MAIL_PROVIDER:-console}"
+fi
+
 log()  { printf '\033[1;36m[smoke]\033[0m %s\n' "$*"; }
 pass() { printf '\033[1;32m  ✓\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m  ✗\033[0m %s\n' "$*" >&2; exit 1; }

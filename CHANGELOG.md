@@ -50,6 +50,16 @@
 - 种子链路补全（compose 本地演示 `SEED_ON_START=true` 走 `prisma db seed`）：
   补 COPY `package.json`（prisma 从中读取 prisma.seed 配置）与
   `src/lib/faq-defaults.ts`（seed.ts 的跨目录 import），并补 `.bin/tsx` 链接。
+- compose 全栈冒烟（首次真跑）三连修：
+  · `smoke-compose.sh` 演示模式兜底导出 docker-compose.yml 的 8 个 `${VAR:?}`
+    强制插值变量——db-backup 等服务不在 local overlay 覆盖范围，无 .env 的
+    干净环境（CI）在插值阶段直接拒绝；
+  · Dockerfile 补 `node_modules/@esbuild`（esbuild 运行时按平台解析二进制）与
+    种子所需 3 个 src 叶子模块（faq-defaults / channel-crypto-core / currency）；
+  · docker-compose.local.yml 显式 `SEED_DEMO_ACCOUNTS=true`——容器内
+    NODE_ENV=production 会让种子默认跳过演示账号（生产护栏），冒烟的
+    admin@example.com 后台登录会失败。
+  种子链路经「模拟镜像运行时布局」本地端到端验证（migrate deploy + db seed 全绿）。
 
 ### GitHub 仓库与 README 门面
 - README 顶部重做：CI/技术栈徽章、一句话定位、核心特性四象限（前台/后台/安全/工程化）、
