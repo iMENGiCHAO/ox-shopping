@@ -49,14 +49,19 @@
 
 ## 🖼️ 界面预览
 
-同一会话生产构建真实渲染，六张统一 **1440×1600** 规格（顶栏多币种切换 · hover 双图切换商品卡）：
+同一会话生产构建真实渲染，六张统一 **1440×1600** 规格（顶栏多币种切换 · hover 双图切换商品卡）。
 
-| 首页 | 集合索引 | 搜索弹层 |
-| :---: | :---: | :---: |
+**逛店**：首页 · 集合索引 · 搜索弹层
+
 | ![首页](docs/screenshots/home.png) | ![集合索引](docs/screenshots/collections.png) | ![搜索弹层](docs/screenshots/search.png) |
-| 商品列表（PLP） | 商品详情（PDP） | 购物车空态 |
 | :---: | :---: | :---: |
+| 首页 | 集合索引 | 搜索弹层 |
+
+**选购**：商品列表 · 商品详情 · 购物车
+
 | ![商品列表](docs/screenshots/plp.png) | ![商品详情](docs/screenshots/pdp.png) | ![购物车空态](docs/screenshots/cart.png) |
+| :---: | :---: | :---: |
+| 商品列表（PLP） | 商品详情（PDP） | 购物车空态 |
 
 > 截图与 CI 视觉回归基线同源同风格；基线的采集与更新流程见 [docs/testing.md](docs/testing.md)。后台界面截图见 [docs/admin-guide.md](docs/admin-guide.md)（九张统一 1440×900 规格）。
 
